@@ -5,8 +5,6 @@ export function generateContractDiagram(
   errorMessages: string[],
   builtins: Record<string, number>
 ): string {
-  const errorText = errorMessages.join(' ').toLowerCase();
-  
   switch (classification) {
     case 'NFT Marketplace':
       return generateNFTMarketplaceDiagram(errorMessages);
@@ -23,175 +21,184 @@ export function generateContractDiagram(
 
 function generateNFTMarketplaceDiagram(errors: string[]): string {
   return `flowchart TB
-    subgraph Datum["📦 Datum (Listing)"]
-        D1[seller: Address]
-        D2[price: Int]
-        D3[royalty_address: Address]
-        D4[royalty_pct: Int]
-        D5[fee_address: Address]
-        D6[fee_pct: Int]
+    subgraph Input["Input"]
+        I1[Script UTxO]
+        I2[Buyer Wallet]
     end
     
-    subgraph Redeemer["🎯 Redeemer"]
+    subgraph Datum["Datum"]
+        D1[seller]
+        D2[price]
+        D3[royalty_address]
+        D4[royalty_pct]
+    end
+    
+    subgraph Redeemer["Redeemer"]
         R1[Buy]
         R2[Cancel]
     end
     
-    subgraph Validation["✅ Validation Logic"]
+    subgraph Validation["Validation"]
         V1{Action?}
-        V2[Check NFT sent to buyer]
-        V3[Check seller paid]
-        V4[Check fees paid]
-        V5[Check royalties paid]
-        V6[Check signed by seller]
+        V2[Verify NFT transfer]
+        V3[Verify seller payment]
+        V4[Verify fees]
+        V5[Verify royalties]
+        V6[Verify signature]
     end
     
-    subgraph Outputs["📤 Outputs"]
-        O1[Buyer receives NFT]
-        O2[Seller receives payment]
-        O3[Platform receives fee]
-        O4[Creator receives royalty]
+    subgraph Output["Output"]
+        O1[NFT → Buyer]
+        O2[ADA → Seller]
+        O3[Fee → Platform]
+        O4[Royalty → Creator]
     end
     
-    R1 --> V1
-    R2 --> V1
+    I1 --> Datum
+    I2 --> Redeemer
+    Datum --> V1
+    Redeemer --> V1
+    
     V1 -->|Buy| V2
-    V2 --> V3
-    V3 --> V4
-    V4 --> V5
+    V2 --> V3 --> V4 --> V5
     V5 --> O1 & O2 & O3 & O4
     
     V1 -->|Cancel| V6
-    V6 -->|✓| O1
-    
-    style Datum fill:#1a1b26,stroke:#58a6ff
-    style Redeemer fill:#1a1b26,stroke:#a371f7
-    style Validation fill:#1a1b26,stroke:#3fb950
-    style Outputs fill:#1a1b26,stroke:#d29922`;
+    V6 --> O1`;
 }
 
 function generateDEXDiagram(errors: string[]): string {
   return `flowchart TB
-    subgraph Datum["📦 Datum (Pool State)"]
-        D1[token_a: Asset]
-        D2[token_b: Asset]
-        D3[reserve_a: Int]
-        D4[reserve_b: Int]
-        D5[lp_token: Asset]
-        D6[fee_num: Int]
+    subgraph Input["Input"]
+        I1[Pool UTxO]
+        I2[User Order]
     end
     
-    subgraph Redeemer["🎯 Redeemer"]
+    subgraph PoolDatum["Pool Datum"]
+        D1[token_a]
+        D2[token_b]
+        D3[reserve_a]
+        D4[reserve_b]
+        D5[lp_token]
+    end
+    
+    subgraph Redeemer["Redeemer"]
         R1[Swap]
         R2[AddLiquidity]
         R3[RemoveLiquidity]
     end
     
-    subgraph SwapLogic["🔄 Swap Validation"]
-        S1[Calculate output amount]
-        S2[Check min output met]
-        S3[Check reserves updated]
-        S4[Check fee taken]
+    subgraph Validation["Validation"]
+        V1{Action?}
+        V2[Calculate output]
+        V3[Check min received]
+        V4[Update reserves]
+        V5[Calculate LP tokens]
+        V6[Verify proportions]
     end
     
-    subgraph LPLogic["💧 Liquidity Validation"]
-        L1[Calculate LP tokens]
-        L2[Check proportional deposit]
-        L3[Mint/Burn LP tokens]
+    subgraph Output["Output"]
+        O1[Updated Pool]
+        O2[Tokens → User]
+        O3[LP Tokens]
     end
     
-    subgraph MEVRisk["⚠️ MEV Vectors"]
-        M1[Front-running swaps]
-        M2[Sandwich attacks]
-        M3[Arbitrage]
-    end
+    I1 --> PoolDatum
+    I2 --> Redeemer
+    PoolDatum --> V1
+    Redeemer --> V1
     
-    R1 --> S1 --> S2 --> S3 --> S4
-    R2 --> L1 --> L2 --> L3
-    R3 --> L1
-    
-    S1 -.->|vulnerable| M1 & M2 & M3
-    
-    style Datum fill:#1a1b26,stroke:#58a6ff
-    style Redeemer fill:#1a1b26,stroke:#a371f7
-    style SwapLogic fill:#1a1b26,stroke:#3fb950
-    style LPLogic fill:#1a1b26,stroke:#3fb950
-    style MEVRisk fill:#1a1b26,stroke:#f85149`;
+    V1 -->|Swap| V2 --> V3 --> V4 --> O1 & O2
+    V1 -->|AddLiquidity| V5 --> V6 --> O1 & O3
+    V1 -->|RemoveLiquidity| V5 --> O1 & O2`;
 }
 
 function generateLendingDiagram(errors: string[]): string {
   return `flowchart TB
-    subgraph Datum["📦 Datum (Loan State)"]
-        D1[borrower: Address]
-        D2[collateral: Asset]
-        D3[collateral_amount: Int]
-        D4[borrowed: Asset]
-        D5[borrowed_amount: Int]
-        D6[interest_rate: Int]
-        D7[oracle_ref: TxOutRef]
+    subgraph Input["Input"]
+        I1[Pool UTxO]
+        I2[User Collateral]
     end
     
-    subgraph Redeemer["🎯 Redeemer"]
+    subgraph LoanDatum["Loan Datum"]
+        D1[borrower]
+        D2[collateral]
+        D3[borrowed_amount]
+        D4[interest_rate]
+    end
+    
+    subgraph Redeemer["Redeemer"]
         R1[Borrow]
         R2[Repay]
         R3[Liquidate]
-        R4[AddCollateral]
     end
     
-    subgraph Validation["✅ Validation"]
-        V1[Check collateral ratio]
-        V2[Verify oracle price]
+    subgraph Validation["Validation"]
+        V1{Action?}
+        V2[Check collateral ratio]
         V3[Calculate interest]
         V4[Check health factor]
+        V5[Verify repayment]
     end
     
-    subgraph MEVRisk["⚠️ MEV Vectors"]
-        M1[Liquidation racing]
-        M2[Oracle manipulation]
-        M3[Interest arbitrage]
+    subgraph Output["Output"]
+        O1[Updated Loan]
+        O2[Tokens → User]
+        O3[Collateral released]
     end
     
-    R1 --> V1 --> V2
-    R2 --> V3
-    R3 --> V4 --> V2
+    I1 --> LoanDatum
+    I2 --> Redeemer
+    LoanDatum --> V1
+    Redeemer --> V1
     
-    V2 -.->|vulnerable| M2
-    V4 -.->|vulnerable| M1
-    
-    style Datum fill:#1a1b26,stroke:#58a6ff
-    style Redeemer fill:#1a1b26,stroke:#a371f7
-    style Validation fill:#1a1b26,stroke:#3fb950
-    style MEVRisk fill:#1a1b26,stroke:#f85149`;
+    V1 -->|Borrow| V2 --> O1 & O2
+    V1 -->|Repay| V3 --> V5 --> O1 & O3
+    V1 -->|Liquidate| V4 --> O1 & O2`;
 }
 
 function generateStakingDiagram(errors: string[]): string {
   return `flowchart TB
-    subgraph Datum["📦 Datum (Stake State)"]
-        D1[staker: Address]
-        D2[stake_amount: Int]
-        D3[stake_time: POSIXTime]
-        D4[rewards_claimed: Int]
+    subgraph Input["Input"]
+        I1[Stake Pool]
+        I2[User Wallet]
     end
     
-    subgraph Redeemer["🎯 Redeemer"]
+    subgraph StakeDatum["Stake Datum"]
+        D1[staker]
+        D2[amount]
+        D3[stake_time]
+        D4[rewards]
+    end
+    
+    subgraph Redeemer["Redeemer"]
         R1[Stake]
         R2[Unstake]
         R3[ClaimRewards]
     end
     
-    subgraph Validation["✅ Validation"]
-        V1[Check stake duration]
-        V2[Calculate rewards]
-        V3[Verify signer]
+    subgraph Validation["Validation"]
+        V1{Action?}
+        V2[Record stake]
+        V3[Check duration]
+        V4[Calculate rewards]
+        V5[Verify owner]
     end
     
-    R1 --> V3
-    R2 --> V1 --> V3
-    R3 --> V2 --> V3
+    subgraph Output["Output"]
+        O1[Updated Stake]
+        O2[Tokens → User]
+        O3[Rewards → User]
+    end
     
-    style Datum fill:#1a1b26,stroke:#58a6ff
-    style Redeemer fill:#1a1b26,stroke:#a371f7
-    style Validation fill:#1a1b26,stroke:#3fb950`;
+    I1 --> StakeDatum
+    I2 --> Redeemer
+    StakeDatum --> V1
+    Redeemer --> V1
+    
+    V1 -->|Stake| V2 --> V5 --> O1
+    V1 -->|Unstake| V3 --> V5 --> O1 & O2
+    V1 -->|ClaimRewards| V4 --> V5 --> O1 & O3`;
 }
 
 function generateGenericDiagram(
@@ -199,45 +206,42 @@ function generateGenericDiagram(
   errors: string[],
   builtins: Record<string, number>
 ): string {
-  // Infer structure from builtins
   const hasListOps = builtins['headList'] || builtins['tailList'];
   const hasArithmetic = builtins['multiplyInteger'] || builtins['divideInteger'];
-  const hasCrypto = builtins['verifyEd25519Signature'] || builtins['blake2b_256'];
-  
-  let validationSteps = [];
-  if (hasListOps) validationSteps.push('V1[Iterate outputs/inputs]');
-  if (hasArithmetic) validationSteps.push('V2[Calculate amounts]');
-  if (hasCrypto) validationSteps.push('V3[Verify signatures]');
-  if (validationSteps.length === 0) validationSteps.push('V1[Unknown validation]');
-  
-  const errorChecks = errors.slice(0, 4).map((e, i) => `E${i + 1}["${e.substring(0, 30)}..."]`);
   
   return `flowchart TB
-    subgraph Datum["📦 Datum"]
-        D1[field_1: unknown]
-        D2[field_2: unknown]
-        D3[field_n: unknown]
+    subgraph Input["Input"]
+        I1[Script UTxO]
+        I2[Transaction]
     end
     
-    subgraph Redeemer["🎯 Redeemer"]
+    subgraph Datum["Datum"]
+        D1[field_1]
+        D2[field_2]
+        D3[field_n]
+    end
+    
+    subgraph Redeemer["Redeemer"]
         R1[Action_1]
         R2[Action_2]
     end
     
-    subgraph Validation["✅ Validation (${Object.keys(builtins).length} builtins)"]
-        ${validationSteps.join('\n        ')}
+    subgraph Validation["Validation"]
+        V1{Check action}
+        ${hasListOps ? 'V2[Process inputs/outputs]' : 'V2[Validate conditions]'}
+        ${hasArithmetic ? 'V3[Calculate amounts]' : 'V3[Check constraints]'}
     end
     
-    ${errorChecks.length > 0 ? `subgraph Errors["⚠️ Error Conditions"]
-        ${errorChecks.join('\n        ')}
-    end` : ''}
+    subgraph Output["Output"]
+        O1[Updated UTxO]
+        O2[User receives]
+    end
     
-    R1 --> ${validationSteps[0]?.split('[')[0] || 'V1'}
-    R2 --> ${validationSteps[0]?.split('[')[0] || 'V1'}
-    
-    style Datum fill:#1a1b26,stroke:#58a6ff
-    style Redeemer fill:#1a1b26,stroke:#a371f7
-    style Validation fill:#1a1b26,stroke:#3fb950`;
+    I1 --> Datum
+    I2 --> Redeemer
+    Datum --> V1
+    Redeemer --> V1
+    V1 --> V2 --> V3 --> O1 & O2`;
 }
 
 export function generateDataStructureDiagram(
@@ -248,12 +252,12 @@ export function generateDataStructureDiagram(
     case 'NFT Marketplace':
       return `classDiagram
     class Datum {
-        +Address seller
-        +Int price
-        +Address royalty_address
-        +Int royalty_percent
-        +Address fee_address
-        +Int fee_percent
+        Address seller
+        Int price
+        Address royalty_address
+        Int royalty_percent
+        Address fee_address
+        Int fee_percent
     }
     
     class Redeemer {
@@ -263,59 +267,70 @@ export function generateDataStructureDiagram(
     }
     
     class ScriptContext {
-        +Transaction tx
-        +ScriptPurpose purpose
-    }
-    
-    class Transaction {
-        +List~TxIn~ inputs
-        +List~TxOut~ outputs
-        +Value mint
-        +List~PubKeyHash~ signatories
+        Transaction tx
+        ScriptPurpose purpose
     }
     
     Datum --> Redeemer : validated by
-    ScriptContext --> Transaction : contains`;
+    ScriptContext --> Datum : contains`;
     
     case 'DEX/AMM':
       return `classDiagram
     class PoolDatum {
-        +AssetClass token_a
-        +AssetClass token_b
-        +Int reserve_a
-        +Int reserve_b
-        +AssetClass lp_token
-        +Int fee_numerator
-        +Int fee_denominator
+        AssetClass token_a
+        AssetClass token_b
+        Int reserve_a
+        Int reserve_b
+        AssetClass lp_token
+        Int fee_num
     }
     
     class SwapRedeemer {
-        +AssetClass offer
-        +Int offer_amount
-        +Int min_receive
+        AssetClass offer
+        Int amount
+        Int min_receive
     }
     
     class LiquidityRedeemer {
-        +Int amount_a
-        +Int amount_b
+        Int amount_a
+        Int amount_b
     }
     
     class Redeemer {
         <<enumeration>>
-        Swap(SwapRedeemer)
-        AddLiquidity(LiquidityRedeemer)
-        RemoveLiquidity(LiquidityRedeemer)
+        Swap
+        AddLiquidity
+        RemoveLiquidity
     }
     
-    PoolDatum --> Redeemer : validated by
-    SwapRedeemer --> Redeemer
-    LiquidityRedeemer --> Redeemer`;
+    PoolDatum --> Redeemer : validated by`;
+    
+    case 'Lending Protocol':
+      return `classDiagram
+    class LoanDatum {
+        Address borrower
+        AssetClass collateral
+        Int collateral_amount
+        AssetClass borrowed
+        Int borrowed_amount
+        Int interest_rate
+    }
+    
+    class Redeemer {
+        <<enumeration>>
+        Borrow
+        Repay
+        Liquidate
+        AddCollateral
+    }
+    
+    LoanDatum --> Redeemer : validated by`;
     
     default:
       return `classDiagram
     class Datum {
-        +field_1 unknown
-        +field_2 unknown
+        field_1 Type
+        field_2 Type
     }
     
     class Redeemer {
