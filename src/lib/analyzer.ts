@@ -433,7 +433,7 @@ export function decodeUPLC(bytes: string): {
   traverse(program._body);
   
   // Generate pretty print in aiken style
-  const prettyPrint = prettyPrintUPLC(program._body, 0, 100, version);
+  const prettyPrint = prettyPrintUPLC(program._body, 0, 2000, version);
   
   return {
     program,
