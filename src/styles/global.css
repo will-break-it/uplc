@@ -90,6 +90,7 @@ body {
   width: 100%;
   max-width: 1200px;
   padding: 2rem 1.5rem;
+  padding-bottom: 4rem; /* Space for sticky footer */
   flex: 1;
 }
 
@@ -1147,13 +1148,23 @@ header {
   color: var(--text-muted);
 }
 
-/* Footer */
+/* Footer - sticky bottom */
 footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
   text-align: center;
-  padding: 2rem;
+  padding: 0.5rem 1rem;
   color: var(--text-muted);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
+  background: var(--bg-main);
   border-top: 1px solid var(--border);
+  z-index: 50;
+}
+
+footer p {
+  margin: 0;
 }
 
 footer a {
