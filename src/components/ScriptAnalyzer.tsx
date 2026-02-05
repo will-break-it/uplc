@@ -443,25 +443,11 @@ export default function ScriptAnalyzer() {
             <div className="card">
               <h2>{Icons.code} Inferred Structure</h2>
               <p style={{ marginBottom: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '8px' }}>
-                This is a best-guess template based on classification and error messages — not true decompilation.
-                For accurate source, you need the original Aiken/Plutus code.
+                Best-guess template based on classification and error messages — not actual decompilation.
+                True UPLC decoding requires <code style={{ background: 'var(--bg-code)', color: 'var(--text-code)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontSize: '0.75rem' }}>aiken uplc decode</code> or similar tooling.
               </p>
-              <div className="view-toggle">
-                <button 
-                  className={codeView === 'typed' ? 'active' : ''} 
-                  onClick={() => setCodeView('typed')}
-                >
-                  Template
-                </button>
-                <button 
-                  className={codeView === 'raw' ? 'active' : ''} 
-                  onClick={() => setCodeView('raw')}
-                >
-                  Skeleton
-                </button>
-              </div>
               <div className="code-block">
-                <pre>{codeView === 'typed' ? result.pseudoAiken : generateRawView(result)}</pre>
+                <pre>{result.pseudoAiken}</pre>
               </div>
             </div>
           )}
