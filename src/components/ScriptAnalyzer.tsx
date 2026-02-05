@@ -562,13 +562,31 @@ export default function ScriptAnalyzer() {
                       <h3>Inferred Types</h3>
                       <div className="types-container">
                         <div className="type-card">
-                          <div className="label">Datum</div>
+                          <div className="type-header">
+                            <div className="label">Datum</div>
+                            <span className="info-tooltip" title="On-chain state locked at the script address. The validator reads this data when the UTxO is spent.">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                              </svg>
+                            </span>
+                          </div>
                           <div className="code-block">
                             <CodeBlock code={aiAnalysis.types.datum || '// Unknown'} language="rust" />
                           </div>
                         </div>
                         <div className="type-card">
-                          <div className="label">Redeemer</div>
+                          <div className="type-header">
+                            <div className="label">Redeemer</div>
+                            <span className="info-tooltip" title="Input provided when spending a UTxO. Represents the action or proof to unlock the funds.">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <circle cx="12" cy="12" r="10"/>
+                                <path d="M12 16v-4"/>
+                                <path d="M12 8h.01"/>
+                              </svg>
+                            </span>
+                          </div>
                           <div className="code-block">
                             <CodeBlock code={aiAnalysis.types.redeemer || '// Unknown'} language="rust" />
                           </div>
