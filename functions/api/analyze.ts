@@ -16,87 +16,108 @@ interface AnalysisResult {
   cached?: boolean;
 }
 
-const COMBINED_PROMPT = `You are a Cardano/Plutus reverse engineer. Analyze this UPLC bytecode to understand the contract's interface.
+const COMBINED_PROMPT = `<role>You are an expert Cardano/Plutus reverse engineer specializing in UPLC bytecode analysis.</role>
 
-Your task:
+<task>
+Analyze the provided UPLC bytecode to:
 1. Decompile to Aiken-style pseudocode
-2. Create a Mermaid flowchart of validation logic
-3. INFER the Datum and Redeemer types from how they're used in the code
+2. Create a Mermaid flowchart showing validation logic
+3. Infer Datum and Redeemer type definitions from code patterns
+</task>
 
-RESPOND WITH JSON ONLY:
+<output_format>
+Respond with valid JSON only (no markdown, no code fences):
 {
-  "aiken": "// decompiled validator code",
-  "mermaid": "flowchart TD\\n  A[Entry] --> B{Redeemer?}\\n  ...",
+  "aiken": "// decompiled validator code here",
+  "mermaid": "flowchart TD\\n  A[Entry] --> B{Redeemer}\\n  ...",
   "types": {
-    "datum": "type Datum = { seller: Address, price: Int, token: AssetClass }",
-    "redeemer": "type Redeemer = Buy | Sell | Cancel | UpdatePrice(Int)"
+    "datum": "type Datum = { field1: Type, field2: Type }",
+    "redeemer": "type Redeemer = Variant1 | Variant2 | Variant3(args)"
   }
 }
+</output_format>
 
-DECOMPILATION:
-- Show real logic, not descriptions
-- Follow every lambda, application, builtin
+<decompilation_rules>
+- Show actual logic, not descriptions or summaries
+- Follow every lambda, application, and builtin call
 - Trace data flow through datum/redeemer/ctx destructuring
-- Identify validation conditions
+- Preserve validation conditions and their relationships
+- Use Aiken syntax: validator, let, if/else, when/is
+</decompilation_rules>
 
-MERMAID:
-- flowchart TD (top-down)
-- Show validation paths per redeemer variant
-- Decision nodes for checks (signatures, deadlines, amounts)
-- Max 15 nodes, readable labels
-- Escape special chars
+<mermaid_rules>
+- Use flowchart TD (top-down direction)
+- Show validation paths for each redeemer variant
+- Include decision nodes for checks (signatures, deadlines, amounts)
+- Maximum 15 nodes for readability
+- Escape special characters in labels
+</mermaid_rules>
 
-TYPE INFERENCE (most important):
-- Datum: Look for unConstrData followed by field extraction (headList/tailList chains)
-- Redeemer: Look for constructor checks (equalsInteger on fstPair of unConstrData)
-- Name fields based on how they're used (e.g., compared with signature = "signer")
-- Identify variants from pattern matching on constructor indices
-- Common patterns:
-  - unBData = ByteString field
-  - unIData = Integer field  
-  - Constr 0/1/2... = variant indices
-  - verifyEd25519Signature usage = signature field
+<type_inference_patterns>
+Datum fields - look for:
+- unConstrData followed by headList/tailList chains (field extraction)
+- unBData = ByteString field
+- unIData = Integer field
+- Name fields by usage context (e.g., verifySignature param = "signer")
 
-If UPLC is truncated, provide best-effort inference.
-Output valid JSON only. No markdown.`;
+Redeemer variants - look for:
+- equalsInteger on fstPair of unConstrData (constructor matching)
+- Constr 0, 1, 2... indices = variant cases
+- Pattern: ifThenElse with constructor checks = when/is branches
+</type_inference_patterns>
 
-const AIKEN_ONLY_PROMPT = `You are a Cardano/Plutus decompiler. Convert UPLC to Aiken-style pseudocode.
+<important>
+- If UPLC is truncated, provide best-effort analysis
+- Focus on type inference - this is the primary value
+- Types should have descriptive field/variant names based on usage
+</important>`;
 
-RESPOND WITH JSON ONLY:
-{"aiken": "// decompiled code here"}
+const AIKEN_ONLY_PROMPT = `<role>Cardano/Plutus decompiler</role>
 
-RULES:
-- Actually decompile - show real logic
+<task>Convert UPLC bytecode to Aiken-style pseudocode</task>
+
+<output_format>
+JSON only: {"aiken": "// decompiled code"}
+</output_format>
+
+<rules>
+- Decompile actual logic, not descriptions
 - Follow every lambda, application, builtin
 - Use Aiken syntax: validator, let, if/else, when/is
-- No placeholders or descriptions
+- No placeholders like "validation logic here"
+</rules>`;
 
-Output valid JSON only.`;
+const MERMAID_TYPES_PROMPT = `<role>Smart contract analyzer</role>
 
-const MERMAID_TYPES_PROMPT = `Analyze this Aiken smart contract code and provide:
-1. A Mermaid flowchart of the logic
-2. Type definitions for Datum and Redeemer
+<task>
+From this Aiken contract code, produce:
+1. Mermaid flowchart of validation logic
+2. Inferred Datum and Redeemer type definitions
+</task>
 
-RESPOND WITH JSON ONLY:
+<output_format>
+JSON only:
 {
   "mermaid": "flowchart TD\\n  A[Start] --> B{Check}\\n  ...",
   "types": {
     "datum": "type Datum = { field: Type }",
-    "redeemer": "type Redeemer = Action1 | Action2"
+    "redeemer": "type Redeemer = Variant1 | Variant2"
   }
 }
+</output_format>
 
-MERMAID RULES:
-- flowchart TD (top-down)
-- Show validation paths and decisions
-- Max 15 nodes, keep readable
-- Escape special chars
+<mermaid_rules>
+- flowchart TD direction
+- Show validation decision paths
+- Max 15 nodes for readability
+- Escape special chars in labels
+</mermaid_rules>
 
-TYPE INFERENCE:
-- Infer from how fields are accessed/matched
-- Use descriptive names
-
-Output valid JSON only.`;
+<type_inference>
+- Infer types from how fields are accessed and matched
+- Use descriptive names based on context
+- Identify enum variants from pattern matching
+</type_inference>`;
 
 async function callAnthropic(
   apiKey: string,
