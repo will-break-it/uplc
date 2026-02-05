@@ -1,7 +1,6 @@
 // UPLC Analyzer - Real UPLC decoding using @harmoniclabs/uplc
 
 import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
-import type { UPLCTerm } from '@harmoniclabs/uplc';
 
 export interface ScriptInfo {
   scriptHash: string;
@@ -31,52 +30,6 @@ export interface AnalysisResult {
   version: string;
   uplcPreview: string;
 }
-
-// Builtin semantics for classification
-const BUILTIN_CATEGORIES: Record<string, string> = {
-  addInteger: 'arithmetic',
-  subtractInteger: 'arithmetic',
-  multiplyInteger: 'arithmetic',
-  divideInteger: 'arithmetic',
-  quotientInteger: 'arithmetic',
-  remainderInteger: 'arithmetic',
-  modInteger: 'arithmetic',
-  equalsInteger: 'comparison',
-  lessThanInteger: 'comparison',
-  lessThanEqualsInteger: 'comparison',
-  appendByteString: 'bytestring',
-  equalsByteString: 'comparison',
-  sha2_256: 'crypto',
-  sha3_256: 'crypto',
-  blake2b_256: 'crypto',
-  verifyEd25519Signature: 'crypto',
-  verifyEcdsaSecp256k1Signature: 'crypto',
-  ifThenElse: 'control',
-  trace: 'debug',
-  fstPair: 'tuple',
-  sndPair: 'tuple',
-  headList: 'list',
-  tailList: 'list',
-  nullList: 'list',
-  chooseList: 'list',
-  mkCons: 'list',
-  unConstrData: 'data',
-  unMapData: 'data',
-  unListData: 'data',
-  unIData: 'data',
-  unBData: 'data',
-  constrData: 'data',
-  mapData: 'data',
-  listData: 'data',
-  iData: 'data',
-  bData: 'data',
-  equalsData: 'data',
-  serialiseData: 'data',
-  chooseData: 'data',
-  mkPairData: 'data',
-  mkNilData: 'data',
-  mkNilPairData: 'data',
-};
 
 // Helper: Convert hex bytes to readable text (for protocol detection)
 function hexToText(hex: string): string {
