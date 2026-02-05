@@ -296,25 +296,26 @@ header {
 
 /* Docs layout - GitBook style */
 .docs-layout {
-  display: block;
+  display: flex;
+  gap: 2rem;
   max-width: 1200px;
 }
 
 .docs-sidebar {
-  position: fixed;
-  top: 80px;
-  left: max(1rem, calc((100vw - 1200px) / 2));
   width: 200px;
-  height: calc(100vh - 100px);
+  min-width: 200px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 80px;
+  height: fit-content;
+  max-height: calc(100vh - 100px);
   overflow-y: auto;
-  padding-right: 1rem;
 }
 
 .docs-layout main {
-  margin-left: 232px;
-  width: 720px;
+  flex: 1;
   min-width: 0;
-  overflow: hidden;
+  max-width: 800px;
 }
 
 .docs-sidebar h4 {
@@ -383,23 +384,34 @@ header {
 
 .docs-mobile-nav select {
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 1rem 2.5rem 1rem 1rem;
   font-size: 1rem;
   font-weight: 500;
-  background: var(--bg-input);
+  font-family: inherit;
+  background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 10px;
   color: var(--text);
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 0.75rem center;
+  background-position: right 1rem center;
+  box-shadow: var(--shadow-sm);
 }
 
 .docs-mobile-nav select:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-subtle);
+}
+
+.docs-mobile-nav select option {
+  padding: 1rem;
+  font-size: 1rem;
+  background: var(--bg-card);
+  color: var(--text);
 }
 
 /* Mobile search bar (shown below header on mobile) */
@@ -941,24 +953,24 @@ header {
 .info-tooltip::after {
   content: attr(data-tooltip);
   position: absolute;
-  left: 50%;
-  bottom: calc(100% + 8px);
-  transform: translateX(-50%);
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
   padding: 0.5rem 0.75rem;
-  background: var(--bg-input);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 8px;
   font-size: 0.75rem;
   color: var(--text);
   white-space: normal;
   width: max-content;
-  max-width: 280px;
+  max-width: 240px;
   line-height: 1.4;
   opacity: 0;
   visibility: hidden;
   transition: opacity 0.15s, visibility 0.15s;
-  z-index: 100;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
   pointer-events: none;
 }
 
@@ -1182,8 +1194,11 @@ footer a:hover {
     display: none;
   }
   
+  .docs-layout {
+    flex-direction: column;
+  }
+  
   .docs-layout main {
-    margin-left: 0;
     width: 100%;
     max-width: 100%;
   }
