@@ -235,7 +235,7 @@ export default function ScriptAnalyzer() {
   };
   
   // Separate function for AI prettify (can be retriggered)
-  const triggerPrettify = async (uplc: string) => {
+  const triggerPrettify = async (uplc: string, hash?: string) => {
     if (!uplc) return;
     
     setPrettifyLoading(true);
@@ -245,7 +245,7 @@ export default function ScriptAnalyzer() {
       const response = await fetch('/api/prettify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uplc }),
+        body: JSON.stringify({ uplc, scriptHash: hash || scriptHash }),
       });
       
       const data = await response.json();
