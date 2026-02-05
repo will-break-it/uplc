@@ -139,14 +139,39 @@ export default function ScriptAnalyzer() {
     }
   };
 
+  // Update URL with current tab
+  const updateUrlTab = (tab: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('tab', tab);
+    window.history.replaceState({}, '', `?${params.toString()}`);
+  };
+
+  // Handle tab change
+  const handleTabChange = (tab: typeof activeTab) => {
+    setActiveTab(tab);
+    if (result) {
+      updateUrlTab(tab);
+    }
+  };
+
   useEffect(() => {
     const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    
+    // Read tab from URL
+    const tabParam = params.get('tab');
+    const validTabs = ['overview', 'builtins', 'uplc', 'errors', 'constants', 'raw', 'datums', 'redeemers'];
+    if (tabParam && validTabs.includes(tabParam)) {
+      setActiveTab(tabParam as typeof activeTab);
+    }
+    
+    // Read hash from URL
     const hashMatch = path.match(/^\/([a-f0-9]{56})$/i);
     if (hashMatch) {
       analyze(hashMatch[1]);
+      return;
     }
     
-    const params = new URLSearchParams(window.location.search);
     const hashParam = params.get('hash');
     if (hashParam && /^[a-f0-9]{56}$/i.test(hashParam)) {
       analyze(hashParam);
@@ -173,7 +198,7 @@ export default function ScriptAnalyzer() {
     setShowAiken(true); // Default to Aiken view
     setPrettifyLoading(true); // Start loading indicator
 
-    window.history.pushState({}, '', `/?hash=${targetHash}`);
+    window.history.pushState({}, '', `/?hash=${targetHash}&tab=${activeTab}`);
 
     try {
       // Step 1: Core analysis (fast) - shows immediately
@@ -367,38 +392,38 @@ export default function ScriptAnalyzer() {
           <aside className="docs-sidebar">
             <h4>Contents</h4>
             <nav>
-              <a href="#overview" className={activeTab === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('overview'); }}>
+              <a href="#overview" className={activeTab === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('overview'); }}>
                 {Icons.hex}
                 <span>Overview</span>
               </a>
-              <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('builtins'); }}>
+              <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('builtins'); }}>
                 {Icons.tool}
                 <span>Builtins</span>
                 <span className="badge-small">{result.stats.uniqueBuiltins}</span>
               </a>
-              <a href="#uplc" className={activeTab === 'uplc' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('uplc'); }}>
+              <a href="#uplc" className={activeTab === 'uplc' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('uplc'); }}>
                 {Icons.tree}
                 <span>UPLC Code</span>
               </a>
-              <a href="#errors" className={activeTab === 'errors' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('errors'); }}>
+              <a href="#errors" className={activeTab === 'errors' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('errors'); }}>
                 {Icons.alert}
                 <span>Trace Strings</span>
                 <span className="badge-small">{result.errorMessages.length}</span>
               </a>
-              <a href="#constants" className={activeTab === 'constants' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('constants'); }}>
+              <a href="#constants" className={activeTab === 'constants' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('constants'); }}>
                 {Icons.data}
                 <span>Constants</span>
               </a>
-              <a href="#raw" className={activeTab === 'raw' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('raw'); }}>
+              <a href="#raw" className={activeTab === 'raw' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('raw'); }}>
                 {Icons.hex}
                 <span>Raw CBOR</span>
               </a>
-              <a href="#datums" className={activeTab === 'datums' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('datums'); }}>
+              <a href="#datums" className={activeTab === 'datums' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('datums'); }}>
                 {Icons.datum}
                 <span>Datums</span>
                 <span className="badge-small">{datumsLoading ? '…' : result.datums.length}</span>
               </a>
-              <a href="#redeemers" className={activeTab === 'redeemers' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('redeemers'); }}>
+              <a href="#redeemers" className={activeTab === 'redeemers' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('redeemers'); }}>
                 {Icons.redeemer}
                 <span>Redeemers</span>
                 <span className="badge-small">{redeemersLoading ? '…' : result.redeemers.length}</span>
@@ -408,7 +433,7 @@ export default function ScriptAnalyzer() {
 
           {/* Mobile Navigation */}
           <div className="docs-mobile-nav">
-            <select value={activeTab} onChange={(e) => setActiveTab(e.target.value as any)}>
+            <select value={activeTab} onChange={(e) => handleTabChange(e.target.value as typeof activeTab)}>
               <option value="overview">Overview</option>
               <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
               <option value="uplc">UPLC Code</option>
