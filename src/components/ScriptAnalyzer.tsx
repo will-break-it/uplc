@@ -548,7 +548,7 @@ export default function ScriptAnalyzer() {
                 
                 <div className="code-section">
                   {/* 3-way Toggle + Copy in header bar */}
-                  <div className="code-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                  <div className="code-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', minHeight: '2rem' }}>
                     {/* Format Toggle */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       <div style={{ display: 'flex' }}>
@@ -618,6 +618,7 @@ export default function ScriptAnalyzer() {
                     {/* Copy button */}
                     <button 
                       className="copy-btn"
+                      style={{ padding: '0.375rem 0.75rem', fontSize: '0.8125rem' }}
                       onClick={() => {
                         let textToCopy = '';
                         if (contractView === 'cbor') {
