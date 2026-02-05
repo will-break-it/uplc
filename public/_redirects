@@ -1,0 +1,2 @@
+# Redirect www to apex domain
+https://www.uplc.wtf/* https://uplc.wtf/:splat 301
