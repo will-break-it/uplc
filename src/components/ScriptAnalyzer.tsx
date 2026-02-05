@@ -562,7 +562,7 @@ export default function ScriptAnalyzer() {
                             Aiken
                           </>
                         ) : (
-                          <>Aiken ✨</>
+                          <>Aiken</>
                         )}
                       </button>
                     </div>
@@ -595,7 +595,7 @@ export default function ScriptAnalyzer() {
                       fontSize: '0.8125rem',
                       color: '#a78bfa',
                     }}>
-                      ✨ AI-generated approximation — may not be valid Aiken syntax
+                      AI-generated approximation — may not be valid Aiken syntax
                       {!aikenCode && !prettifyError && (
                         <button
                           onClick={() => result?.uplcPreview && triggerPrettify(result.uplcPreview)}
@@ -619,7 +619,7 @@ export default function ScriptAnalyzer() {
                   
                   {prettifyError && showAiken && (
                     <div style={{ color: '#ef4444', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
-                      ⚠️ {prettifyError}
+                      {prettifyError}
                       <button
                         onClick={() => result?.uplcPreview && triggerPrettify(result.uplcPreview)}
                         style={{
