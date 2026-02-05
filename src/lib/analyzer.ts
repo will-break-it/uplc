@@ -325,11 +325,20 @@ export function generatePseudoAiken(
   lines.push(`// ============================================================`);
   lines.push('');
   
-  lines.push('// Error messages found in contract:');
-  for (const msg of errorMessages.slice(0, 10)) {
-    lines.push(`// - "${msg}"`);
+  // Only show error messages if we found meaningful ones
+  const meaningfulMessages = errorMessages.filter(msg => 
+    !msg.startsWith('[Protocol:') && 
+    msg.length > 3 && 
+    /[a-z]{3,}/i.test(msg)
+  );
+  
+  if (meaningfulMessages.length > 0) {
+    lines.push('// Error messages found in contract:');
+    for (const msg of meaningfulMessages.slice(0, 10)) {
+      lines.push(`// - "${msg}"`);
+    }
+    lines.push('');
   }
-  lines.push('');
   
   // Generate structure based on classification
   if (classification === 'NFT Marketplace') {
@@ -372,16 +381,35 @@ export function generatePseudoAiken(
     lines.push('  }');
     lines.push('}');
   } else {
-    lines.push(`validator ${classification.toLowerCase().replace(/[^a-z]/g, '_')} {`);
-    lines.push('  fn spend(datum: Datum, redeemer: Redeemer, ctx: ScriptContext) -> Bool {');
-    lines.push('    // Contract logic inferred from builtins:');
+    // For unknown contracts, show what we can infer
+    const builtinList = Object.entries(builtins)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8);
+    
     const cats = new Set(Object.keys(builtins).map(b => BUILTIN_CATEGORIES[b] || 'unknown'));
-    for (const cat of cats) {
-      lines.push(`    // - ${cat} operations`);
+    const catList = [...cats].filter(c => c !== 'unknown');
+    
+    if (builtinList.length === 0) {
+      lines.push('// Minimal contract - likely a simple minting policy or always-succeeds validator');
+      lines.push('validator minimal {');
+      lines.push('  fn spend(_datum: Data, _redeemer: Data, _ctx: ScriptContext) -> Bool {');
+      lines.push('    True  // or simple condition');
+      lines.push('  }');
+      lines.push('}');
+    } else {
+      lines.push(`validator contract {`);
+      lines.push('  fn spend(datum: Datum, redeemer: Redeemer, ctx: ScriptContext) -> Bool {');
+      if (catList.length > 0) {
+        lines.push(`    // Operations: ${catList.join(', ')}`);
+      }
+      lines.push('    // Top builtins:');
+      for (const [name, count] of builtinList) {
+        lines.push(`    //   ${name}: ${count}x`);
+      }
+      lines.push('    // ... (structure unclear from bytecode)');
+      lines.push('  }');
+      lines.push('}');
     }
-    lines.push('    todo');
-    lines.push('  }');
-    lines.push('}');
   }
   
   return lines.join('\n');
