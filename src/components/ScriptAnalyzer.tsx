@@ -610,7 +610,7 @@ export default function ScriptAnalyzer() {
                         className="copy-btn" 
                         id="copy-code"
                         onClick={() => {
-                          const text = contractView === 'cbor' ? result.bytes : contractView === 'aiken' && aiAnalysis?.aiken ? aiAnalysis.aiken : result.uplcPreview;
+                          const text = contractView === 'cbor' ? result.scriptInfo.bytes : contractView === 'aiken' && aiAnalysis?.aiken ? aiAnalysis.aiken : result.uplcPreview;
                           copyToClipboard(text, 'copy-code');
                         }}
                       >
@@ -620,7 +620,7 @@ export default function ScriptAnalyzer() {
                     
                     <div className="code-block">
                       {contractView === 'cbor' && (
-                        <pre style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{result.bytes}</pre>
+                        <pre style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{result.scriptInfo.bytes}</pre>
                       )}
                       {contractView === 'uplc' && (
                         <CodeBlock code={result.uplcPreview} language="haskell" />
