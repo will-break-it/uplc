@@ -295,17 +295,26 @@ header {
 
 /* Docs layout - GitBook style */
 .docs-layout {
-  display: grid;
-  grid-template-columns: 240px 1fr;
+  display: flex;
   gap: 2rem;
   max-width: 1200px;
 }
 
 .docs-sidebar {
+  width: 220px;
+  min-width: 220px;
+  flex-shrink: 0;
   position: sticky;
   top: 80px;
   height: fit-content;
   padding-right: 1rem;
+}
+
+.docs-layout main {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .docs-sidebar h4 {
@@ -1087,11 +1096,15 @@ footer a:hover {
 /* Responsive */
 @media (max-width: 900px) {
   .docs-layout {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
   
   .docs-sidebar {
     display: none;
+  }
+  
+  .docs-layout main {
+    width: 100%;
   }
   
   .docs-mobile-nav {
