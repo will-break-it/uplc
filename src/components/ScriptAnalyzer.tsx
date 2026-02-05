@@ -243,6 +243,56 @@ export default function ScriptAnalyzer() {
   const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
   const carouselRef = useRef<HTMLDivElement>(null);
+  const carouselDirectionRef = useRef<1 | -1>(1);
+  const carouselPausedRef = useRef(false);
+  
+  // Auto-scroll carousel
+  useEffect(() => {
+    const container = carouselRef.current;
+    if (!container || result || loading) return;
+
+    let animationId: number;
+    let lastTime = performance.now();
+    const speed = 25; // pixels per second
+
+    const animate = () => {
+      const currentTime = performance.now();
+      const deltaTime = (currentTime - lastTime) / 1000;
+      lastTime = currentTime;
+
+      const maxScroll = container.scrollWidth - container.clientWidth;
+      
+      if (!carouselPausedRef.current && maxScroll > 10) {
+        const scrollAmount = speed * deltaTime * carouselDirectionRef.current;
+        container.scrollLeft += scrollAmount;
+
+        // Reverse direction at ends (ping-pong)
+        if (container.scrollLeft >= maxScroll - 1) {
+          container.scrollLeft = maxScroll;
+          carouselDirectionRef.current = -1;
+        } else if (container.scrollLeft <= 1) {
+          container.scrollLeft = 0;
+          carouselDirectionRef.current = 1;
+        }
+      }
+
+      animationId = requestAnimationFrame(animate);
+    };
+
+    animationId = requestAnimationFrame(animate);
+
+    const handleMouseEnter = () => { carouselPausedRef.current = true; };
+    const handleMouseLeave = () => { carouselPausedRef.current = false; };
+
+    container.addEventListener('mouseenter', handleMouseEnter);
+    container.addEventListener('mouseleave', handleMouseLeave);
+
+    return () => {
+      cancelAnimationFrame(animationId);
+      container.removeEventListener('mouseenter', handleMouseEnter);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, [result, loading]);
   
   // Theme
   const [theme, setTheme] = useState<'light' | 'dark'>('light');

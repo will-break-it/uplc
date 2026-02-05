@@ -1027,22 +1027,13 @@ header > .header-inner {
   gap: 0.75rem;
   overflow-x: auto;
   scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  padding: 0.25rem 0 1rem;
+  padding: 0.25rem 0;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
 
 .carousel-scroll::-webkit-scrollbar {
-  height: 6px;
-}
-
-.carousel-scroll::-webkit-scrollbar-track {
-  background: var(--bg-input);
-  border-radius: 3px;
-}
-
-.carousel-scroll::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  display: none; /* Chrome/Safari/Opera */
 }
 
 .contract-card {
