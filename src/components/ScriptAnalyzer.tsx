@@ -50,11 +50,6 @@ const Icons = {
       <path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01" />
     </svg>
   ),
-  shield: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-    </svg>
-  ),
 };
 
 export default function ScriptAnalyzer() {
@@ -102,7 +97,7 @@ export default function ScriptAnalyzer() {
       const scriptInfo = await fetchScriptInfo(targetHash);
       const errorMessages = extractErrorMessages(scriptInfo.bytes);
       const builtins = extractBuiltinsFromHex(scriptInfo.bytes);
-      const { classification, mevRisk, protocol } = classifyContract(builtins, errorMessages, scriptInfo.bytes);
+      const { classification, protocol } = classifyContract(builtins, errorMessages, scriptInfo.bytes);
       const pseudoAiken = generatePseudoAiken(classification, errorMessages, builtins, targetHash);
       const flowDiagram = generateContractDiagram(classification, errorMessages, builtins);
       const dataDiagram = generateDataStructureDiagram(classification, errorMessages);
@@ -113,7 +108,6 @@ export default function ScriptAnalyzer() {
         builtins,
         errorMessages,
         classification,
-        mevRisk,
         stats: {
           totalBuiltins,
           uniqueBuiltins: Object.keys(builtins).length,
@@ -216,15 +210,6 @@ export default function ScriptAnalyzer() {
     return lines.join('\n');
     return result;
   }
-
-  const getRiskBadgeClass = (risk: string) => {
-    switch (risk) {
-      case 'HIGH': return 'badge-danger';
-      case 'MEDIUM': return 'badge-warning';
-      case 'LOW': return 'badge-success';
-      default: return '';
-    }
-  };
 
   return (
     <div>
