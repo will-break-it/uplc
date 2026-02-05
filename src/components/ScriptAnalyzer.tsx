@@ -4,17 +4,6 @@ import type { AnalysisResult } from '../lib/analyzer';
 import { analyzeScriptCore } from '../lib/analyzer';
 
 // Types
-interface CexplorerStats {
-  totalTxns: number;
-  lastActivity: string | null;
-  recentTxns: Array<{
-    hash: string;
-    time: string;
-    fee: number;
-    redeemer?: { constructor: number; fields: unknown[] };
-  }>;
-}
-
 interface AIAnalysis {
   aiken: string;
   mermaid?: string;
@@ -165,10 +154,6 @@ export default function ScriptAnalyzer() {
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  
-  // Cexplorer stats
-  const [cexStats, setCexStats] = useState<CexplorerStats | null>(null);
-  const [cexLoading, setCexLoading] = useState(false);
 
   // Initialize theme
   useEffect(() => {
@@ -214,22 +199,6 @@ export default function ScriptAnalyzer() {
     }
   };
 
-  // Fetch cexplorer stats
-  const fetchCexStats = async (hash: string) => {
-    setCexLoading(true);
-    try {
-      const response = await fetch(`/api/cexplorer?hash=${hash}`);
-      if (response.ok) {
-        const data = await response.json();
-        setCexStats(data);
-      }
-    } catch (err) {
-      console.warn('Failed to fetch cexplorer stats:', err);
-    } finally {
-      setCexLoading(false);
-    }
-  };
-
   // Fetch AI analysis
   const fetchAiAnalysis = async (uplc: string, hash: string) => {
     setAiLoading(true);
@@ -268,7 +237,6 @@ export default function ScriptAnalyzer() {
     setError(null);
     setResult(null);
     setAiAnalysis(null);
-    setCexStats(null);
     setScriptHash(targetHash);
     setContractView('aiken');
 
@@ -279,9 +247,8 @@ export default function ScriptAnalyzer() {
       setResult(coreResult);
       setLoading(false);
       
-      // Background: AI analysis + cexplorer stats
+      // Background: AI analysis
       fetchAiAnalysis(coreResult.uplcPreview, targetHash);
-      fetchCexStats(targetHash);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
       setLoading(false);
@@ -296,12 +263,6 @@ export default function ScriptAnalyzer() {
       btn.textContent = 'Copied!';
       setTimeout(() => { btn.textContent = original; }, 1500);
     }
-  };
-
-  const formatNumber = (n: number): string => {
-    if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-    if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-    return n.toLocaleString();
   };
 
   const getBuiltinCategory = (name: string): string => {
@@ -475,33 +436,6 @@ export default function ScriptAnalyzer() {
                   {/* Classification */}
                   <h3>Classification</h3>
                   <div className="classification-badge">{result.classification}</div>
-
-                  {/* On-chain stats */}
-                  <div className="onchain-stats">
-                    <h3>On-Chain Activity</h3>
-                    <div className="onchain-grid">
-                      <div className="onchain-card">
-                        <div className="label">Total Transactions</div>
-                        <div className={`value ${cexLoading ? 'loading' : ''}`}>
-                          {cexLoading ? 'Loading...' : cexStats ? formatNumber(cexStats.totalTxns) : '-'}
-                        </div>
-                      </div>
-                      <div className="onchain-card">
-                        <div className="label">Last Activity</div>
-                        <div className={`value small ${cexLoading ? 'loading' : ''}`}>
-                          {cexLoading ? 'Loading...' : cexStats?.lastActivity ? new Date(cexStats.lastActivity).toLocaleDateString() : '-'}
-                        </div>
-                      </div>
-                      <div className="onchain-card">
-                        <div className="label">Unique Builtins</div>
-                        <div className="value">{result.stats.uniqueBuiltins}</div>
-                      </div>
-                      <div className="onchain-card">
-                        <div className="label">Lambdas</div>
-                        <div className="value">{result.stats.lambdaCount}</div>
-                      </div>
-                    </div>
-                  </div>
                 </section>
               )}
 
