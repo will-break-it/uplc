@@ -1,4 +1,7 @@
-// UPLC Analyzer - Extract patterns and generate pseudo-Aiken
+// UPLC Analyzer - Real UPLC decoding using @harmoniclabs/uplc
+
+import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
+import type { UPLCTerm } from '@harmoniclabs/uplc';
 
 export interface ScriptInfo {
   scriptHash: string;
@@ -17,14 +20,15 @@ export interface AnalysisResult {
     integers: string[];
   };
   classification: string;
-  mevRisk: 'LOW' | 'MEDIUM' | 'HIGH';
   stats: {
     totalBuiltins: number;
     uniqueBuiltins: number;
     lambdaCount: number;
     forceCount: number;
+    delayCount: number;
+    applicationCount: number;
   };
-  pseudoAiken: string;
+  version: string;
   uplcPreview: string;
 }
 
@@ -66,6 +70,12 @@ const BUILTIN_CATEGORIES: Record<string, string> = {
   listData: 'data',
   iData: 'data',
   bData: 'data',
+  equalsData: 'data',
+  serialiseData: 'data',
+  chooseData: 'data',
+  mkPairData: 'data',
+  mkNilData: 'data',
+  mkNilPairData: 'data',
 };
 
 // Helper: Convert hex bytes to readable text (for protocol detection)
@@ -113,6 +123,228 @@ export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
   };
 }
 
+// Real UPLC decoding using @harmoniclabs/uplc
+export function decodeUPLC(bytes: string): {
+  program: any;
+  version: string;
+  builtins: Record<string, number>;
+  constants: { bytestrings: string[]; integers: string[] };
+  stats: {
+    lambdaCount: number;
+    forceCount: number;
+    delayCount: number;
+    applicationCount: number;
+  };
+  prettyPrint: string;
+} {
+  // Strip CBOR header if present (59XXXX = 2-byte length bytestring)
+  let innerHex = bytes;
+  if (bytes.startsWith('59') || bytes.startsWith('58') || bytes.startsWith('5a')) {
+    // CBOR byte string header
+    if (bytes.startsWith('59')) {
+      innerHex = bytes.slice(6); // 59 + 2-byte length
+    } else if (bytes.startsWith('58')) {
+      innerHex = bytes.slice(4); // 58 + 1-byte length
+    } else if (bytes.startsWith('5a')) {
+      innerHex = bytes.slice(10); // 5a + 4-byte length
+    }
+  }
+  
+  const buffer = hexToBuffer(innerHex);
+  const program = UPLCDecoder.parse(buffer, "flat");
+  
+  const version = `${program._version._major}.${program._version._minor}.${program._version._patch}`;
+  
+  // Extract builtins, constants, and stats from AST
+  const builtins: Record<string, number> = {};
+  const bytestrings: string[] = [];
+  const integers: string[] = [];
+  let lambdaCount = 0;
+  let forceCount = 0;
+  let delayCount = 0;
+  let applicationCount = 0;
+  
+  function traverse(term: any) {
+    if (!term) return;
+    
+    const name = term.constructor?.name;
+    
+    switch (name) {
+      case 'Application':
+        applicationCount++;
+        traverse(term.funcTerm);
+        traverse(term.argTerm);
+        break;
+      case 'Lambda':
+        lambdaCount++;
+        traverse(term.body);
+        break;
+      case 'Delay':
+        delayCount++;
+        traverse(term.delayedTerm);
+        break;
+      case 'Force':
+        forceCount++;
+        traverse(term.termToForce);
+        break;
+      case 'Builtin':
+        const tag = builtinTagToString(term._tag);
+        builtins[tag] = (builtins[tag] || 0) + 1;
+        break;
+      case 'UPLCConst':
+        const val = term.value;
+        if (typeof val === 'bigint') {
+          integers.push(val.toString());
+        } else if (val instanceof Uint8Array) {
+          const hex = bufferToHex(val);
+          if (hex.length > 0 && hex.length <= 128) {
+            bytestrings.push(hex);
+          }
+        }
+        break;
+      case 'Constr':
+        if (term.terms) {
+          term.terms.forEach(traverse);
+        }
+        break;
+      case 'Case':
+        traverse(term.scrutinee);
+        if (term.branches) {
+          term.branches.forEach(traverse);
+        }
+        break;
+    }
+  }
+  
+  traverse(program._body);
+  
+  // Generate pretty print
+  const prettyPrint = prettyPrintUPLC(program._body, 0, 80);
+  
+  return {
+    program,
+    version,
+    builtins,
+    constants: {
+      bytestrings: [...new Set(bytestrings)].slice(0, 20),
+      integers: [...new Set(integers)].slice(0, 20),
+    },
+    stats: { lambdaCount, forceCount, delayCount, applicationCount },
+    prettyPrint,
+  };
+}
+
+function hexToBuffer(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes[i / 2] = parseInt(hex.substring(i, i + 2), 16);
+  }
+  return bytes;
+}
+
+function bufferToHex(buffer: Uint8Array): string {
+  return Array.from(buffer)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
+  const lines: string[] = [];
+  
+  function emit(s: string) {
+    if (lines.length < maxLines) {
+      lines.push(s);
+    }
+  }
+  
+  function pp(term: any, depth: number) {
+    if (lines.length >= maxLines) return;
+    
+    const pad = '  '.repeat(depth);
+    const name = term?.constructor?.name || 'unknown';
+    
+    switch (name) {
+      case 'Application':
+        emit(`${pad}(apply`);
+        pp(term.funcTerm, depth + 1);
+        pp(term.argTerm, depth + 1);
+        emit(`${pad})`);
+        break;
+      case 'Lambda':
+        emit(`${pad}(lam`);
+        pp(term.body, depth + 1);
+        emit(`${pad})`);
+        break;
+      case 'Delay':
+        emit(`${pad}(delay`);
+        pp(term.delayedTerm, depth + 1);
+        emit(`${pad})`);
+        break;
+      case 'Force':
+        emit(`${pad}(force`);
+        pp(term.termToForce, depth + 1);
+        emit(`${pad})`);
+        break;
+      case 'UPLCVar':
+        emit(`${pad}(var ${term.deBruijn})`);
+        break;
+      case 'Builtin':
+        const tag = builtinTagToString(term._tag);
+        emit(`${pad}(builtin ${tag})`);
+        break;
+      case 'UPLCConst':
+        const val = term.value;
+        if (typeof val === 'bigint') {
+          emit(`${pad}(con integer ${val})`);
+        } else if (typeof val === 'boolean') {
+          emit(`${pad}(con bool ${val})`);
+        } else if (typeof val === 'string') {
+          emit(`${pad}(con string "${val.slice(0, 50)}")`);
+        } else if (val instanceof Uint8Array) {
+          const hex = bufferToHex(val);
+          if (hex.length <= 40) {
+            emit(`${pad}(con bytestring #${hex})`);
+          } else {
+            emit(`${pad}(con bytestring #${hex.slice(0, 40)}... [${val.length} bytes])`);
+          }
+        } else if (val === undefined || val === null) {
+          emit(`${pad}(con unit)`);
+        } else {
+          emit(`${pad}(con ${typeof val})`);
+        }
+        break;
+      case 'ErrorUPLC':
+        emit(`${pad}(error)`);
+        break;
+      case 'Constr':
+        emit(`${pad}(constr ${term.index}`);
+        if (term.terms) {
+          term.terms.forEach((t: any) => pp(t, depth + 1));
+        }
+        emit(`${pad})`);
+        break;
+      case 'Case':
+        emit(`${pad}(case`);
+        pp(term.scrutinee, depth + 1);
+        if (term.branches) {
+          term.branches.forEach((b: any) => pp(b, depth + 1));
+        }
+        emit(`${pad})`);
+        break;
+      default:
+        emit(`${pad}(${name})`);
+    }
+  }
+  
+  pp(term, indent);
+  
+  if (lines.length >= maxLines) {
+    lines.push('  ...');
+  }
+  
+  return lines.join('\n');
+}
+
 export function extractErrorMessages(bytes: string): string[] {
   const text = hexToText(bytes);
   const messages: string[] = [];
@@ -139,12 +371,11 @@ export function extractErrorMessages(bytes: string): string[] {
     const str = match[0].trim();
     
     // Skip binary noise patterns
-    if (/^[A-Z#.]+$/.test(str)) continue;  // All caps/symbols
-    if (/(.)\1{3,}/.test(str)) continue;   // Repeated chars (aaaa, 2222)
-    if (/^[0-9a-fA-F]+$/.test(str)) continue;  // Hex-looking
-    if (str.length > 100) continue;  // Too long = noise
+    if (/^[A-Z#.]+$/.test(str)) continue;
+    if (/(.)\1{3,}/.test(str)) continue;
+    if (/^[0-9a-fA-F]+$/.test(str)) continue;
+    if (str.length > 100) continue;
     
-    // Require meaningful content (spaces or error-like words)
     const hasSpace = str.includes(' ');
     const hasErrorPattern = errorPatterns.some(p => p.test(str));
     
@@ -153,58 +384,33 @@ export function extractErrorMessages(bytes: string): string[] {
     }
   }
   
-  // Add protocol detections at the start
   if (protocols.length > 0) {
     messages.unshift(`[Protocol: ${protocols.join(', ')}]`);
   }
   
-  return [...new Set(messages)].slice(0, 15);  // Limit to 15 messages
-}
-
-export function extractBuiltins(uplc: string): Record<string, number> {
-  const builtins: Record<string, number> = {};
-  
-  // Match builtin names (on same or next line after "(builtin")
-  const lines = uplc.split('\n');
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes('(builtin')) {
-      // Check same line
-      const sameLineMatch = lines[i].match(/\(builtin\s+(\w+)/);
-      if (sameLineMatch) {
-        builtins[sameLineMatch[1]] = (builtins[sameLineMatch[1]] || 0) + 1;
-      } else if (i + 1 < lines.length) {
-        // Check next line
-        const nextLine = lines[i + 1].trim();
-        if (/^[a-zA-Z]/.test(nextLine)) {
-          const name = nextLine.split(/[\s\)]/)[0];
-          builtins[name] = (builtins[name] || 0) + 1;
-        }
-      }
-    }
-  }
-  
-  return builtins;
+  return [...new Set(messages)].slice(0, 15);
 }
 
 // Known Cardano protocol identifiers
-const KNOWN_PROTOCOLS: Record<string, { name: string; type: string; risk: 'LOW' | 'MEDIUM' | 'HIGH' }> = {
-  'minswap': { name: 'Minswap', type: 'DEX/AMM', risk: 'HIGH' },
-  'sundae': { name: 'SundaeSwap', type: 'DEX/AMM', risk: 'HIGH' },
-  'wingriders': { name: 'WingRiders', type: 'DEX/AMM', risk: 'HIGH' },
-  'muesliswap': { name: 'MuesliSwap', type: 'DEX/AMM', risk: 'HIGH' },
-  'spectrum': { name: 'Spectrum', type: 'DEX/AMM', risk: 'HIGH' },
-  'jpg.store': { name: 'JPG Store', type: 'NFT Marketplace', risk: 'MEDIUM' },
-  'jpgstore': { name: 'JPG Store', type: 'NFT Marketplace', risk: 'MEDIUM' },
-  'liqwid': { name: 'Liqwid', type: 'Lending Protocol', risk: 'HIGH' },
-  'lenfi': { name: 'Lenfi', type: 'Lending Protocol', risk: 'HIGH' },
-  'indigo': { name: 'Indigo', type: 'Synthetic Assets', risk: 'HIGH' },
+const KNOWN_PROTOCOLS: Record<string, { name: string; type: string }> = {
+  'minswap': { name: 'Minswap', type: 'DEX/AMM' },
+  'sundae': { name: 'SundaeSwap', type: 'DEX/AMM' },
+  'wingriders': { name: 'WingRiders', type: 'DEX/AMM' },
+  'muesliswap': { name: 'MuesliSwap', type: 'DEX/AMM' },
+  'spectrum': { name: 'Spectrum', type: 'DEX/AMM' },
+  'splash': { name: 'Splash', type: 'DEX/AMM' },
+  'jpg.store': { name: 'JPG Store', type: 'NFT Marketplace' },
+  'jpgstore': { name: 'JPG Store', type: 'NFT Marketplace' },
+  'liqwid': { name: 'Liqwid', type: 'Lending Protocol' },
+  'lenfi': { name: 'Lenfi', type: 'Lending Protocol' },
+  'indigo': { name: 'Indigo', type: 'Synthetic Assets' },
 };
 
 export function classifyContract(
   builtins: Record<string, number>,
   errorMessages: string[],
   rawBytes?: string
-): { classification: string; mevRisk: 'LOW' | 'MEDIUM' | 'HIGH'; protocol?: string } {
+): { classification: string; protocol?: string } {
   const errorText = errorMessages.join(' ').toLowerCase();
   const builtinSet = new Set(Object.keys(builtins));
   
@@ -215,19 +421,31 @@ export function classifyContract(
       if (bytesLower.includes(key)) {
         return { 
           classification: `${proto.type} (${proto.name})`, 
-          mevRisk: proto.risk,
           protocol: proto.name
         };
       }
     }
   }
   
-  // Count arithmetic operations (DEX contracts are math-heavy)
+  // Arithmetic analysis
   const arithmeticCount = 
     (builtins['multiplyInteger'] || 0) + 
     (builtins['divideInteger'] || 0) +
     (builtins['quotientInteger'] || 0) +
     (builtins['remainderInteger'] || 0);
+
+  // Crypto operations
+  const hasCrypto = builtinSet.has('verifyEd25519Signature') || 
+                   builtinSet.has('verifyEcdsaSecp256k1Signature') ||
+                   builtinSet.has('sha2_256') ||
+                   builtinSet.has('blake2b_256');
+  
+  // Data heavy (lots of datum parsing)
+  const dataOps = (builtins['unConstrData'] || 0) + 
+                  (builtins['unListData'] || 0) + 
+                  (builtins['unMapData'] || 0) +
+                  (builtins['unIData'] || 0) +
+                  (builtins['unBData'] || 0);
   
   // NFT Marketplace patterns
   if (
@@ -238,10 +456,10 @@ export function classifyContract(
     errorText.includes('sale') ||
     errorText.includes('listing')
   ) {
-    return { classification: 'NFT Marketplace', mevRisk: 'MEDIUM' };
+    return { classification: 'NFT Marketplace' };
   }
   
-  // DEX/AMM patterns - require EITHER keywords OR heavy arithmetic (20+ ops)
+  // DEX/AMM patterns
   const hasDexKeywords = 
     errorText.includes('swap') ||
     errorText.includes('pool') ||
@@ -251,7 +469,7 @@ export function classifyContract(
     errorText.includes('lp token');
   
   if (hasDexKeywords || arithmeticCount >= 20) {
-    return { classification: 'DEX/AMM', mevRisk: 'HIGH' };
+    return { classification: 'DEX/AMM' };
   }
   
   // Lending patterns
@@ -261,7 +479,7 @@ export function classifyContract(
     errorText.includes('repay') ||
     errorText.includes('liquidat')
   ) {
-    return { classification: 'Lending Protocol', mevRisk: 'HIGH' };
+    return { classification: 'Lending Protocol' };
   }
   
   // Staking/Governance patterns
@@ -271,27 +489,27 @@ export function classifyContract(
     errorText.includes('delegate') ||
     errorText.includes('vote')
   ) {
-    return { classification: 'Staking/Governance', mevRisk: 'LOW' };
+    return { classification: 'Staking/Governance' };
   }
   
   // Multisig/Auth patterns
   if (builtinSet.has('verifyEd25519Signature') || builtinSet.has('verifyEcdsaSecp256k1Signature')) {
-    return { classification: 'Multisig/Auth', mevRisk: 'LOW' };
+    return { classification: 'Multisig/Auth' };
   }
   
   // Oracle patterns
   if (errorText.includes('oracle') || errorText.includes('price feed')) {
-    return { classification: 'Oracle', mevRisk: 'HIGH' };
+    return { classification: 'Oracle' };
   }
   
-  // Escrow/Payment patterns (uses arithmetic for fee splitting)
+  // Escrow/Payment patterns
   if (
     errorText.includes('fee') ||
     errorText.includes('payment') ||
     errorText.includes('escrow') ||
     errorText.includes('recipient')
   ) {
-    return { classification: 'Escrow/Payment', mevRisk: 'LOW' };
+    return { classification: 'Escrow/Payment' };
   }
   
   // Token/Minting patterns
@@ -300,134 +518,61 @@ export function classifyContract(
     errorText.includes('burn') ||
     errorText.includes('policy')
   ) {
-    return { classification: 'Token/Minting', mevRisk: 'LOW' };
+    return { classification: 'Token/Minting' };
   }
   
-  // If arithmetic-heavy but no keywords, might be a generic DeFi contract
+  // Infer from structure
+  if (dataOps > 30) {
+    return { classification: 'Complex Validator (data-heavy)' };
+  }
+  
   if (arithmeticCount >= 10) {
-    return { classification: 'DeFi (Generic)', mevRisk: 'MEDIUM' };
+    return { classification: 'DeFi (Generic)' };
   }
   
-  return { classification: 'Unknown', mevRisk: 'MEDIUM' };
+  if (hasCrypto) {
+    return { classification: 'Crypto/Signature Validator' };
+  }
+  
+  return { classification: 'Unknown' };
 }
 
-export function generatePseudoAiken(
-  classification: string,
-  errorMessages: string[],
-  builtins: Record<string, number>,
-  scriptHash: string
-): string {
-  const lines: string[] = [];
+export async function analyzeScript(scriptHash: string): Promise<AnalysisResult> {
+  // Fetch script from chain
+  const scriptInfo = await fetchScriptInfo(scriptHash);
   
-  lines.push(`// ============================================================`);
-  lines.push(`// DECOMPILED: ${scriptHash}`);
-  lines.push(`// Classification: ${classification}`);
-  lines.push(`// ============================================================`);
-  lines.push('');
+  // Decode UPLC
+  let decoded;
+  let errorMessages: string[] = [];
   
-  // Only show error messages if we found meaningful ones
-  const meaningfulMessages = errorMessages.filter(msg => 
-    !msg.startsWith('[Protocol:') && 
-    msg.length > 3 && 
-    /[a-z]{3,}/i.test(msg)
+  try {
+    decoded = decodeUPLC(scriptInfo.bytes);
+    errorMessages = extractErrorMessages(scriptInfo.bytes);
+  } catch (e: any) {
+    throw new Error(`Failed to decode UPLC: ${e.message}`);
+  }
+  
+  // Classify
+  const { classification, protocol } = classifyContract(
+    decoded.builtins,
+    errorMessages,
+    scriptInfo.bytes
   );
   
-  if (meaningfulMessages.length > 0) {
-    lines.push('// Error messages found in contract:');
-    for (const msg of meaningfulMessages.slice(0, 10)) {
-      lines.push(`// - "${msg}"`);
-    }
-    lines.push('');
-  }
+  const totalBuiltins = Object.values(decoded.builtins).reduce((a, b) => a + b, 0);
   
-  // Generate structure based on classification
-  if (classification === 'NFT Marketplace') {
-    lines.push('validator nft_marketplace {');
-    lines.push('  fn spend(datum: Datum, redeemer: Redeemer, ctx: ScriptContext) -> Bool {');
-    lines.push('    when redeemer is {');
-    lines.push('      Buy -> {');
-    for (const msg of errorMessages) {
-      if (msg.toLowerCase().includes('buyer') || msg.toLowerCase().includes('paid')) {
-        lines.push(`        // Validates: "${msg}"`);
-      }
-    }
-    lines.push('        nft_sent_to_buyer && seller_paid && fees_paid');
-    lines.push('      }');
-    lines.push('      Cancel -> signed_by_seller');
-    lines.push('    }');
-    lines.push('  }');
-    lines.push('}');
-  } else if (classification === 'DEX/AMM') {
-    lines.push('validator amm_pool {');
-    lines.push('  fn spend(datum: PoolState, redeemer: Action, ctx: ScriptContext) -> Bool {');
-    lines.push('    when redeemer is {');
-    lines.push('      Swap { amount_in, min_out } -> {');
-    lines.push('        // Uses: multiplyInteger, divideInteger for price calculation');
-    lines.push('        check_swap_math(datum, amount_in, min_out)');
-    lines.push('      }');
-    lines.push('      AddLiquidity { .. } -> check_lp_mint(datum, ctx)');
-    lines.push('      RemoveLiquidity { .. } -> check_lp_burn(datum, ctx)');
-    lines.push('    }');
-    lines.push('  }');
-    lines.push('}');
-  } else if (classification === 'Lending Protocol') {
-    lines.push('validator lending_pool {');
-    lines.push('  fn spend(datum: LoanState, redeemer: Action, ctx: ScriptContext) -> Bool {');
-    lines.push('    when redeemer is {');
-    lines.push('      Borrow { amount } -> check_collateral_ratio(datum, amount)');
-    lines.push('      Repay { amount } -> check_repayment(datum, amount)');
-    lines.push('      Liquidate -> check_undercollateralized(datum)');
-    lines.push('    }');
-    lines.push('  }');
-    lines.push('}');
-  } else {
-    // For unknown contracts, show what we can infer
-    const builtinList = Object.entries(builtins)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8);
-    
-    const cats = new Set(Object.keys(builtins).map(b => BUILTIN_CATEGORIES[b] || 'unknown'));
-    const catList = [...cats].filter(c => c !== 'unknown');
-    
-    if (builtinList.length === 0) {
-      lines.push('// Minimal contract - likely a simple minting policy or always-succeeds validator');
-      lines.push('validator minimal {');
-      lines.push('  fn spend(_datum: Data, _redeemer: Data, _ctx: ScriptContext) -> Bool {');
-      lines.push('    True  // or simple condition');
-      lines.push('  }');
-      lines.push('}');
-    } else {
-      lines.push(`validator contract {`);
-      lines.push('  fn spend(datum: Datum, redeemer: Redeemer, ctx: ScriptContext) -> Bool {');
-      if (catList.length > 0) {
-        lines.push(`    // Operations: ${catList.join(', ')}`);
-      }
-      lines.push('    // Top builtins:');
-      for (const [name, count] of builtinList) {
-        lines.push(`    //   ${name}: ${count}x`);
-      }
-      lines.push('    // ... (structure unclear from bytecode)');
-      lines.push('  }');
-      lines.push('}');
-    }
-  }
-  
-  return lines.join('\n');
-}
-
-export function analyzeUplc(uplc: string): {
-  builtins: Record<string, number>;
-  lambdaCount: number;
-  forceCount: number;
-  preview: string;
-} {
-  const builtins = extractBuiltins(uplc);
-  const lambdaCount = (uplc.match(/\(lam/g) || []).length;
-  const forceCount = (uplc.match(/\(force/g) || []).length;
-  
-  // Get first 100 lines as preview
-  const lines = uplc.split('\n');
-  const preview = lines.slice(0, 100).join('\n') + (lines.length > 100 ? '\n...' : '');
-  
-  return { builtins, lambdaCount, forceCount, preview };
+  return {
+    scriptInfo,
+    builtins: decoded.builtins,
+    errorMessages,
+    constants: decoded.constants,
+    classification: protocol ? `${classification}` : classification,
+    version: decoded.version,
+    stats: {
+      totalBuiltins,
+      uniqueBuiltins: Object.keys(decoded.builtins).length,
+      ...decoded.stats,
+    },
+    uplcPreview: decoded.prettyPrint,
+  };
 }

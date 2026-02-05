@@ -1,13 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import type { ScriptInfo, AnalysisResult } from '../lib/analyzer';
-import {
-  fetchScriptInfo,
-  extractErrorMessages,
-  classifyContract,
-  generatePseudoAiken,
-} from '../lib/analyzer';
-import { generateContractDiagram, generateDataStructureDiagram } from '../lib/mermaid-generator';
-import MermaidDiagram from './MermaidDiagram';
+import type { AnalysisResult } from '../lib/analyzer';
+import { analyzeScript } from '../lib/analyzer';
 
 // Top Cardano contracts by activity
 const TOP_CONTRACTS = [
@@ -23,8 +16,8 @@ const TOP_CONTRACTS = [
   { hash: 'a65ca58a4e9c755fa830173d2a5caed458ac0c73f97db7faae2e7e3b', label: 'Minswap Orders', category: 'DEX', color: '#8b5cf6' },
   { hash: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', label: 'Indigo', category: 'Synthetics', color: '#6366f1' },
   { hash: '6eb512be867e4c9f89dd59d97d7f9d2ede0e73be9aed7fb344a51a56', label: 'Lending Pool', category: 'Lending', color: '#3b82f6' },
-  { hash: 'd4b8a83fd2d63856cd8c3e0e9e9ad7e8d3b0a1c5f6e7d8c9b0a1b2c3', label: 'VyFi', category: 'DEX', color: '#14b8a6' },
-  { hash: '3a9241cd79895e3a8d65c7a1e7c3c9d8b2a4f6e8d0c2b4a6e8f0a2c4', label: 'Optim', category: 'Bonds', color: '#a855f7' },
+  { hash: '96f5c1bee23481335ff4aece32fe1dfa1aa40a944a66d2d6edc9a9a5', label: 'Unknown #9', category: 'Unknown', color: '#6b7280' },
+  { hash: 'cb684a69e78907a9796b21fc150a758af5f2805e5ed5d5a8ce9f76f1', label: 'Unknown #21', category: 'Unknown', color: '#6b7280' },
   { hash: 'c0ee29a85b13209423b10447d3c2e6a50641a15c57770e27cb9d5073', label: 'SundaeSwap Staking', category: 'Staking', color: '#06b6d4' },
 ];
 
@@ -62,15 +55,26 @@ const Icons = {
       <path d="M9 9h.01M15 9h.01M9 15h.01M15 15h.01" />
     </svg>
   ),
+  tree: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3v18M3 9h18M6 15h12" />
+    </svg>
+  ),
+  data: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+    </svg>
+  ),
 };
 
 export default function ScriptAnalyzer() {
   const [scriptHash, setScriptHash] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'errors' | 'architecture' | 'inferred' | 'raw'>('overview');
-  const [codeView, setCodeView] = useState<'typed' | 'raw'>('typed');
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'uplc' | 'errors' | 'constants' | 'raw'>('overview');
   const carouselRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -93,7 +97,6 @@ export default function ScriptAnalyzer() {
     }
   };
 
-  // Check URL for script hash on load
   useEffect(() => {
     const path = window.location.pathname;
     const hashMatch = path.match(/^\/([a-f0-9]{56})$/i);
@@ -101,7 +104,6 @@ export default function ScriptAnalyzer() {
       analyze(hashMatch[1]);
     }
     
-    // Also check query param
     const params = new URLSearchParams(window.location.search);
     const hashParam = params.get('hash');
     if (hashParam && /^[a-f0-9]{56}$/i.test(hashParam)) {
@@ -123,187 +125,17 @@ export default function ScriptAnalyzer() {
     setResult(null);
     setScriptHash(targetHash);
 
-    // Update URL
     window.history.pushState({}, '', `/?hash=${targetHash}`);
 
     try {
-      const scriptInfo = await fetchScriptInfo(targetHash);
-      const errorMessages = extractErrorMessages(scriptInfo.bytes);
-      const builtins = extractBuiltinsFromHex(scriptInfo.bytes);
-      const { classification, protocol } = classifyContract(builtins, errorMessages, scriptInfo.bytes);
-      const pseudoAiken = generatePseudoAiken(classification, errorMessages, builtins, targetHash);
-      const flowDiagram = generateContractDiagram(classification, errorMessages, builtins);
-      const dataDiagram = generateDataStructureDiagram(classification, errorMessages);
-      const totalBuiltins = Object.values(builtins).reduce((a, b) => a + b, 0);
-
-      setResult({
-        scriptInfo,
-        builtins,
-        errorMessages,
-        classification,
-        stats: {
-          totalBuiltins,
-          uniqueBuiltins: Object.keys(builtins).length,
-        },
-        pseudoAiken,
-        flowDiagram,
-        dataDiagram,
-      });
+      const analysisResult = await analyzeScript(targetHash);
+      setResult(analysisResult);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
     } finally {
       setLoading(false);
     }
   };
-
-  function extractBuiltinsFromHex(hex: string): Record<string, number> {
-    // UPLC builtins are encoded as indices in flat encoding
-    // These are heuristic byte patterns that often appear with certain builtins
-    // This is approximate - proper decoding requires a UPLC parser
-    
-    const builtins: Record<string, number> = {};
-    const bytes = hex.toLowerCase();
-    
-    // Common builtin patterns in flat-encoded UPLC (approximate)
-    // Format: builtin index appears after specific tag bytes
-    const patterns: [string, string, number][] = [
-      // [pattern, builtinName, divisor for count estimate]
-      ['0801', 'addInteger', 4],
-      ['0802', 'subtractInteger', 4],
-      ['0803', 'multiplyInteger', 4],
-      ['0804', 'divideInteger', 4],
-      ['0805', 'quotientInteger', 4],
-      ['0806', 'remainderInteger', 4],
-      ['0807', 'modInteger', 4],
-      ['0808', 'equalsInteger', 4],
-      ['0809', 'lessThanInteger', 4],
-      ['080a', 'lessThanEqualsInteger', 4],
-      ['080b', 'appendByteString', 4],
-      ['080d', 'consByteString', 4],
-      ['0810', 'equalsByteString', 4],
-      ['0811', 'lessThanByteString', 4],
-      ['0814', 'sha2_256', 4],
-      ['0815', 'sha3_256', 4],
-      ['0816', 'blake2b_256', 4],
-      ['0817', 'verifyEd25519Signature', 4],
-      ['0819', 'ifThenElse', 2],
-      ['081c', 'chooseUnit', 4],
-      ['081d', 'trace', 4],
-      ['081e', 'fstPair', 3],
-      ['081f', 'sndPair', 3],
-      ['0820', 'chooseList', 4],
-      ['0822', 'headList', 3],
-      ['0823', 'tailList', 3],
-      ['0824', 'nullList', 4],
-      ['0827', 'chooseData', 4],
-      ['0828', 'constrData', 4],
-      ['0829', 'mapData', 4],
-      ['082a', 'listData', 4],
-      ['082b', 'iData', 4],
-      ['082c', 'bData', 4],
-      ['082d', 'unConstrData', 3],
-      ['082e', 'unMapData', 4],
-      ['082f', 'unListData', 4],
-      ['0830', 'unIData', 3],
-      ['0831', 'unBData', 3],
-      ['0832', 'equalsData', 4],
-      ['0834', 'mkPairData', 4],
-      ['0835', 'mkNilData', 4],
-      ['0836', 'mkNilPairData', 4],
-    ];
-    
-    for (const [pattern, name, divisor] of patterns) {
-      // Count occurrences (rough estimate)
-      const regex = new RegExp(pattern, 'g');
-      const matches = bytes.match(regex);
-      if (matches && matches.length > 0) {
-        builtins[name] = Math.max(1, Math.ceil(matches.length / divisor));
-      }
-    }
-    
-    // If we found nothing, estimate based on script size
-    if (Object.keys(builtins).length === 0) {
-      const size = hex.length / 2;
-      // Very small scripts likely have minimal operations
-      if (size > 500) {
-        // Larger scripts probably use common operations
-        builtins['ifThenElse'] = Math.ceil(size / 200);
-        builtins['equalsData'] = Math.ceil(size / 300);
-        builtins['unConstrData'] = Math.ceil(size / 250);
-      }
-    }
-    
-    return builtins;
-  }
-
-  function hexToText(hex: string): string {
-    let result = '';
-    for (let i = 0; i < hex.length; i += 2) {
-      const byte = parseInt(hex.substring(i, i + 2), 16);
-      if (byte >= 32 && byte < 127) result += String.fromCharCode(byte);
-    }
-    return result;
-  }
-
-  function generateRawView(result: any): string {
-    const lines: string[] = [];
-    const { scriptInfo, builtins, classification } = result;
-    
-    lines.push(`-- Script: ${scriptInfo.scriptHash}`);
-    lines.push(`-- Type: ${scriptInfo.type}, Size: ${scriptInfo.size} bytes`);
-    lines.push(`-- Classification: ${classification}`);
-    lines.push('');
-    lines.push('-- Raw decompiled structure (variables enumerated)');
-    lines.push('');
-    
-    // Generate raw validator with enumerated variables
-    lines.push('validator {');
-    lines.push('  spend(arg0: Data, arg1: Data, arg2: Data) -> Bool {');
-    lines.push('    -- arg0: datum (encoded)');
-    lines.push('    -- arg1: redeemer (encoded)');
-    lines.push('    -- arg2: script context');
-    lines.push('');
-    
-    // Show what we can infer from builtins
-    const builtinList = Object.entries(builtins)
-      .sort((a, b) => (b[1] as number) - (a[1] as number))
-      .slice(0, 12);
-    
-    if (builtinList.length > 0) {
-      lines.push('    -- Builtin usage:');
-      for (const [name, count] of builtinList) {
-        lines.push(`    --   ${name}: ${count}x`);
-      }
-      lines.push('');
-    }
-    
-    // Generate pseudo-structure based on builtin patterns
-    const hasListOps = builtins['headList'] || builtins['tailList'];
-    const hasPairOps = builtins['fstPair'] || builtins['sndPair'];
-    const hasDataOps = builtins['unConstrData'] || builtins['unIData'] || builtins['unBData'];
-    
-    lines.push('    let ctx0 = unConstrData(arg2)');
-    lines.push('    let v0 = fstPair(ctx0)  -- constructor index');
-    lines.push('    let v1 = sndPair(ctx0)  -- fields list');
-    
-    if (hasListOps) {
-      lines.push('    let v2 = headList(v1)');
-      lines.push('    let v3 = tailList(v1)');
-    }
-    
-    if (hasDataOps) {
-      lines.push('    let v4 = unConstrData(arg0)  -- unpack datum');
-      lines.push('    let v5 = unConstrData(arg1)  -- unpack redeemer');
-    }
-    
-    lines.push('');
-    lines.push('    -- ... validation logic ...');
-    lines.push('    ifThenElse(condition, True, False)');
-    lines.push('  }');
-    lines.push('}');
-    
-    return lines.join('\n');
-  }
 
   function getBuiltinCategory(name: string): string {
     const categories: Record<string, string> = {
@@ -325,6 +157,7 @@ export default function ScriptAnalyzer() {
       sha3_256: 'Crypto',
       blake2b_256: 'Crypto',
       verifyEd25519Signature: 'Crypto',
+      verifyEcdsaSecp256k1Signature: 'Crypto',
       ifThenElse: 'Control',
       chooseUnit: 'Control',
       chooseList: 'Control',
@@ -336,6 +169,7 @@ export default function ScriptAnalyzer() {
       headList: 'List',
       tailList: 'List',
       nullList: 'List',
+      mkCons: 'List',
       mkNilData: 'List',
       mkNilPairData: 'List',
       constrData: 'Data',
@@ -349,6 +183,7 @@ export default function ScriptAnalyzer() {
       unIData: 'Data',
       unBData: 'Data',
       equalsData: 'Data',
+      serialiseData: 'Data',
     };
     return categories[name] || 'Other';
   }
@@ -417,7 +252,7 @@ export default function ScriptAnalyzer() {
       {loading && (
         <div className="loading">
           <div className="spinner" />
-          <p>Fetching from Koios API...</p>
+          <p>Fetching from Koios API and decoding UPLC...</p>
         </div>
       )}
 
@@ -436,18 +271,18 @@ export default function ScriptAnalyzer() {
                 <span>Builtins</span>
                 <span className="badge-small">{result.stats.uniqueBuiltins}</span>
               </a>
+              <a href="#uplc" className={activeTab === 'uplc' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('uplc'); }}>
+                {Icons.tree}
+                <span>UPLC Code</span>
+              </a>
               <a href="#errors" className={activeTab === 'errors' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('errors'); }}>
                 {Icons.alert}
                 <span>Errors</span>
                 <span className="badge-small">{result.errorMessages.length}</span>
               </a>
-              <a href="#architecture" className={activeTab === 'architecture' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('architecture'); }}>
-                {Icons.diagram}
-                <span>Architecture</span>
-              </a>
-              <a href="#inferred" className={activeTab === 'inferred' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('inferred'); }}>
-                {Icons.code}
-                <span>Inferred Code</span>
+              <a href="#constants" className={activeTab === 'constants' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('constants'); }}>
+                {Icons.data}
+                <span>Constants</span>
               </a>
               <a href="#raw" className={activeTab === 'raw' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('raw'); }}>
                 {Icons.hex}
@@ -461,9 +296,9 @@ export default function ScriptAnalyzer() {
             <select value={activeTab} onChange={(e) => setActiveTab(e.target.value as any)}>
               <option value="overview">Overview</option>
               <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
+              <option value="uplc">UPLC Code</option>
               <option value="errors">Error Messages ({result.errorMessages.length})</option>
-              <option value="architecture">Architecture</option>
-              <option value="inferred">Inferred Code</option>
+              <option value="constants">Constants</option>
               <option value="raw">Raw CBOR</option>
             </select>
           </div>
@@ -486,6 +321,10 @@ export default function ScriptAnalyzer() {
                     <div className="label">Size</div>
                     <div className="value">{result.scriptInfo.size.toLocaleString()} bytes</div>
                   </div>
+                  <div className="docs-meta-item">
+                    <div className="label">UPLC Version</div>
+                    <div className="value">{result.version}</div>
+                  </div>
                 </div>
                 
                 <h3>Classification</h3>
@@ -493,19 +332,31 @@ export default function ScriptAnalyzer() {
                   {result.classification}
                 </div>
                 
-                <h3>Quick Stats</h3>
+                <h3>Statistics</h3>
                 <div className="stats-grid">
                   <div className="stat">
                     <div className="stat-value">{result.stats.uniqueBuiltins}</div>
                     <div className="stat-label">Unique Builtins</div>
                   </div>
                   <div className="stat">
-                    <div className="stat-value">{result.errorMessages.length}</div>
-                    <div className="stat-label">Error Messages</div>
+                    <div className="stat-value">{result.stats.totalBuiltins}</div>
+                    <div className="stat-label">Total Builtin Calls</div>
                   </div>
                   <div className="stat">
-                    <div className="stat-value">{(result.scriptInfo.bytes.length / 2).toLocaleString()}</div>
-                    <div className="stat-label">Bytes</div>
+                    <div className="stat-value">{result.stats.lambdaCount}</div>
+                    <div className="stat-label">Lambdas</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-value">{result.stats.applicationCount}</div>
+                    <div className="stat-label">Applications</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-value">{result.stats.forceCount}</div>
+                    <div className="stat-label">Force</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-value">{result.stats.delayCount}</div>
+                    <div className="stat-label">Delay</div>
                   </div>
                 </div>
               </section>
@@ -515,7 +366,7 @@ export default function ScriptAnalyzer() {
               <section className="docs-section" id="builtins">
                 <h2>{Icons.tool} Builtin Functions</h2>
                 <p>
-                  Plutus builtins detected in this contract. Higher counts may indicate core logic patterns.
+                  Plutus builtins extracted from the decoded UPLC AST. Higher counts indicate core logic patterns.
                 </p>
                 {Object.keys(result.builtins).length > 0 ? (
                   <table className="builtin-table">
@@ -531,7 +382,7 @@ export default function ScriptAnalyzer() {
                         .sort((a, b) => (b[1] as number) - (a[1] as number))
                         .map(([name, count]) => (
                           <tr key={name}>
-                            <td>{name}</td>
+                            <td><code>{name}</code></td>
                             <td className="count">{count as number}</td>
                             <td className="category">{getBuiltinCategory(name)}</td>
                           </tr>
@@ -543,6 +394,33 @@ export default function ScriptAnalyzer() {
                     <p>No builtins detected (may be a minimal script)</p>
                   </div>
                 )}
+              </section>
+            )}
+
+            {activeTab === 'uplc' && (
+              <section className="docs-section" id="uplc">
+                <h2>{Icons.tree} Decoded UPLC</h2>
+                <p>
+                  The actual UPLC abstract syntax tree decoded from flat encoding.
+                </p>
+                <div className="code-section">
+                  <button 
+                    className="copy-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(result.uplcPreview);
+                      const btn = document.querySelector('#uplc .copy-btn') as HTMLButtonElement;
+                      if (btn) {
+                        btn.textContent = 'Copied!';
+                        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                      }
+                    }}
+                  >
+                    Copy
+                  </button>
+                  <div className="code-block uplc-code" style={{ maxHeight: '600px' }}>
+                    <pre>{result.uplcPreview}</pre>
+                  </div>
+                </div>
               </section>
             )}
 
@@ -569,31 +447,34 @@ export default function ScriptAnalyzer() {
               </section>
             )}
 
-            {activeTab === 'architecture' && (
-              <section className="docs-section" id="architecture">
-                <h2>{Icons.diagram} Architecture</h2>
+            {activeTab === 'constants' && (
+              <section className="docs-section" id="constants">
+                <h2>{Icons.data} Constants</h2>
                 <p>
-                  Inferred contract flow and data structures based on classification.
+                  Literal values embedded in the UPLC bytecode.
                 </p>
                 
-                <h3>Contract Flow</h3>
-                <MermaidDiagram chart={result.flowDiagram} id={`flow-${result.scriptInfo.scriptHash.substring(0, 8)}`} />
+                <h3>Integers</h3>
+                {result.constants.integers.length > 0 ? (
+                  <div className="constants-list">
+                    {result.constants.integers.map((val, i) => (
+                      <code key={i} className="constant-item">{val}</code>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-state-inline">No integer constants found</p>
+                )}
                 
-                <h3>Data Structures</h3>
-                <MermaidDiagram chart={result.dataDiagram} id={`data-${result.scriptInfo.scriptHash.substring(0, 8)}`} />
-              </section>
-            )}
-
-            {activeTab === 'inferred' && (
-              <section className="docs-section" id="inferred">
-                <h2>{Icons.code} Inferred Code</h2>
-                <p>
-                  Best-guess template based on classification and error messages — <strong>not actual decompilation</strong>.
-                  True UPLC decoding requires <code>aiken uplc decode</code> or similar tooling.
-                </p>
-                <div className="code-block">
-                  <pre>{result.pseudoAiken}</pre>
-                </div>
+                <h3>Bytestrings</h3>
+                {result.constants.bytestrings.length > 0 ? (
+                  <div className="constants-list">
+                    {result.constants.bytestrings.map((val, i) => (
+                      <code key={i} className="constant-item bytestring">#{val}</code>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-state-inline">No bytestring constants found</p>
+                )}
               </section>
             )}
 
@@ -608,7 +489,7 @@ export default function ScriptAnalyzer() {
                     className="copy-btn"
                     onClick={() => {
                       navigator.clipboard.writeText(result.scriptInfo.bytes);
-                      const btn = document.querySelector('.code-section .copy-btn') as HTMLButtonElement;
+                      const btn = document.querySelector('#raw .copy-btn') as HTMLButtonElement;
                       if (btn) {
                         btn.textContent = 'Copied!';
                         setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
