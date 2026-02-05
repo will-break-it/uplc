@@ -89,23 +89,30 @@ body {
 .container {
   width: 100%;
   max-width: 1200px;
+  margin: 0 auto;
   padding: 2rem 1.5rem;
-  padding-bottom: 4rem; /* Space for sticky footer */
+  padding-bottom: 5rem; /* Space for sticky footer */
   flex: 1;
+  min-height: calc(100vh - 60px - 3rem); /* Fill available height */
 }
 
 /* Header - subtle glass effect */
 header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 1.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-main);
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;
   z-index: 100;
+}
+
+header > .header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
 }
 
 [data-theme="dark"] header {
@@ -1167,9 +1174,9 @@ footer {
   left: 0;
   right: 0;
   text-align: center;
-  padding: 0.5rem 1rem;
+  padding: 1rem 1.5rem;
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   background: var(--bg-main);
   border-top: 1px solid var(--border);
   z-index: 50;

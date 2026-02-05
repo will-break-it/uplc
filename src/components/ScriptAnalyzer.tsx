@@ -387,38 +387,40 @@ export default function ScriptAnalyzer() {
     <div className="app-container">
       {/* Header */}
       <header>
-        <a href="/" className="header-brand">
-          <svg viewBox="0 0 32 32" fill="none">
-            <rect width="32" height="32" rx="6" fill="#0891b2"/>
-            <path d="M9 11l4 5-4 5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M15 21h8" stroke="white" strokeWidth="2" strokeLinecap="round"/>
-          </svg>
-          <h1>UPLC.WTF</h1>
-        </a>
-        
-        {/* Compact search in header when we have results */}
-        {(result || loading) && (
-          <div className="header-search">
-            <input
-              type="text"
-              placeholder="Script hash..."
-              value={scriptHash}
-              onChange={(e) => setScriptHash(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && analyze()}
-            />
-            <button onClick={() => analyze()} disabled={loading}>
-              {loading ? '...' : 'Go'}
-            </button>
-          </div>
-        )}
-        
-        <div className="header-actions">
-          <button className="theme-toggle" onClick={toggleTheme} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
-            {theme === 'light' ? Icons.moon : Icons.sun}
-          </button>
-          <a href="https://github.com/will-break-it/uplc" target="_blank" rel="noopener" className="github-link" title="View on GitHub">
-            {Icons.github}
+        <div className="header-inner">
+          <a href="/" className="header-brand">
+            <svg viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="6" fill="#0891b2"/>
+              <path d="M9 11l4 5-4 5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M15 21h8" stroke="white" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            <h1>UPLC.WTF</h1>
           </a>
+          
+          {/* Compact search in header when we have results */}
+          {(result || loading) && (
+            <div className="header-search">
+              <input
+                type="text"
+                placeholder="Script hash..."
+                value={scriptHash}
+                onChange={(e) => setScriptHash(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && analyze()}
+              />
+              <button onClick={() => analyze()} disabled={loading}>
+                {loading ? '...' : 'Go'}
+              </button>
+            </div>
+          )}
+          
+          <div className="header-actions">
+            <button className="theme-toggle" onClick={toggleTheme} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
+              {theme === 'light' ? Icons.moon : Icons.sun}
+            </button>
+            <a href="https://github.com/will-break-it/uplc" target="_blank" rel="noopener" className="github-link" title="View on GitHub">
+              {Icons.github}
+            </a>
+          </div>
         </div>
       </header>
 
