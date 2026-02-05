@@ -106,7 +106,7 @@ export default function ScriptAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'uplc' | 'errors' | 'datums' | 'redeemers'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'uplc' | 'errors'>('overview');
   const carouselRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -160,7 +160,7 @@ export default function ScriptAnalyzer() {
     
     // Read tab from URL
     const tabParam = params.get('tab');
-    const validTabs = ['overview', 'builtins', 'uplc', 'errors', 'datums', 'redeemers'];
+    const validTabs = ['overview', 'builtins', 'uplc', 'errors'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
@@ -410,16 +410,6 @@ export default function ScriptAnalyzer() {
                 <span>Trace Strings</span>
                 <span className="badge-small">{result.errorMessages.length}</span>
               </a>
-              <a href="#datums" className={activeTab === 'datums' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('datums'); }}>
-                {Icons.datum}
-                <span>Datums</span>
-                <span className="badge-small">{datumsLoading ? '…' : result.datums.length}</span>
-              </a>
-              <a href="#redeemers" className={activeTab === 'redeemers' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('redeemers'); }}>
-                {Icons.redeemer}
-                <span>Redeemers</span>
-                <span className="badge-small">{redeemersLoading ? '…' : result.redeemers.length}</span>
-              </a>
             </nav>
           </aside>
 
@@ -430,8 +420,6 @@ export default function ScriptAnalyzer() {
               <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
               <option value="uplc">UPLC Code</option>
               <option value="errors">Trace Strings ({result.errorMessages.length})</option>
-              <option value="datums">Datums ({datumsLoading ? '…' : result.datums.length})</option>
-              <option value="redeemers">Redeemers ({redeemersLoading ? '…' : result.redeemers.length})</option>
             </select>
           </div>
 
@@ -693,115 +681,6 @@ export default function ScriptAnalyzer() {
               </section>
             )}
 
-            {activeTab === 'datums' && (
-              <section className="docs-section" id="datums">
-                <h2>{Icons.datum} Datums</h2>
-                <p>
-                  Recent datums from script UTXOs on-chain. These are the actual data structures locked at this script address.
-                </p>
-                {datumsLoading ? (
-                  <div className="loading-placeholder" style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
-                    <span className="spinner" style={{ width: '24px', height: '24px', marginBottom: '0.5rem' }} />
-                    <p>Loading datums...</p>
-                  </div>
-                ) : result.datums.length > 0 ? (
-                  <div className="datums-list">
-                    {result.datums.map((datum, i) => (
-                      <div key={i} className="datum-item">
-                        <div className="datum-header">
-                          <h3>Datum #{i + 1}</h3>
-                          <span className="tx-ref">
-                            tx: {datum.txHash.slice(0, 8)}...#{datum.outputIndex}
-                          </span>
-                        </div>
-                        {datum.raw && (
-                          <>
-                            <div className="datum-section">
-                              <div className="datum-label">Raw CBOR:</div>
-                              <div className="code-block datum-raw">
-                                <pre>{datum.raw.length > 200 ? datum.raw.slice(0, 200) + '...' : datum.raw}</pre>
-                              </div>
-                            </div>
-                            <div className="datum-section">
-                              <div className="datum-label">Decoded:</div>
-                              <div className="code-block datum-decoded">
-                                <pre>{datum.prettyPrinted}</pre>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                        {!datum.raw && (
-                          <div className="datum-section">
-                            <div className="code-block datum-decoded">
-                              <pre>{datum.prettyPrinted}</pre>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">
-                    <p>No datums found in recent UTXOs for this script</p>
-                    <p className="empty-hint">This script may not have active UTXOs, or datums may be stored by hash reference.</p>
-                  </div>
-                )}
-              </section>
-            )}
-
-            {activeTab === 'redeemers' && (
-              <section className="docs-section" id="redeemers">
-                <h2>{Icons.redeemer} Redeemers</h2>
-                <p>
-                  Recent redeemer data from transactions that executed this script. Redeemers are the arguments provided to unlock UTXOs.
-                </p>
-                {redeemersLoading ? (
-                  <div className="loading-placeholder" style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
-                    <span className="spinner" style={{ width: '24px', height: '24px', marginBottom: '0.5rem' }} />
-                    <p>Loading redeemers...</p>
-                  </div>
-                ) : result.redeemers.length > 0 ? (
-                  <div className="redeemers-list">
-                    {result.redeemers.map((redeemer, i) => (
-                      <div key={i} className="redeemer-item">
-                        <div className="redeemer-header">
-                          <h3>Redeemer #{i + 1}</h3>
-                          <span className="tx-ref">
-                            tx: {redeemer.txHash.slice(0, 8)}...
-                          </span>
-                        </div>
-                        <div className="redeemer-meta">
-                          <span className="purpose-badge">{redeemer.purpose}</span>
-                          <span className="exec-units">
-                            Mem: {redeemer.unitMem.toLocaleString()} | Steps: {redeemer.unitSteps.toLocaleString()}
-                          </span>
-                          {redeemer.fee !== '0' && (
-                            <span className="fee">Fee: {(parseInt(redeemer.fee) / 1000000).toFixed(2)} ₳</span>
-                          )}
-                        </div>
-                        <div className="redeemer-section">
-                          <div className="redeemer-label">Raw CBOR:</div>
-                          <div className="code-block redeemer-raw">
-                            <pre>{redeemer.raw.length > 200 ? redeemer.raw.slice(0, 200) + '...' : redeemer.raw}</pre>
-                          </div>
-                        </div>
-                        <div className="redeemer-section">
-                          <div className="redeemer-label">Decoded:</div>
-                          <div className="code-block redeemer-decoded">
-                            <pre>{redeemer.prettyPrinted}</pre>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="empty-state">
-                    <p>No recent redeemers found for this script</p>
-                    <p className="empty-hint">This script may not have been executed recently, or redeemer data may not be available.</p>
-                  </div>
-                )}
-              </section>
-            )}
           </main>
         </div>
       )}
