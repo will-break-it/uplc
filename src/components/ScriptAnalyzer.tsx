@@ -471,12 +471,11 @@ export default function ScriptAnalyzer() {
               {activeTab === 'architecture' && (
                 <section className="docs-section">
                   <h2>{Icons.architecture} Architecture</h2>
-                  <p>AI-generated contract architecture analysis including flow diagram and inferred types.</p>
 
                   {aiLoading && (
                     <div className="mermaid-loading">
-                      <div className="spinner" />
                       <span>Analyzing contract structure...</span>
+                      <div className="spinner" />
                     </div>
                   )}
 
