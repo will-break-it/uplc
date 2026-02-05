@@ -610,24 +610,21 @@ export default function ScriptAnalyzer() {
 
                   <div className="code-section">
                     <div className="code-header">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                        <div className="code-tabs">
-                          <button className={`code-tab ${contractView === 'cbor' ? 'active' : ''}`} onClick={() => setContractView('cbor')}>
-                            CBOR
-                          </button>
-                          <button className={`code-tab ${contractView === 'uplc' ? 'active' : ''}`} onClick={() => setContractView('uplc')}>
-                            UPLC
-                          </button>
-                          <button 
-                            className={`code-tab ${contractView === 'aiken' ? 'active' : ''} ${aiLoading ? 'loading' : ''}`} 
-                            onClick={() => setContractView('aiken')}
-                            disabled={aiLoading && !aiAnalysis}
-                          >
-                            {aiLoading && !aiAnalysis && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginBottom: 0 }} />}
-                            Aiken
-                          </button>
-                        </div>
-                        {contractView === 'aiken' && <span className="code-meta">AI approximation</span>}
+                      <div className="code-tabs">
+                        <button className={`code-tab ${contractView === 'cbor' ? 'active' : ''}`} onClick={() => setContractView('cbor')}>
+                          CBOR
+                        </button>
+                        <button className={`code-tab ${contractView === 'uplc' ? 'active' : ''}`} onClick={() => setContractView('uplc')}>
+                          UPLC
+                        </button>
+                        <button 
+                          className={`code-tab ${contractView === 'aiken' ? 'active' : ''} ${aiLoading ? 'loading' : ''}`} 
+                          onClick={() => setContractView('aiken')}
+                          disabled={aiLoading && !aiAnalysis}
+                        >
+                          {aiLoading && !aiAnalysis && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginBottom: 0 }} />}
+                          Aiken
+                        </button>
                       </div>
                       <button 
                         className="copy-btn" 
@@ -641,6 +638,12 @@ export default function ScriptAnalyzer() {
                       </button>
                     </div>
                     
+                    {contractView === 'aiken' && (
+                      <div className="decompile-notice">
+                        Reconstructed from UPLC bytecode. Variable names and types are inferred — may differ from original source.
+                      </div>
+                    )}
+
                     <div className="code-block">
                       {contractView === 'cbor' && (
                         <pre style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{result.scriptInfo.bytes}</pre>
