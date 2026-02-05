@@ -5,34 +5,36 @@ interface Env {
   UPLC_CACHE: KVNamespace;
 }
 
-const SYSTEM_PROMPT = `You are an expert Cardano/Plutus decompiler. Convert UPLC AST into actual Aiken-style code.
+const SYSTEM_PROMPT = `You are a Cardano/Plutus decompiler. Convert UPLC AST into Aiken-style pseudocode.
 
-CRITICAL RULES:
-1. ACTUALLY DECOMPILE - don't describe structure, show the real logic
-2. Follow every lambda, every application, every builtin call
-3. Trace data flow: what gets extracted from datum/redeemer/ctx?
-4. Show actual conditions: what builtins are called? what comparisons?
-5. NO PLACEHOLDERS - never write "True", "validation logic here", etc.
-6. NO META-COMMENTARY - don't say "this appears to be" or "likely"
+RESPOND WITH JSON ONLY in this exact format:
+{"code": "...aiken code here..."}
 
-Aiken syntax guide:
-- validator name(datum: Type, redeemer: Type, ctx: ScriptContext) -> Bool
+OR if the UPLC is truncated/incomplete and you cannot decompile:
+{"error": "brief reason"}
+
+DECOMPILATION RULES:
+1. Actually decompile - don't describe, show real logic
+2. Follow every lambda, application, builtin call
+3. Trace data flow from datum/redeemer/ctx
+4. Show actual conditions and comparisons
+5. NO placeholders like "True" or "validation logic here"
+6. NO meta-commentary like "this appears to be"
+
+Aiken syntax:
+- validator name(p1, p2)(datum: Data, redeemer: Data, ctx: ScriptContext) -> Bool
 - let x = expr
 - if condition { ... } else { ... }
-- when expr is { Pattern -> result, ... }
-- list.any(), list.find(), etc. for list operations
+- when expr is { Pattern -> result }
 
-For parameterized validators (curried lambdas):
-- First N lambdas are compile-time parameters, show as: validator name(p1, p2, ...)(datum, redeemer, ctx)
-- Name parameters based on usage (policy_id, deadline, owner_pkh, etc.)
-
-Common patterns to recognize:
+Recognize patterns:
 - EqualsData + HeadList/TailList = field access
-- VerifyEd25519Signature = signature check  
-- LessThanEqualsInteger on POSIXTime = deadline check
-- UnConstrData index 0/1 = True/False or custom constructor
+- VerifyEd25519Signature = signature check
+- LessThanEqualsInteger + POSIXTime = deadline check
+- UnConstrData 0/1 = True/False
 
-Output ONLY working Aiken-style code with comments. No markdown.`;
+If UPLC shows only lambdas without body (truncated), return error.
+Output valid JSON only. No markdown.`;
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { ANTHROPIC_API_KEY, UPLC_CACHE } = context.env;
@@ -59,20 +61,36 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (cacheKey && UPLC_CACHE) {
       const cached = await UPLC_CACHE.get(cacheKey);
       if (cached) {
-        return new Response(JSON.stringify({ aiken: cached, cached: true }), {
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
-        });
+        // Check if cached value is an error
+        try {
+          const parsed = JSON.parse(cached);
+          if (parsed.error) {
+            // Don't return cached errors, try again
+          } else {
+            return new Response(JSON.stringify({ aiken: parsed.code || cached, cached: true }), {
+              headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+            });
+          }
+        } catch {
+          // Old cache format (raw code string)
+          return new Response(JSON.stringify({ aiken: cached, cached: true }), {
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          });
+        }
       }
     }
 
-    // Compact whitespace to save tokens (indentation not semantically meaningful)
+    // Compact whitespace to save tokens
     const compactUplc = uplc
-      .replace(/\n\s+/g, ' ')  // Replace newline+indent with single space
-      .replace(/\s+/g, ' ')     // Collapse multiple spaces
+      .replace(/\n\s+/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
     
-    // Truncate if too long
-    const truncatedUplc = compactUplc.length > 80000 ? compactUplc.slice(0, 80000) + ' ... [truncated]' : compactUplc;
+    // Truncate if too long (but note this in the prompt context)
+    const isTruncated = compactUplc.length > 100000;
+    const truncatedUplc = isTruncated 
+      ? compactUplc.slice(0, 100000) + ' [TRUNCATED - more code exists]' 
+      : compactUplc;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -85,7 +103,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         model: 'claude-opus-4-20250514',
         max_tokens: 8192,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: `Convert this UPLC to Aiken-style pseudocode:\n\n${truncatedUplc}` }],
+        messages: [
+          { role: 'user', content: `Decompile this UPLC to Aiken. Respond with JSON only:\n\n${truncatedUplc}` },
+          { role: 'assistant', content: '{' }  // Prefill to force JSON
+        ],
       }),
     });
 
@@ -98,11 +119,29 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     const data = await response.json() as { content: Array<{ type: string; text?: string }> };
-    const aikenCode = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    const rawResponse = data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+    
+    // Parse the JSON response (prepend the { we prefilled)
+    let result: { code?: string; error?: string };
+    try {
+      result = JSON.parse('{' + rawResponse);
+    } catch {
+      // If JSON parsing fails, treat raw response as code
+      result = { code: rawResponse };
+    }
 
-    // Cache result (no expiration - script bytecode never changes)
-    if (cacheKey && UPLC_CACHE && aikenCode) {
-      context.waitUntil(UPLC_CACHE.put(cacheKey, aikenCode));
+    // Check if it's an error response
+    if (result.error) {
+      return new Response(JSON.stringify({ error: result.error }), {
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      });
+    }
+
+    const aikenCode = result.code || '';
+    
+    // Only cache successful code responses
+    if (cacheKey && UPLC_CACHE && aikenCode && aikenCode.length > 50) {
+      context.waitUntil(UPLC_CACHE.put(cacheKey, JSON.stringify({ code: aikenCode })));
     }
 
     return new Response(JSON.stringify({ aiken: aikenCode }), {
