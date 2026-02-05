@@ -520,6 +520,25 @@ footer a:hover {
   .contract-card { flex: 0 0 160px; }
 }
 
+/* Copy button */
+.copy-btn {
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text);
+  transition: all 0.15s;
+}
+
+.copy-btn:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
 /* Sub-tabs for code views */
 .view-toggle {
   display: inline-flex;

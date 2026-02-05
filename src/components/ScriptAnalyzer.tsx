@@ -441,29 +441,28 @@ export default function ScriptAnalyzer() {
 
           {activeTab === 'aiken' && (
             <div className="card">
-              <h2>{Icons.code} Reconstructed Source</h2>
+              <h2>{Icons.code} Inferred Structure</h2>
+              <p style={{ marginBottom: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '8px' }}>
+                This is a best-guess template based on classification and error messages — not true decompilation.
+                For accurate source, you need the original Aiken/Plutus code.
+              </p>
               <div className="view-toggle">
                 <button 
                   className={codeView === 'typed' ? 'active' : ''} 
                   onClick={() => setCodeView('typed')}
                 >
-                  Typed
+                  Template
                 </button>
                 <button 
                   className={codeView === 'raw' ? 'active' : ''} 
                   onClick={() => setCodeView('raw')}
                 >
-                  Raw
+                  Skeleton
                 </button>
               </div>
               <div className="code-block">
                 <pre>{codeView === 'typed' ? result.pseudoAiken : generateRawView(result)}</pre>
               </div>
-              <p style={{ marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                {codeView === 'typed' 
-                  ? 'Typed view infers names from usage patterns and known contract structures.'
-                  : 'Raw view shows direct variable enumeration from decompiled bytecode.'}
-              </p>
             </div>
           )}
 
@@ -500,13 +499,30 @@ export default function ScriptAnalyzer() {
 
           {activeTab === 'raw' && (
             <div className="card">
-              <h2>{Icons.hex} Raw CBOR (Hex)</h2>
-              <div className="code-block">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h2 style={{ margin: 0 }}>{Icons.hex} Raw CBOR (Hex)</h2>
+                <button 
+                  className="copy-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(result.scriptInfo.bytes);
+                    const btn = document.querySelector('.copy-btn');
+                    if (btn) {
+                      btn.textContent = 'Copied!';
+                      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                    }
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+              <div className="code-block" style={{ maxHeight: '600px' }}>
                 <pre style={{ wordBreak: 'break-all' }}>
-                  {result.scriptInfo.bytes.substring(0, 2000)}
-                  {result.scriptInfo.bytes.length > 2000 && '...'}
+                  {result.scriptInfo.bytes}
                 </pre>
               </div>
+              <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                {result.scriptInfo.bytes.length.toLocaleString()} hex characters ({(result.scriptInfo.bytes.length / 2).toLocaleString()} bytes)
+              </p>
             </div>
           )}
         </>
