@@ -117,12 +117,27 @@ export function decodeUPLC(bytes: string): {
   let delayCount = 0;
   let applicationCount = 0;
   
+  // Detect term type by properties (survives minification)
+  function getType(term: any): string {
+    if (!term) return 'null';
+    if ('funcTerm' in term && 'argTerm' in term) return 'Application';
+    if ('body' in term && !('scrutinee' in term) && !('terms' in term)) return 'Lambda';
+    if ('delayedTerm' in term) return 'Delay';
+    if ('termToForce' in term) return 'Force';
+    if ('deBruijn' in term) return 'UPLCVar';
+    if ('_tag' in term && !('value' in term)) return 'Builtin';
+    if ('value' in term) return 'UPLCConst';
+    if ('index' in term && 'terms' in term) return 'Constr';
+    if ('scrutinee' in term && 'branches' in term) return 'Case';
+    return 'unknown';
+  }
+
   function traverse(term: any) {
     if (!term) return;
     
-    const name = term.constructor?.name;
+    const termType = getType(term);
     
-    switch (name) {
+    switch (termType) {
       case 'Application':
         applicationCount++;
         traverse(term.funcTerm);
@@ -201,6 +216,21 @@ function bufferToHex(buffer: Uint8Array): string {
     .join('');
 }
 
+// Detect UPLC term type by properties (survives minification)
+function getTermType(term: any): string {
+  if (!term) return 'null';
+  if ('funcTerm' in term && 'argTerm' in term) return 'Application';
+  if ('body' in term && !('scrutinee' in term) && !('terms' in term)) return 'Lambda';
+  if ('delayedTerm' in term) return 'Delay';
+  if ('termToForce' in term) return 'Force';
+  if ('deBruijn' in term) return 'UPLCVar';
+  if ('_tag' in term && !('value' in term)) return 'Builtin';
+  if ('value' in term) return 'UPLCConst';
+  if ('index' in term && 'terms' in term) return 'Constr';
+  if ('scrutinee' in term && 'branches' in term) return 'Case';
+  return 'unknown';
+}
+
 // Pretty print UPLC in aiken-style format
 function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: string): string {
   const lines: string[] = [];
@@ -217,9 +247,9 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
     if (lines.length >= maxLines) return;
     
     const pad = '  '.repeat(depth);
-    const name = term?.constructor?.name || 'unknown';
+    const termType = getTermType(term);
     
-    switch (name) {
+    switch (termType) {
       case 'Application':
         emit(`${pad}[`);
         pp(term.funcTerm, depth + 1, varStack);
@@ -276,9 +306,6 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
           emit(`${pad}(con ${typeof val})`);
         }
         break;
-      case 'ErrorUPLC':
-        emit(`${pad}(error)`);
-        break;
       case 'Constr':
         emit(`${pad}(constr ${term.index}`);
         if (term.terms) {
@@ -295,7 +322,7 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         emit(`${pad})`);
         break;
       default:
-        emit(`${pad}(${name})`);
+        emit(`${pad}(? ${termType})`);
     }
   }
   
