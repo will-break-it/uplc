@@ -433,7 +433,7 @@ export function decodeUPLC(bytes: string): {
   traverse(program._body);
   
   // Generate pretty print in aiken style
-  const prettyPrint = prettyPrintUPLC(program._body, 0, 2000, version);
+  const prettyPrint = prettyPrintUPLC(program._body, 0, Infinity, version);
   
   return {
     program,
@@ -578,9 +578,7 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
   pp(term, 1, []);
   emit(`)`);
   
-  if (lines.length >= maxLines) {
-    lines.push('  ...');
-  }
+  // No truncation - show full UPLC
   
   return lines.join('\n');
 }
