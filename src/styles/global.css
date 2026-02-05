@@ -87,8 +87,8 @@ body {
 }
 
 .container {
+  width: 100%;
   max-width: 1200px;
-  margin: 0 auto;
   padding: 2rem 1.5rem;
   flex: 1;
 }
@@ -311,8 +311,8 @@ header {
 
 .docs-layout main {
   margin-left: 232px;
+  width: 720px;
   min-width: 0;
-  max-width: calc(100% - 232px);
   overflow: hidden;
 }
 
@@ -1149,6 +1149,7 @@ footer a:hover {
   
   .docs-layout main {
     margin-left: 0;
+    width: 100%;
     max-width: 100%;
   }
   
