@@ -106,7 +106,7 @@ export default function ScriptAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'uplc' | 'errors' | 'constants' | 'raw' | 'datums' | 'redeemers'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'uplc' | 'errors' | 'datums' | 'redeemers'>('overview');
   const carouselRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -160,7 +160,7 @@ export default function ScriptAnalyzer() {
     
     // Read tab from URL
     const tabParam = params.get('tab');
-    const validTabs = ['overview', 'builtins', 'uplc', 'errors', 'constants', 'raw', 'datums', 'redeemers'];
+    const validTabs = ['overview', 'builtins', 'uplc', 'errors', 'datums', 'redeemers'];
     if (tabParam && validTabs.includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
@@ -410,10 +410,6 @@ export default function ScriptAnalyzer() {
                 <span>Trace Strings</span>
                 <span className="badge-small">{result.errorMessages.length}</span>
               </a>
-              <a href="#constants" className={activeTab === 'constants' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('constants'); }}>
-                {Icons.data}
-                <span>Constants</span>
-              </a>
               <a href="#datums" className={activeTab === 'datums' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('datums'); }}>
                 {Icons.datum}
                 <span>Datums</span>
@@ -434,7 +430,6 @@ export default function ScriptAnalyzer() {
               <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
               <option value="uplc">UPLC Code</option>
               <option value="errors">Trace Strings ({result.errorMessages.length})</option>
-              <option value="constants">Constants</option>
               <option value="datums">Datums ({datumsLoading ? '…' : result.datums.length})</option>
               <option value="redeemers">Redeemers ({redeemersLoading ? '…' : result.redeemers.length})</option>
             </select>
@@ -694,37 +689,6 @@ export default function ScriptAnalyzer() {
                   <div className="empty-state">
                     <p>No readable strings found in bytecode</p>
                   </div>
-                )}
-              </section>
-            )}
-
-            {activeTab === 'constants' && (
-              <section className="docs-section" id="constants">
-                <h2>{Icons.data} Constants</h2>
-                <p>
-                  Literal values embedded in the UPLC bytecode.
-                </p>
-                
-                <h3>Integers</h3>
-                {result.constants.integers.length > 0 ? (
-                  <div className="constants-list">
-                    {result.constants.integers.map((val, i) => (
-                      <code key={i} className="constant-item">{val}</code>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="empty-state-inline">No integer constants found</p>
-                )}
-                
-                <h3>Bytestrings</h3>
-                {result.constants.bytestrings.length > 0 ? (
-                  <div className="constants-list">
-                    {result.constants.bytestrings.map((val, i) => (
-                      <code key={i} className="constant-item bytestring">#{val}</code>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="empty-state-inline">No bytestring constants found</p>
                 )}
               </section>
             )}
