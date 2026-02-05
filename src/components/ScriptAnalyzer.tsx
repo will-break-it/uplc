@@ -422,6 +422,24 @@ export default function ScriptAnalyzer() {
         </div>
       </header>
 
+      {/* Mobile search bar (shown below header on mobile when results exist) */}
+      {(result || loading) && (
+        <div className="mobile-search">
+          <div className="search-box">
+            <input
+              type="text"
+              placeholder="Script hash..."
+              value={scriptHash}
+              onChange={(e) => setScriptHash(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && analyze()}
+            />
+            <button onClick={() => analyze()} disabled={loading}>
+              {loading ? '...' : 'Go'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="container">
         {/* Centered search (landing state only) */}
         {!result && !loading && (
