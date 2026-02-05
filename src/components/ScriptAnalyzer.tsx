@@ -414,10 +414,6 @@ export default function ScriptAnalyzer() {
                 {Icons.data}
                 <span>Constants</span>
               </a>
-              <a href="#raw" className={activeTab === 'raw' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('raw'); }}>
-                {Icons.hex}
-                <span>Raw CBOR</span>
-              </a>
               <a href="#datums" className={activeTab === 'datums' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('datums'); }}>
                 {Icons.datum}
                 <span>Datums</span>
@@ -439,7 +435,6 @@ export default function ScriptAnalyzer() {
               <option value="uplc">UPLC Code</option>
               <option value="errors">Trace Strings ({result.errorMessages.length})</option>
               <option value="constants">Constants</option>
-              <option value="raw">Raw CBOR</option>
               <option value="datums">Datums ({datumsLoading ? '…' : result.datums.length})</option>
               <option value="redeemers">Redeemers ({redeemersLoading ? '…' : result.redeemers.length})</option>
             </select>
@@ -731,37 +726,6 @@ export default function ScriptAnalyzer() {
                 ) : (
                   <p className="empty-state-inline">No bytestring constants found</p>
                 )}
-              </section>
-            )}
-
-            {activeTab === 'raw' && (
-              <section className="docs-section" id="raw">
-                <h2>{Icons.hex} Raw CBOR</h2>
-                <p>
-                  The complete script bytecode in hexadecimal format.
-                </p>
-                <div className="code-section">
-                  <button 
-                    className="copy-btn"
-                    onClick={() => {
-                      navigator.clipboard.writeText(result.scriptInfo.bytes);
-                      const btn = document.querySelector('#raw .copy-btn') as HTMLButtonElement;
-                      if (btn) {
-                        btn.textContent = 'Copied!';
-                        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-                      }
-                    }}
-                  >
-                    Copy
-                  </button>
-                  <div className="code-block" style={{ maxHeight: '500px' }}>
-                    <pre style={{ wordBreak: 'break-all' }}>{result.scriptInfo.bytes}</pre>
-                  </div>
-                </div>
-                <p style={{ marginTop: '0.75rem', fontSize: '0.8125rem' }}>
-                  <strong>{result.scriptInfo.bytes.length.toLocaleString()}</strong> hex characters 
-                  (<strong>{(result.scriptInfo.bytes.length / 2).toLocaleString()}</strong> bytes)
-                </p>
               </section>
             )}
 
