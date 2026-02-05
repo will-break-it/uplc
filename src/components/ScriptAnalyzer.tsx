@@ -108,13 +108,17 @@ const Icons = {
   ),
 };
 
-// Mermaid renderer component
+// Mermaid renderer component with pan/zoom
 function MermaidDiagram({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
-    if (!chart || !containerRef.current) return;
+    if (!chart || !svgRef.current) return;
 
     const renderChart = async () => {
       try {
@@ -126,8 +130,8 @@ function MermaidDiagram({ chart }: { chart: string }) {
         });
         
         const { svg } = await mermaid.default.render('mermaid-diagram', chart);
-        if (containerRef.current) {
-          containerRef.current.innerHTML = svg;
+        if (svgRef.current) {
+          svgRef.current.innerHTML = svg;
         }
       } catch (err) {
         setError('Failed to render diagram');
@@ -136,13 +140,66 @@ function MermaidDiagram({ chart }: { chart: string }) {
     };
 
     renderChart();
+    setTransform({ scale: 1, x: 0, y: 0 }); // Reset on new chart
   }, [chart]);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setTransform(prev => ({
+      ...prev,
+      scale: Math.min(Math.max(prev.scale * delta, 0.25), 4),
+    }));
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setIsDragging(true);
+    setDragStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isDragging) return;
+    setTransform(prev => ({
+      ...prev,
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    }));
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  const resetView = () => setTransform({ scale: 1, x: 0, y: 0 });
 
   if (error) {
     return <div className="empty-state">{error}</div>;
   }
 
-  return <div ref={containerRef} className="mermaid-container" />;
+  return (
+    <div 
+      ref={containerRef}
+      className="mermaid-viewport"
+      onWheel={handleWheel}
+      onMouseDown={handleMouseDown}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      <div 
+        ref={svgRef}
+        className="mermaid-container"
+        style={{
+          transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+          cursor: isDragging ? 'grabbing' : 'grab',
+        }}
+      />
+      <div className="mermaid-controls">
+        <button onClick={() => setTransform(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 4) }))}>+</button>
+        <button onClick={() => setTransform(prev => ({ ...prev, scale: Math.max(prev.scale * 0.8, 0.25) }))}>−</button>
+        <button onClick={resetView}>Reset</button>
+      </div>
+    </div>
+  );
 }
 
 export default function ScriptAnalyzer() {

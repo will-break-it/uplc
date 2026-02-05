@@ -719,18 +719,70 @@ header {
   margin-top: 1.5rem;
 }
 
-.mermaid-container {
+.mermaid-viewport {
+  position: relative;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 1.5rem;
   margin-bottom: 1rem;
-  overflow-x: auto;
+  overflow: hidden;
+  height: 400px;
+  user-select: none;
+}
+
+.mermaid-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 1.5rem;
+  transform-origin: center center;
+  transition: transform 0.05s ease-out;
 }
 
 .mermaid-container svg {
-  max-width: 100%;
+  max-width: none;
   height: auto;
+}
+
+.mermaid-controls {
+  position: absolute;
+  bottom: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.25rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.mermaid-controls button {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 1rem;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.mermaid-controls button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.mermaid-controls button:last-child {
+  font-size: 0.6875rem;
+  width: auto;
+  padding: 0 0.5rem;
 }
 
 .mermaid-loading {
