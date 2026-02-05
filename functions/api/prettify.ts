@@ -76,7 +76,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
+        model: 'claude-opus-4-20250514',
         max_tokens: 8192,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: `Convert this UPLC to Aiken-style pseudocode:\n\n${truncatedUplc}` }],
