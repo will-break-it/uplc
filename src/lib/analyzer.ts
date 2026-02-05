@@ -1,7 +1,6 @@
 // UPLC Analyzer - Real UPLC decoding using @harmoniclabs/uplc
 
 import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
-import { decode as cborDecode } from 'cbor-x';
 
 export interface ScriptInfo {
   scriptHash: string;
@@ -9,25 +8,6 @@ export interface ScriptInfo {
   size: number;
   bytes: string;
   creationTxHash?: string;
-}
-
-export interface DecodedDatum {
-  raw: string;
-  txHash: string;
-  outputIndex: number;
-  decoded: any;
-  prettyPrinted: string;
-}
-
-export interface DecodedRedeemer {
-  raw: string;
-  txHash: string;
-  purpose: string;
-  decoded: any;
-  prettyPrinted: string;
-  unitMem: number;
-  unitSteps: number;
-  fee: string;
 }
 
 export interface AnalysisResult {
@@ -49,8 +29,6 @@ export interface AnalysisResult {
   };
   version: string;
   uplcPreview: string;
-  datums: DecodedDatum[];
-  redeemers: DecodedRedeemer[];
 }
 
 // Helper: Convert hex bytes to readable text (for protocol detection)
@@ -96,225 +74,6 @@ export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
   };
 }
 
-// Pretty print decoded CBOR data (Plutus Data format)
-function prettyPrintPlutusData(data: any, indent: number = 0): string {
-  const pad = '  '.repeat(indent);
-  
-  if (data === null || data === undefined) {
-    return `${pad}null`;
-  }
-  
-  // Handle Constr (constructor) - represented as tagged CBOR
-  if (data instanceof Map) {
-    const entries = Array.from(data.entries());
-    if (entries.length === 0) {
-      return `${pad}Map {}`;
-    }
-    const items = entries.map(([k, v]) => {
-      const keyStr = typeof k === 'object' ? JSON.stringify(k) : String(k);
-      return `${pad}  ${keyStr}: ${prettyPrintPlutusData(v, indent + 1).trim()}`;
-    });
-    return `${pad}Map {\n${items.join(',\n')}\n${pad}}`;
-  }
-  
-  if (Array.isArray(data)) {
-    if (data.length === 0) {
-      return `${pad}[]`;
-    }
-    // Check if this looks like a Constr (first element is number, second is array)
-    if (data.length === 2 && typeof data[0] === 'number' && Array.isArray(data[1])) {
-      const fields = data[1].map((f: any) => prettyPrintPlutusData(f, indent + 1));
-      if (fields.length === 0) {
-        return `${pad}Constr ${data[0]} []`;
-      }
-      return `${pad}Constr ${data[0]} [\n${fields.join(',\n')}\n${pad}]`;
-    }
-    const items = data.map((item: any) => prettyPrintPlutusData(item, indent + 1));
-    return `${pad}[\n${items.join(',\n')}\n${pad}]`;
-  }
-  
-  if (data instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(data))) {
-    const hex = Array.from(data as Uint8Array).map(b => b.toString(16).padStart(2, '0')).join('');
-    if (hex.length <= 64) {
-      return `${pad}bytes: ${hex}`;
-    }
-    return `${pad}bytes: ${hex.slice(0, 60)}... (${hex.length / 2} bytes)`;
-  }
-  
-  if (typeof data === 'bigint') {
-    return `${pad}int: ${data.toString()}`;
-  }
-  
-  if (typeof data === 'number') {
-    return `${pad}int: ${data}`;
-  }
-  
-  if (typeof data === 'string') {
-    return `${pad}text: "${data}"`;
-  }
-  
-  if (typeof data === 'boolean') {
-    return `${pad}bool: ${data}`;
-  }
-  
-  // Handle CBOR tagged values (like Constr)
-  if (data && typeof data === 'object' && 'tag' in data && 'value' in data) {
-    const tag = data.tag;
-    const value = data.value;
-    
-    // Plutus Constr tags: 121-127 for constructors 0-6, 1280+ for higher
-    if (tag >= 121 && tag <= 127) {
-      const constrIndex = tag - 121;
-      if (Array.isArray(value)) {
-        const fields = value.map((f: any) => prettyPrintPlutusData(f, indent + 1));
-        if (fields.length === 0) {
-          return `${pad}Constr ${constrIndex} []`;
-        }
-        return `${pad}Constr ${constrIndex} [\n${fields.join(',\n')}\n${pad}]`;
-      }
-      return `${pad}Constr ${constrIndex} ${prettyPrintPlutusData(value, indent)}`;
-    }
-    if (tag >= 1280 && tag <= 1400) {
-      const constrIndex = tag - 1280 + 7;
-      if (Array.isArray(value)) {
-        const fields = value.map((f: any) => prettyPrintPlutusData(f, indent + 1));
-        if (fields.length === 0) {
-          return `${pad}Constr ${constrIndex} []`;
-        }
-        return `${pad}Constr ${constrIndex} [\n${fields.join(',\n')}\n${pad}]`;
-      }
-      return `${pad}Constr ${constrIndex} ${prettyPrintPlutusData(value, indent)}`;
-    }
-    
-    return `${pad}Tag(${tag}) ${prettyPrintPlutusData(value, indent)}`;
-  }
-  
-  // Fallback for other objects
-  try {
-    return `${pad}${JSON.stringify(data, (_, v) => typeof v === 'bigint' ? v.toString() : v, 2)}`;
-  } catch {
-    return `${pad}[Object]`;
-  }
-}
-
-// Decode CBOR hex string
-function decodeCborHex(hex: string): { decoded: any; prettyPrinted: string } {
-  try {
-    const buffer = hexToBuffer(hex);
-    const decoded = cborDecode(buffer);
-    const prettyPrinted = prettyPrintPlutusData(decoded);
-    return { decoded, prettyPrinted };
-  } catch (e: any) {
-    return { 
-      decoded: null, 
-      prettyPrinted: `Error decoding: ${e.message}` 
-    };
-  }
-}
-
-// Fetch recent datums from script UTXOs
-export async function fetchScriptDatums(scriptHash: string, limit: number = 10): Promise<DecodedDatum[]> {
-  const apiUrl = '/api/script_utxos';
-  
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ _script_hash: scriptHash, _extended: true }),
-    });
-    
-    if (!response.ok) {
-      console.warn('Failed to fetch UTXOs:', response.statusText);
-      return [];
-    }
-    
-    const data = await response.json();
-    if (!data || !Array.isArray(data)) {
-      return [];
-    }
-    
-    const datums: DecodedDatum[] = [];
-    
-    for (const utxo of data.slice(0, limit)) {
-      // Check for inline datum
-      if (utxo.inline_datum && utxo.inline_datum.bytes) {
-        const { decoded, prettyPrinted } = decodeCborHex(utxo.inline_datum.bytes);
-        datums.push({
-          raw: utxo.inline_datum.bytes,
-          txHash: utxo.tx_hash,
-          outputIndex: utxo.tx_index,
-          decoded,
-          prettyPrinted,
-        });
-      }
-      // Check for datum hash reference
-      else if (utxo.datum_hash) {
-        // We'd need another API call to resolve datum by hash
-        // For now, just note the hash
-        datums.push({
-          raw: '',
-          txHash: utxo.tx_hash,
-          outputIndex: utxo.tx_index,
-          decoded: { datumHash: utxo.datum_hash },
-          prettyPrinted: `Datum hash: ${utxo.datum_hash}\n(datum not inline, would need separate lookup)`,
-        });
-      }
-    }
-    
-    return datums;
-  } catch (e) {
-    console.warn('Error fetching datums:', e);
-    return [];
-  }
-}
-
-// Fetch recent redeemers
-export async function fetchScriptRedeemers(scriptHash: string, limit: number = 10): Promise<DecodedRedeemer[]> {
-  const apiUrl = '/api/script_redeemers';
-  
-  try {
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ _script_hash: scriptHash }),
-    });
-    
-    if (!response.ok) {
-      console.warn('Failed to fetch redeemers:', response.statusText);
-      return [];
-    }
-    
-    const data = await response.json();
-    if (!data || !Array.isArray(data)) {
-      return [];
-    }
-    
-    const redeemers: DecodedRedeemer[] = [];
-    
-    for (const item of data.slice(0, limit)) {
-      if (item.redeemer && item.redeemer.datum && item.redeemer.datum.bytes) {
-        const { decoded, prettyPrinted } = decodeCborHex(item.redeemer.datum.bytes);
-        redeemers.push({
-          raw: item.redeemer.datum.bytes,
-          txHash: item.tx_hash,
-          purpose: item.redeemer.purpose || 'spend',
-          decoded,
-          prettyPrinted,
-          unitMem: item.redeemer.unit_mem || 0,
-          unitSteps: item.redeemer.unit_steps || 0,
-          fee: item.redeemer.fee || '0',
-        });
-      }
-    }
-    
-    return redeemers;
-  } catch (e) {
-    console.warn('Error fetching redeemers:', e);
-    return [];
-  }
-}
-
-// Real UPLC decoding using @harmoniclabs/uplc
 export function decodeUPLC(bytes: string): {
   program: any;
   version: string;
@@ -767,8 +526,8 @@ export function classifyContract(
   return { classification: 'Unknown' };
 }
 
-// Core analysis (fast) - fetches script and decodes UPLC
-export async function analyzeScriptCore(scriptHash: string): Promise<Omit<AnalysisResult, 'datums' | 'redeemers'>> {
+// Core analysis - fetches script and decodes UPLC
+export async function analyzeScriptCore(scriptHash: string): Promise<AnalysisResult> {
   const scriptInfo = await fetchScriptInfo(scriptHash);
   
   // Decode UPLC
@@ -804,54 +563,6 @@ export async function analyzeScriptCore(scriptHash: string): Promise<Omit<Analys
       ...decoded.stats,
     },
     uplcPreview: decoded.prettyPrint,
-    datums: [],
-    redeemers: [],
   };
 }
 
-// Full analysis (blocking) - for backwards compatibility
-export async function analyzeScript(scriptHash: string): Promise<AnalysisResult> {
-  // Fetch script from chain and on-chain data in parallel
-  const [scriptInfo, datums, redeemers] = await Promise.all([
-    fetchScriptInfo(scriptHash),
-    fetchScriptDatums(scriptHash, 10),
-    fetchScriptRedeemers(scriptHash, 10),
-  ]);
-  
-  // Decode UPLC
-  let decoded;
-  let errorMessages: string[] = [];
-  
-  try {
-    decoded = decodeUPLC(scriptInfo.bytes);
-    errorMessages = extractErrorMessages(scriptInfo.bytes);
-  } catch (e: any) {
-    throw new Error(`Failed to decode UPLC: ${e.message}`);
-  }
-  
-  // Classify
-  const { classification, protocol } = classifyContract(
-    decoded.builtins,
-    errorMessages,
-    scriptInfo.bytes
-  );
-  
-  const totalBuiltins = Object.values(decoded.builtins).reduce((a, b) => a + b, 0);
-  
-  return {
-    scriptInfo,
-    builtins: decoded.builtins,
-    errorMessages,
-    constants: decoded.constants,
-    classification: protocol ? `${classification}` : classification,
-    version: decoded.version,
-    stats: {
-      totalBuiltins,
-      uniqueBuiltins: Object.keys(decoded.builtins).length,
-      ...decoded.stats,
-    },
-    uplcPreview: decoded.prettyPrint,
-    datums,
-    redeemers,
-  };
-}
