@@ -65,8 +65,14 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       }
     }
 
+    // Compact whitespace to save tokens (indentation not semantically meaningful)
+    const compactUplc = uplc
+      .replace(/\n\s+/g, ' ')  // Replace newline+indent with single space
+      .replace(/\s+/g, ' ')     // Collapse multiple spaces
+      .trim();
+    
     // Truncate if too long
-    const truncatedUplc = uplc.length > 50000 ? uplc.slice(0, 50000) + '\n... [truncated]' : uplc;
+    const truncatedUplc = compactUplc.length > 80000 ? compactUplc.slice(0, 80000) + ' ... [truncated]' : compactUplc;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
