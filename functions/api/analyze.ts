@@ -65,9 +65,36 @@ Redeemer variants - look for:
 - Constr 0, 1, 2... indices = variant cases
 - Pattern: ifThenElse with constructor checks = when/is branches
 
-Output types as valid Aiken type definitions:
-- Datum example: "type Datum {\n  owner: ByteArray,\n  deadline: Int,\n  amount: Int,\n}"
-- Redeemer example: "type Redeemer {\n  Cancel\n  Claim { signature: ByteArray }\n  Update { new_value: Int }\n}"
+TYPE FORMATTING (CRITICAL):
+Format types as Aiken-style with proper indentation and newlines.
+
+Datum example (use 2-space indent, newline per field):
+type Datum {
+  owner: ByteArray,
+  deadline: Int,
+  amount: Int,
+}
+
+Redeemer with variants (one variant per line, newline for variant fields):
+type Redeemer {
+  Cancel
+  Claim { signature: ByteArray }
+  SwapAtoB {
+    amount_in: Int,
+    min_amount_out: Int,
+  }
+  Update { new_value: Int }
+}
+
+For complex variants with many fields, break into multiple lines:
+type Redeemer {
+  SimpleAction
+  ComplexAction {
+    field1: Int,
+    field2: ByteArray,
+    field3: List<Int>,
+  }
+}
 </type_inference_patterns>
 
 <important>

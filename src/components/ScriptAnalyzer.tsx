@@ -123,10 +123,43 @@ function MermaidDiagram({ chart }: { chart: string }) {
     const renderChart = async () => {
       try {
         const mermaid = await import('mermaid');
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        
         mermaid.default.initialize({
           startOnLoad: false,
-          theme: document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default',
-          flowchart: { useMaxWidth: true, htmlLabels: true },
+          theme: 'base',
+          themeVariables: isDark ? {
+            primaryColor: '#1e293b',
+            primaryTextColor: '#e2e8f0',
+            primaryBorderColor: '#334155',
+            lineColor: '#475569',
+            secondaryColor: '#334155',
+            tertiaryColor: '#1e293b',
+            background: '#0f172a',
+            mainBkg: '#1e293b',
+            nodeBorder: '#475569',
+            clusterBkg: '#1e293b',
+            clusterBorder: '#334155',
+            titleColor: '#e2e8f0',
+            edgeLabelBackground: '#1e293b',
+            nodeTextColor: '#e2e8f0',
+          } : {
+            primaryColor: '#f1f5f9',
+            primaryTextColor: '#1e293b',
+            primaryBorderColor: '#cbd5e1',
+            lineColor: '#64748b',
+            secondaryColor: '#e2e8f0',
+            tertiaryColor: '#f8fafc',
+            background: '#ffffff',
+            mainBkg: '#f1f5f9',
+            nodeBorder: '#cbd5e1',
+            clusterBkg: '#f8fafc',
+            clusterBorder: '#e2e8f0',
+            titleColor: '#1e293b',
+            edgeLabelBackground: '#ffffff',
+            nodeTextColor: '#1e293b',
+          },
+          flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
         });
         
         const { svg } = await mermaid.default.render('mermaid-diagram', chart);
@@ -564,7 +597,7 @@ export default function ScriptAnalyzer() {
                         <div className="type-card">
                           <div className="type-header">
                             <div className="label">Datum</div>
-                            <span className="info-tooltip" title="On-chain state locked at the script address. The validator reads this data when the UTxO is spent.">
+                            <span className="info-tooltip" data-tooltip="On-chain state locked at the script address. The validator reads this data when the UTxO is spent.">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <circle cx="12" cy="12" r="10"/>
                                 <path d="M12 16v-4"/>
@@ -579,7 +612,7 @@ export default function ScriptAnalyzer() {
                         <div className="type-card">
                           <div className="type-header">
                             <div className="label">Redeemer</div>
-                            <span className="info-tooltip" title="Input provided when spending a UTxO. Represents the action or proof to unlock the funds.">
+                            <span className="info-tooltip" data-tooltip="Input provided when spending a UTxO. Represents the action or proof to unlock the funds.">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <circle cx="12" cy="12" r="10"/>
                                 <path d="M12 16v-4"/>

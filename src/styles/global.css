@@ -295,25 +295,24 @@ header {
 
 /* Docs layout - GitBook style */
 .docs-layout {
-  display: flex;
-  gap: 2rem;
+  display: block;
   max-width: 1200px;
 }
 
 .docs-sidebar {
-  width: 220px;
-  min-width: 220px;
-  flex-shrink: 0;
-  position: sticky;
+  position: fixed;
   top: 80px;
-  height: fit-content;
+  left: max(1rem, calc((100vw - 1200px) / 2));
+  width: 200px;
+  height: calc(100vh - 100px);
+  overflow-y: auto;
   padding-right: 1rem;
 }
 
 .docs-layout main {
-  flex: 1;
+  margin-left: 232px;
   min-width: 0;
-  max-width: 100%;
+  max-width: calc(100% - 232px);
   overflow: hidden;
 }
 
@@ -899,6 +898,7 @@ header {
 }
 
 .info-tooltip {
+  position: relative;
   display: inline-flex;
   color: var(--text-muted);
   cursor: help;
@@ -911,6 +911,35 @@ header {
 
 .info-tooltip:hover {
   color: var(--accent);
+}
+
+.info-tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.75rem;
+  color: var(--text);
+  white-space: normal;
+  width: max-content;
+  max-width: 280px;
+  line-height: 1.4;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s, visibility 0.15s;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  pointer-events: none;
+}
+
+.info-tooltip:hover::after {
+  opacity: 1;
+  visibility: visible;
 }
 
 .type-card pre {
@@ -1114,16 +1143,13 @@ footer a:hover {
 
 /* Responsive */
 @media (max-width: 900px) {
-  .docs-layout {
-    flex-direction: column;
-  }
-  
   .docs-sidebar {
     display: none;
   }
   
   .docs-layout main {
-    width: 100%;
+    margin-left: 0;
+    max-width: 100%;
   }
   
   .docs-mobile-nav {
