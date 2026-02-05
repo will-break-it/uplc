@@ -191,8 +191,8 @@ header {
 
 .theme-toggle,
 .github-link {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border-radius: 6px;
   border: none;
   background: transparent;
@@ -206,13 +206,12 @@ header {
 
 .theme-toggle svg,
 .github-link svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .theme-toggle:hover,
 .github-link:hover {
-  background: var(--bg-hover);
   color: var(--text);
 }
 
