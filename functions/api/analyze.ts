@@ -64,6 +64,10 @@ Redeemer variants - look for:
 - equalsInteger on fstPair of unConstrData (constructor matching)
 - Constr 0, 1, 2... indices = variant cases
 - Pattern: ifThenElse with constructor checks = when/is branches
+
+Output types as valid Aiken type definitions:
+- Datum example: "type Datum {\n  owner: ByteArray,\n  deadline: Int,\n  amount: Int,\n}"
+- Redeemer example: "type Redeemer {\n  Cancel\n  Claim { signature: ByteArray }\n  Update { new_value: Int }\n}"
 </type_inference_patterns>
 
 <important>

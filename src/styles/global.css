@@ -772,6 +772,17 @@ header {
   white-space: pre-wrap;
 }
 
+.type-card .code-block {
+  background: var(--bg-code);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+}
+
+.type-card .code-block pre {
+  color: var(--text-code);
+}
+
 /* Contract carousel */
 .contracts-carousel {
   margin-bottom: 2rem;

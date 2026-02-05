@@ -501,11 +501,15 @@ export default function ScriptAnalyzer() {
                       <div className="types-container">
                         <div className="type-card">
                           <div className="label">Datum</div>
-                          <pre>{aiAnalysis.types.datum || 'Unknown'}</pre>
+                          <div className="code-block">
+                            <CodeBlock code={aiAnalysis.types.datum || '// Unknown'} language="rust" />
+                          </div>
                         </div>
                         <div className="type-card">
                           <div className="label">Redeemer</div>
-                          <pre>{aiAnalysis.types.redeemer || 'Unknown'}</pre>
+                          <div className="code-block">
+                            <CodeBlock code={aiAnalysis.types.redeemer || '// Unknown'} language="rust" />
+                          </div>
                         </div>
                       </div>
                     </>
