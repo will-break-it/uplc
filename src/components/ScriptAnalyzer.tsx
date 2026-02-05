@@ -69,7 +69,7 @@ export default function ScriptAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<any | null>(null);
-  const [activeTab, setActiveTab] = useState<'diagram' | 'aiken' | 'builtins' | 'raw'>('diagram');
+  const [activeTab, setActiveTab] = useState<'overview' | 'builtins' | 'errors' | 'architecture' | 'inferred' | 'raw'>('overview');
   const [codeView, setCodeView] = useState<'typed' | 'raw'>('typed');
   const carouselRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -305,6 +305,54 @@ export default function ScriptAnalyzer() {
     return lines.join('\n');
   }
 
+  function getBuiltinCategory(name: string): string {
+    const categories: Record<string, string> = {
+      addInteger: 'Arithmetic',
+      subtractInteger: 'Arithmetic',
+      multiplyInteger: 'Arithmetic',
+      divideInteger: 'Arithmetic',
+      quotientInteger: 'Arithmetic',
+      remainderInteger: 'Arithmetic',
+      modInteger: 'Arithmetic',
+      equalsInteger: 'Comparison',
+      lessThanInteger: 'Comparison',
+      lessThanEqualsInteger: 'Comparison',
+      equalsByteString: 'Comparison',
+      lessThanByteString: 'Comparison',
+      appendByteString: 'ByteString',
+      consByteString: 'ByteString',
+      sha2_256: 'Crypto',
+      sha3_256: 'Crypto',
+      blake2b_256: 'Crypto',
+      verifyEd25519Signature: 'Crypto',
+      ifThenElse: 'Control',
+      chooseUnit: 'Control',
+      chooseList: 'Control',
+      chooseData: 'Control',
+      trace: 'Debug',
+      fstPair: 'Tuple',
+      sndPair: 'Tuple',
+      mkPairData: 'Tuple',
+      headList: 'List',
+      tailList: 'List',
+      nullList: 'List',
+      mkNilData: 'List',
+      mkNilPairData: 'List',
+      constrData: 'Data',
+      mapData: 'Data',
+      listData: 'Data',
+      iData: 'Data',
+      bData: 'Data',
+      unConstrData: 'Data',
+      unMapData: 'Data',
+      unListData: 'Data',
+      unIData: 'Data',
+      unBData: 'Data',
+      equalsData: 'Data',
+    };
+    return categories[name] || 'Other';
+  }
+
   return (
     <div>
       <div className="search-box">
@@ -374,144 +422,213 @@ export default function ScriptAnalyzer() {
       )}
 
       {result && (
-        <>
-          <div className="card">
-            <div className="meta-info">
-              <div className="meta-item">
-                <span className="meta-label">Script Hash</span>
-                <span className="meta-value">{result.scriptInfo.scriptHash}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-label">Type</span>
-                <span className="meta-value">{result.scriptInfo.type}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-label">Size</span>
-                <span className="meta-value">{result.scriptInfo.size.toLocaleString()} bytes</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-label">Classification</span>
-                <span className="meta-value">{result.classification}</span>
-              </div>
-            </div>
+        <div className="docs-layout">
+          {/* Sidebar Navigation */}
+          <aside className="docs-sidebar">
+            <h4>Contents</h4>
+            <nav>
+              <a href="#overview" className={activeTab === 'overview' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('overview'); }}>
+                {Icons.hex}
+                <span>Overview</span>
+              </a>
+              <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('builtins'); }}>
+                {Icons.tool}
+                <span>Builtins</span>
+                <span className="badge-small">{result.stats.uniqueBuiltins}</span>
+              </a>
+              <a href="#errors" className={activeTab === 'errors' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('errors'); }}>
+                {Icons.alert}
+                <span>Errors</span>
+                <span className="badge-small">{result.errorMessages.length}</span>
+              </a>
+              <a href="#architecture" className={activeTab === 'architecture' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('architecture'); }}>
+                {Icons.diagram}
+                <span>Architecture</span>
+              </a>
+              <a href="#inferred" className={activeTab === 'inferred' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('inferred'); }}>
+                {Icons.code}
+                <span>Inferred Code</span>
+              </a>
+              <a href="#raw" className={activeTab === 'raw' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('raw'); }}>
+                {Icons.hex}
+                <span>Raw CBOR</span>
+              </a>
+            </nav>
+          </aside>
 
-            <div className="stats-grid">
-              <div className="stat">
-                <div className="stat-value">{result.stats.uniqueBuiltins}</div>
-                <div className="stat-label">Unique Builtins</div>
-              </div>
-              <div className="stat">
-                <div className="stat-value">{result.errorMessages.length}</div>
-                <div className="stat-label">Error Messages</div>
-              </div>
-              <div className="stat">
-                <div className="stat-value">{result.scriptInfo.size}</div>
-                <div className="stat-label">Bytes</div>
-              </div>
-            </div>
+          {/* Mobile Navigation */}
+          <div className="docs-mobile-nav">
+            <select value={activeTab} onChange={(e) => setActiveTab(e.target.value as any)}>
+              <option value="overview">Overview</option>
+              <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
+              <option value="errors">Error Messages ({result.errorMessages.length})</option>
+              <option value="architecture">Architecture</option>
+              <option value="inferred">Inferred Code</option>
+              <option value="raw">Raw CBOR</option>
+            </select>
           </div>
 
-          <div className="tabs">
-            <button className={`tab ${activeTab === 'diagram' ? 'active' : ''}`} onClick={() => setActiveTab('diagram')}>
-              Architecture
-            </button>
-            <button className={`tab ${activeTab === 'aiken' ? 'active' : ''}`} onClick={() => setActiveTab('aiken')}>
-              Pseudo-Aiken
-            </button>
-            <button className={`tab ${activeTab === 'builtins' ? 'active' : ''}`} onClick={() => setActiveTab('builtins')}>
-              Analysis
-            </button>
-            <button className={`tab ${activeTab === 'raw' ? 'active' : ''}`} onClick={() => setActiveTab('raw')}>
-              Raw CBOR
-            </button>
-          </div>
-
-          {activeTab === 'diagram' && (
-            <>
-              <div className="card">
-                <h2>{Icons.diagram} Contract Flow</h2>
-                <MermaidDiagram chart={result.flowDiagram} id={`flow-${result.scriptInfo.scriptHash.substring(0, 8)}`} />
-              </div>
-              <div className="card">
-                <h2>{Icons.code} Data Structures</h2>
-                <MermaidDiagram chart={result.dataDiagram} id={`data-${result.scriptInfo.scriptHash.substring(0, 8)}`} />
-              </div>
-            </>
-          )}
-
-          {activeTab === 'aiken' && (
-            <div className="card">
-              <h2>{Icons.code} Inferred Structure</h2>
-              <p style={{ marginBottom: '1rem', fontSize: '0.8125rem', color: 'var(--text-muted)', padding: '0.75rem', background: 'var(--bg-input)', borderRadius: '8px' }}>
-                Best-guess template based on classification and error messages — not actual decompilation.
-                True UPLC decoding requires <code style={{ background: 'var(--bg-code)', color: 'var(--text-code)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontSize: '0.75rem' }}>aiken uplc decode</code> or similar tooling.
-              </p>
-              <div className="code-block">
-                <pre>{result.pseudoAiken}</pre>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'builtins' && (
-            <>
-              <div className="card">
-                <h2>{Icons.alert} Error Messages Found</h2>
-                {result.errorMessages.length > 0 ? (
-                  <ul className="error-list">
-                    {result.errorMessages.map((msg: string, i: number) => (
-                      <li key={i}>{Icons.alert}{msg}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p style={{ color: 'var(--text-muted)' }}>No readable error messages found</p>
-                )}
-              </div>
-
-              <div className="card">
-                <h2>{Icons.tool} Builtin Functions</h2>
-                <div className="builtin-list">
-                  {Object.entries(result.builtins)
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([name, count]) => (
-                      <span key={name} className="builtin-tag">
-                        {name}<span className="count">×{count as number}</span>
-                      </span>
-                    ))}
+          {/* Main Content */}
+          <main className="docs-content">
+            {activeTab === 'overview' && (
+              <section className="docs-section" id="overview">
+                <h2>{Icons.hex} Overview</h2>
+                <div className="docs-meta-grid">
+                  <div className="docs-meta-item">
+                    <div className="label">Script Hash</div>
+                    <div className="value hash">{result.scriptInfo.scriptHash}</div>
+                  </div>
+                  <div className="docs-meta-item">
+                    <div className="label">Type</div>
+                    <div className="value">{result.scriptInfo.type}</div>
+                  </div>
+                  <div className="docs-meta-item">
+                    <div className="label">Size</div>
+                    <div className="value">{result.scriptInfo.size.toLocaleString()} bytes</div>
+                  </div>
                 </div>
-              </div>
+                
+                <h3>Classification</h3>
+                <div className="classification-badge">
+                  {result.classification}
+                </div>
+                
+                <h3>Quick Stats</h3>
+                <div className="stats-grid">
+                  <div className="stat">
+                    <div className="stat-value">{result.stats.uniqueBuiltins}</div>
+                    <div className="stat-label">Unique Builtins</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-value">{result.errorMessages.length}</div>
+                    <div className="stat-label">Error Messages</div>
+                  </div>
+                  <div className="stat">
+                    <div className="stat-value">{(result.scriptInfo.bytes.length / 2).toLocaleString()}</div>
+                    <div className="stat-label">Bytes</div>
+                  </div>
+                </div>
+              </section>
+            )}
 
-            </>
-          )}
+            {activeTab === 'builtins' && (
+              <section className="docs-section" id="builtins">
+                <h2>{Icons.tool} Builtin Functions</h2>
+                <p>
+                  Plutus builtins detected in this contract. Higher counts may indicate core logic patterns.
+                </p>
+                {Object.keys(result.builtins).length > 0 ? (
+                  <table className="builtin-table">
+                    <thead>
+                      <tr>
+                        <th>Function</th>
+                        <th>Count</th>
+                        <th>Category</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(result.builtins)
+                        .sort((a, b) => (b[1] as number) - (a[1] as number))
+                        .map(([name, count]) => (
+                          <tr key={name}>
+                            <td>{name}</td>
+                            <td className="count">{count as number}</td>
+                            <td className="category">{getBuiltinCategory(name)}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="empty-state">
+                    <p>No builtins detected (may be a minimal script)</p>
+                  </div>
+                )}
+              </section>
+            )}
 
-          {activeTab === 'raw' && (
-            <div className="card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <h2 style={{ margin: 0 }}>{Icons.hex} Raw CBOR (Hex)</h2>
-                <button 
-                  className="copy-btn"
-                  onClick={() => {
-                    navigator.clipboard.writeText(result.scriptInfo.bytes);
-                    const btn = document.querySelector('.copy-btn');
-                    if (btn) {
-                      btn.textContent = 'Copied!';
-                      setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-                    }
-                  }}
-                >
-                  Copy
-                </button>
-              </div>
-              <div className="code-block" style={{ maxHeight: '600px' }}>
-                <pre style={{ wordBreak: 'break-all' }}>
-                  {result.scriptInfo.bytes}
-                </pre>
-              </div>
-              <p style={{ marginTop: '0.75rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {result.scriptInfo.bytes.length.toLocaleString()} hex characters ({(result.scriptInfo.bytes.length / 2).toLocaleString()} bytes)
-              </p>
-            </div>
-          )}
-        </>
+            {activeTab === 'errors' && (
+              <section className="docs-section" id="errors">
+                <h2>{Icons.alert} Error Messages</h2>
+                <p>
+                  Human-readable strings extracted from the bytecode. These often reveal validation logic.
+                </p>
+                {result.errorMessages.length > 0 ? (
+                  <div>
+                    {result.errorMessages.map((msg: string, i: number) => (
+                      <div key={i} className="error-item">
+                        {Icons.alert}
+                        <span>{msg}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No readable error messages found in bytecode</p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeTab === 'architecture' && (
+              <section className="docs-section" id="architecture">
+                <h2>{Icons.diagram} Architecture</h2>
+                <p>
+                  Inferred contract flow and data structures based on classification.
+                </p>
+                
+                <h3>Contract Flow</h3>
+                <MermaidDiagram chart={result.flowDiagram} id={`flow-${result.scriptInfo.scriptHash.substring(0, 8)}`} />
+                
+                <h3>Data Structures</h3>
+                <MermaidDiagram chart={result.dataDiagram} id={`data-${result.scriptInfo.scriptHash.substring(0, 8)}`} />
+              </section>
+            )}
+
+            {activeTab === 'inferred' && (
+              <section className="docs-section" id="inferred">
+                <h2>{Icons.code} Inferred Code</h2>
+                <p>
+                  Best-guess template based on classification and error messages — <strong>not actual decompilation</strong>.
+                  True UPLC decoding requires <code>aiken uplc decode</code> or similar tooling.
+                </p>
+                <div className="code-block">
+                  <pre>{result.pseudoAiken}</pre>
+                </div>
+              </section>
+            )}
+
+            {activeTab === 'raw' && (
+              <section className="docs-section" id="raw">
+                <h2>{Icons.hex} Raw CBOR</h2>
+                <p>
+                  The complete script bytecode in hexadecimal format.
+                </p>
+                <div className="code-section">
+                  <button 
+                    className="copy-btn"
+                    onClick={() => {
+                      navigator.clipboard.writeText(result.scriptInfo.bytes);
+                      const btn = document.querySelector('.code-section .copy-btn') as HTMLButtonElement;
+                      if (btn) {
+                        btn.textContent = 'Copied!';
+                        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                      }
+                    }}
+                  >
+                    Copy
+                  </button>
+                  <div className="code-block" style={{ maxHeight: '500px' }}>
+                    <pre style={{ wordBreak: 'break-all' }}>{result.scriptInfo.bytes}</pre>
+                  </div>
+                </div>
+                <p style={{ marginTop: '0.75rem', fontSize: '0.8125rem' }}>
+                  <strong>{result.scriptInfo.bytes.length.toLocaleString()}</strong> hex characters 
+                  (<strong>{(result.scriptInfo.bytes.length / 2).toLocaleString()}</strong> bytes)
+                </p>
+              </section>
+            )}
+          </main>
+        </div>
       )}
     </div>
   );
