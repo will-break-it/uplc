@@ -277,7 +277,7 @@ export default function ScriptAnalyzer() {
               </a>
               <a href="#errors" className={activeTab === 'errors' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('errors'); }}>
                 {Icons.alert}
-                <span>Errors</span>
+                <span>Trace Strings</span>
                 <span className="badge-small">{result.errorMessages.length}</span>
               </a>
               <a href="#constants" className={activeTab === 'constants' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('constants'); }}>
@@ -297,7 +297,7 @@ export default function ScriptAnalyzer() {
               <option value="overview">Overview</option>
               <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
               <option value="uplc">UPLC Code</option>
-              <option value="errors">Error Messages ({result.errorMessages.length})</option>
+              <option value="errors">Trace Strings ({result.errorMessages.length})</option>
               <option value="constants">Constants</option>
               <option value="raw">Raw CBOR</option>
             </select>
@@ -426,22 +426,22 @@ export default function ScriptAnalyzer() {
 
             {activeTab === 'errors' && (
               <section className="docs-section" id="errors">
-                <h2>{Icons.alert} Error Messages</h2>
+                <h2>{Icons.alert} Trace Strings</h2>
                 <p>
-                  Human-readable strings extracted from the bytecode. These often reveal validation logic.
+                  Human-readable strings embedded in the contract — typically used for <code>trace</code> calls and validation error messages.
                 </p>
                 {result.errorMessages.length > 0 ? (
                   <div>
                     {result.errorMessages.map((msg: string, i: number) => (
                       <div key={i} className="error-item">
-                        {Icons.alert}
+                        {Icons.code}
                         <span>{msg}</span>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="empty-state">
-                    <p>No readable error messages found in bytecode</p>
+                    <p>No readable strings found in bytecode</p>
                   </div>
                 )}
               </section>
