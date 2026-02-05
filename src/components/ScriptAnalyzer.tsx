@@ -622,7 +622,7 @@ export default function ScriptAnalyzer() {
                           onClick={() => setContractView('aiken')}
                           disabled={aiLoading && !aiAnalysis}
                         >
-                          {aiLoading && !aiAnalysis && <div className="spinner" style={{ width: 12, height: 12, borderWidth: 2, marginBottom: 0 }} />}
+                          {aiLoading && !aiAnalysis && <div className="spinner spinner-sm" />}
                           Aiken
                         </button>
                       </div>
