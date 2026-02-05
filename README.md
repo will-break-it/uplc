@@ -1,43 +1,61 @@
-# Astro Starter Kit: Minimal
+# UPLC Analyzer
 
-```sh
-npm create astro@latest -- --template minimal
+**Live at:** https://uplc.pages.dev
+
+Analyze Cardano Plutus smart contracts by decoding their UPLC bytecode.
+
+## Features
+
+- 🔍 **Script Lookup** — Paste any script hash, fetch from Koios API
+- 📊 **Builtin Analysis** — Extract and categorize Plutus builtins
+- ⚠️ **Error Messages** — Decode human-readable error strings from bytecode
+- 🏷️ **Contract Classification** — Auto-detect NFT marketplace, DEX, lending, etc.
+- 🔀 **Architecture Diagrams** — Mermaid flowcharts of contract logic
+- 🦊 **Pseudo-Aiken** — Reconstructed source code approximation
+- ⚡ **MEV Risk Rating** — HIGH/MEDIUM/LOW based on contract type
+
+## How It Works
+
+1. Fetches script CBOR from [Koios API](https://api.koios.rest)
+2. Extracts readable strings (error messages) from bytecode
+3. Analyzes builtin function usage patterns
+4. Classifies contract type based on patterns
+5. Generates Mermaid diagrams and pseudo-Aiken reconstruction
+
+## Tech Stack
+
+- **Framework:** [Astro](https://astro.build) + React
+- **Hosting:** [Cloudflare Pages](https://pages.cloudflare.com)
+- **API Proxy:** Cloudflare Functions (CORS workaround)
+- **Diagrams:** [Mermaid](https://mermaid.js.org)
+- **Data:** [Koios API](https://api.koios.rest)
+
+## Development
+
+```bash
+npm install
+npm run dev     # http://localhost:4321
+npm run build   # Build to dist/
 ```
 
-> 🧑‍🚀 **Seasoned astronaut?** Delete this file. Have fun!
+## Deploy
 
-## 🚀 Project Structure
+Automatic deployment via Cloudflare Pages on push to `main`.
 
-Inside of your Astro project, you'll see the following folders and files:
-
-```text
-/
-├── public/
-├── src/
-│   └── pages/
-│       └── index.astro
-└── package.json
+Manual deploy:
+```bash
+npm run build
+wrangler pages deploy dist --project-name uplc
 ```
 
-Astro looks for `.astro` or `.md` files in the `src/pages/` directory. Each page is exposed as a route based on its file name.
+## Example Scripts
 
-There's nothing special about `src/components/`, but that's where we like to put any Astro/React/Vue/Svelte/Preact components.
+| Hash | Protocol | Type |
+|------|----------|------|
+| `4a59ebd93ea53d1bbf7f82232c7b012700a0cf4bb78d879dabb1a20a` | NFT Marketplace | MEDIUM risk |
+| `a65ca58a4e9c755fa830173d2a5caed458ac0c73f97db7faae2e7e3b` | Minswap V1 Order | HIGH risk |
+| `e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec13309` | Minswap V1 Pool | HIGH risk |
 
-Any static assets, like images, can be placed in the `public/` directory.
+## License
 
-## 🧞 Commands
-
-All commands are run from the root of the project, from a terminal:
-
-| Command                   | Action                                           |
-| :------------------------ | :----------------------------------------------- |
-| `npm install`             | Installs dependencies                            |
-| `npm run dev`             | Starts local dev server at `localhost:4321`      |
-| `npm run build`           | Build your production site to `./dist/`          |
-| `npm run preview`         | Preview your build locally, before deploying     |
-| `npm run astro ...`       | Run CLI commands like `astro add`, `astro check` |
-| `npm run astro -- --help` | Get help using the Astro CLI                     |
-
-## 👀 Want to learn more?
-
-Feel free to check [our documentation](https://docs.astro.build) or jump into our [Discord server](https://astro.build/chat).
+MIT
