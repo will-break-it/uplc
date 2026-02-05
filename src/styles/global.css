@@ -1043,7 +1043,7 @@ header > .header-inner {
 .contract-card {
   flex: 0 0 160px;
   scroll-snap-align: start;
-  background: var(--bg-card);
+  background: color-mix(in srgb, var(--card-accent) 8%, var(--bg-card));
   border: 1px solid var(--card-accent, var(--border));
   border-radius: 10px;
   padding: 1rem;
@@ -1053,6 +1053,7 @@ header > .header-inner {
 }
 
 .contract-card:hover {
+  background: color-mix(in srgb, var(--card-accent) 15%, var(--bg-card));
   transform: translateY(-2px);
   box-shadow: 0 4px 12px color-mix(in srgb, var(--card-accent) 25%, transparent);
 }
