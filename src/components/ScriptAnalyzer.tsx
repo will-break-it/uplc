@@ -297,6 +297,23 @@ export default function ScriptAnalyzer() {
           </svg>
           <h1>UPLC Analyzer</h1>
         </a>
+        
+        {/* Compact search in header when we have results */}
+        {(result || loading) && (
+          <div className="header-search">
+            <input
+              type="text"
+              placeholder="Script hash..."
+              value={scriptHash}
+              onChange={(e) => setScriptHash(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && analyze()}
+            />
+            <button onClick={() => analyze()} disabled={loading}>
+              {loading ? '...' : 'Go'}
+            </button>
+          </div>
+        )}
+        
         <div className="header-actions">
           <button className="theme-toggle" onClick={toggleTheme} title={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}>
             {theme === 'light' ? Icons.moon : Icons.sun}
@@ -308,19 +325,24 @@ export default function ScriptAnalyzer() {
       </header>
 
       <div className="container">
-        {/* Search */}
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder="Enter script hash (56 hex characters)"
-            value={scriptHash}
-            onChange={(e) => setScriptHash(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && analyze()}
-          />
-          <button onClick={() => analyze()} disabled={loading}>
-            {loading ? 'Analyzing...' : 'Analyze'}
-          </button>
-        </div>
+        {/* Centered search (landing state only) */}
+        {!result && !loading && (
+          <div className="landing-search">
+            <div className="search-box">
+              <input
+                type="text"
+                placeholder="Enter script hash (56 hex characters)"
+                value={scriptHash}
+                onChange={(e) => setScriptHash(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && analyze()}
+              />
+              <button onClick={() => analyze()} disabled={loading}>
+                Analyze
+              </button>
+            </div>
+            {error && <div className="error-message">{error}</div>}
+          </div>
+        )}
 
         {/* Contract carousel (when no result) */}
         {!result && !loading && (
@@ -345,7 +367,7 @@ export default function ScriptAnalyzer() {
           </div>
         )}
 
-        {error && <div className="error-message">{error}</div>}
+        {error && (result || loading) && <div className="error-message">{error}</div>}
 
         {loading && (
           <div className="loading">
