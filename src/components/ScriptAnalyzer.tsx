@@ -550,46 +550,55 @@ export default function ScriptAnalyzer() {
                   {/* Toggle + Copy in header bar */}
                   <div className="code-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                     {/* Format Toggle */}
-                    <div style={{ display: 'flex', gap: '0.25rem' }}>
-                      <button
-                        onClick={() => setShowAiken(false)}
-                        style={{
-                          background: !showAiken ? '#374151' : 'transparent',
-                          color: !showAiken ? 'white' : '#9ca3af',
-                          border: '1px solid #374151',
-                          padding: '0.375rem 0.75rem',
-                          borderRadius: '0.375rem 0 0 0.375rem',
-                          cursor: 'pointer',
-                          fontSize: '0.8125rem',
-                        }}
-                      >
-                        Raw UPLC
-                      </button>
-                      <button
-                        onClick={() => setShowAiken(true)}
-                        disabled={prettifyLoading && !aikenCode}
-                        style={{
-                          background: showAiken ? '#374151' : 'transparent',
-                          color: showAiken ? 'white' : '#9ca3af',
-                          border: '1px solid #374151',
-                          padding: '0.375rem 0.75rem',
-                          borderRadius: '0 0.375rem 0.375rem 0',
-                          cursor: prettifyLoading && !aikenCode ? 'wait' : 'pointer',
-                          fontSize: '0.8125rem',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.375rem',
-                        }}
-                      >
-                        {prettifyLoading && !aikenCode ? (
-                          <>
-                            <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
-                            Aiken
-                          </>
-                        ) : (
-                          <>Aiken</>
-                        )}
-                      </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{ display: 'flex' }}>
+                        <button
+                          onClick={() => setShowAiken(false)}
+                          style={{
+                            background: !showAiken ? '#374151' : 'transparent',
+                            color: !showAiken ? 'white' : '#9ca3af',
+                            border: '1px solid #374151',
+                            borderRight: 'none',
+                            padding: '0.375rem 0.75rem',
+                            borderRadius: '0.375rem 0 0 0.375rem',
+                            cursor: 'pointer',
+                            fontSize: '0.8125rem',
+                          }}
+                        >
+                          UPLC
+                        </button>
+                        <button
+                          onClick={() => setShowAiken(true)}
+                          disabled={prettifyLoading && !aikenCode}
+                          style={{
+                            background: showAiken ? '#374151' : 'transparent',
+                            color: showAiken ? 'white' : '#9ca3af',
+                            border: '1px solid #374151',
+                            padding: '0.375rem 0.75rem',
+                            borderRadius: '0 0.375rem 0.375rem 0',
+                            cursor: prettifyLoading && !aikenCode ? 'wait' : 'pointer',
+                            fontSize: '0.8125rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.375rem',
+                          }}
+                        >
+                          {prettifyLoading && !aikenCode ? (
+                            <>
+                              <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
+                              Aiken
+                            </>
+                          ) : (
+                            <>Aiken</>
+                          )}
+                        </button>
+                      </div>
+                      {/* Inline AI disclaimer */}
+                      {showAiken && (
+                        <span style={{ fontSize: '0.75rem', color: '#a78bfa' }}>
+                          AI approximation
+                        </span>
+                      )}
                     </div>
                     
                     {/* Copy button */}
@@ -608,39 +617,6 @@ export default function ScriptAnalyzer() {
                       Copy
                     </button>
                   </div>
-                  
-                  {/* AI disclaimer for Aiken view */}
-                  {showAiken && (
-                    <div style={{ 
-                      background: 'rgba(139, 92, 246, 0.1)', 
-                      border: '1px solid rgba(139, 92, 246, 0.3)',
-                      borderRadius: '0.375rem',
-                      padding: '0.5rem 0.75rem',
-                      marginBottom: '0.5rem',
-                      fontSize: '0.8125rem',
-                      color: '#a78bfa',
-                    }}>
-                      AI-generated approximation — may not be valid Aiken syntax
-                      {!aikenCode && !prettifyError && (
-                        <button
-                          onClick={() => result?.uplcPreview && triggerPrettify(result.uplcPreview)}
-                          disabled={prettifyLoading}
-                          style={{
-                            marginLeft: '0.5rem',
-                            background: 'transparent',
-                            border: '1px solid #a78bfa',
-                            color: '#a78bfa',
-                            padding: '0.125rem 0.5rem',
-                            borderRadius: '0.25rem',
-                            cursor: 'pointer',
-                            fontSize: '0.75rem',
-                          }}
-                        >
-                          Retry
-                        </button>
-                      )}
-                    </div>
-                  )}
                   
                   {prettifyError && showAiken && (
                     <div style={{ color: '#ef4444', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
@@ -670,7 +646,7 @@ export default function ScriptAnalyzer() {
                       ) : aikenCode ? (
                         <CodeBlock code={aikenCode} language="rust" />
                       ) : (
-                        <pre style={{ color: '#6b7280' }}>Failed to generate Aiken code. Switch to Raw UPLC or retry.</pre>
+                        <pre style={{ color: '#6b7280' }}>Failed to generate Aiken code. Switch to UPLC or retry.</pre>
                       )
                     ) : (
                       <CodeBlock code={result.uplcPreview} language="haskell" />
