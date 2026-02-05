@@ -15,7 +15,9 @@ import '../styles/global.css';
   <body>
     <div class="container">
       <header>
-        <h1>UPLC <span class="accent">Analyzer</span></h1>
+        <a href="/" class="header-link" onclick="window.history.pushState({}, '', '/'); window.location.reload(); return false;">
+          <h1>UPLC <span class="accent">Analyzer</span></h1>
+        </a>
         <p>Decode and visualize Cardano smart contracts</p>
       </header>
 

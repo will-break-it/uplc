@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { ScriptInfo, AnalysisResult } from '../lib/analyzer';
 import {
   fetchScriptInfo,
@@ -9,11 +9,23 @@ import {
 import { generateContractDiagram, generateDataStructureDiagram } from '../lib/mermaid-generator';
 import MermaidDiagram from './MermaidDiagram';
 
-// Example script hashes
-const EXAMPLES = [
-  { hash: '4a59ebd93ea53d1bbf7f82232c7b012700a0cf4bb78d879dabb1a20a', label: 'NFT Marketplace' },
-  { hash: 'a65ca58a4e9c755fa830173d2a5caed458ac0c73f97db7faae2e7e3b', label: 'Minswap V1' },
-  { hash: 'ba158766c1bae60e2117ee8987621441fac66a5e0fb9c7aca58cf20a', label: 'SundaeSwap' },
+// Top Cardano contracts by activity
+const TOP_CONTRACTS = [
+  { hash: 'e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec13309', label: 'Minswap', category: 'DEX', color: '#8b5cf6' },
+  { hash: 'ba158766c1bae60e2117ee8987621441fac66a5e0fb9c7aca58cf20a', label: 'SundaeSwap V1', category: 'DEX', color: '#06b6d4' },
+  { hash: '13aa2accf2e1561723aa26871e071fdf32c867cff7e7d50ad470d62f', label: 'Minswap V2', category: 'DEX', color: '#8b5cf6' },
+  { hash: '4a59ebd93ea53d1bbf7f82232c7b012700a0cf4bb78d879dabb1a20a', label: 'JPG Store', category: 'NFT', color: '#f59e0b' },
+  { hash: 'ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b', label: 'SundaeSwap V3', category: 'DEX', color: '#06b6d4' },
+  { hash: '6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69', label: 'WingRiders', category: 'DEX', color: '#10b981' },
+  { hash: 'c8c93656e8bce07fdc029d51abf7b1a782a45e68a65b91bdc267449e', label: 'Liqwid', category: 'Lending', color: '#3b82f6' },
+  { hash: '2a12ef3acb648d51c4a46d7b9db20ff72dc8d22976eb3434671dffd3', label: 'CNFT.IO', category: 'NFT', color: '#f59e0b' },
+  { hash: '8fe8f53e9ea0e1db80170fa01ec8992db07af01271db549c367d5aaf', label: 'Spectrum', category: 'DEX', color: '#ec4899' },
+  { hash: 'a65ca58a4e9c755fa830173d2a5caed458ac0c73f97db7faae2e7e3b', label: 'Minswap Orders', category: 'DEX', color: '#8b5cf6' },
+  { hash: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', label: 'Indigo', category: 'Synthetics', color: '#6366f1' },
+  { hash: '6eb512be867e4c9f89dd59d97d7f9d2ede0e73be9aed7fb344a51a56', label: 'Lending Pool', category: 'Lending', color: '#3b82f6' },
+  { hash: 'd4b8a83fd2d63856cd8c3e0e9e9ad7e8d3b0a1c5f6e7d8c9b0a1b2c3', label: 'VyFi', category: 'DEX', color: '#14b8a6' },
+  { hash: '3a9241cd79895e3a8d65c7a1e7c3c9d8b2a4f6e8d0c2b4a6e8f0a2c4', label: 'Optim', category: 'Bonds', color: '#a855f7' },
+  { hash: 'c0ee29a85b13209423b10447d3c2e6a50641a15c57770e27cb9d5073', label: 'SundaeSwap Staking', category: 'Staking', color: '#06b6d4' },
 ];
 
 // Icons as SVG components
@@ -59,6 +71,27 @@ export default function ScriptAnalyzer() {
   const [result, setResult] = useState<any | null>(null);
   const [activeTab, setActiveTab] = useState<'diagram' | 'aiken' | 'builtins' | 'raw'>('diagram');
   const [codeView, setCodeView] = useState<'typed' | 'raw'>('typed');
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const checkScrollPosition = () => {
+    if (carouselRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = carouselRef.current;
+      setCanScrollLeft(scrollLeft > 0);
+      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 10);
+    }
+  };
+
+  const scrollCarousel = (direction: 'left' | 'right') => {
+    if (carouselRef.current) {
+      const scrollAmount = 200;
+      carouselRef.current.scrollBy({
+        left: scrollAmount * (direction === 'left' ? -1 : 1),
+        behavior: 'smooth',
+      });
+    }
+  };
 
   // Check URL for script hash on load
   useEffect(() => {
@@ -270,7 +303,6 @@ export default function ScriptAnalyzer() {
     lines.push('}');
     
     return lines.join('\n');
-    return result;
   }
 
   return (
@@ -288,14 +320,49 @@ export default function ScriptAnalyzer() {
         </button>
       </div>
 
-      <div className="examples">
-        <span>Try:</span>
-        {EXAMPLES.map((ex) => (
-          <button key={ex.hash} onClick={() => analyze(ex.hash)}>
-            {ex.label}
-          </button>
-        ))}
-      </div>
+      {!result && !loading && (
+        <div className="contracts-carousel">
+          <h3>Top Contracts</h3>
+          <div className="carousel-wrapper">
+            <button 
+              className="carousel-btn prev" 
+              onClick={() => scrollCarousel('left')}
+              disabled={!canScrollLeft}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <div 
+              className="carousel-scroll" 
+              ref={carouselRef}
+              onScroll={checkScrollPosition}
+            >
+              {TOP_CONTRACTS.map((contract) => (
+                <div
+                  key={contract.hash}
+                  className="contract-card"
+                  style={{ '--card-accent': contract.color } as React.CSSProperties}
+                  onClick={() => analyze(contract.hash)}
+                >
+                  <div className="label">{contract.label}</div>
+                  <div className="category">{contract.category}</div>
+                  <div className="hash">{contract.hash.substring(0, 12)}...</div>
+                </div>
+              ))}
+            </div>
+            <button 
+              className="carousel-btn next" 
+              onClick={() => scrollCarousel('right')}
+              disabled={!canScrollRight}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && <div className="error-message">{error}</div>}
 
