@@ -252,20 +252,20 @@ header > .header-inner {
 
 /* Search box */
 .search-box {
-  display: flex;
-  gap: 0.75rem;
+  position: relative;
   margin-bottom: 1.5rem;
-  max-width: 800px;
+  max-width: 600px;
+  width: 100%;
 }
 
 .search-box input {
-  flex: 1;
-  padding: 0.875rem 1rem;
+  width: 100%;
+  padding: 1rem 7rem 1rem 1.25rem;
   font-size: 0.9375rem;
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: 12px;
   color: var(--text);
   outline: none;
   transition: all 0.15s;
@@ -281,13 +281,17 @@ header > .header-inner {
 }
 
 .search-box button {
-  padding: 0.875rem 1.5rem;
-  font-size: 0.9375rem;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.625rem 1.25rem;
+  font-size: 0.875rem;
   font-weight: 500;
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -1225,12 +1229,14 @@ footer a:hover {
     padding: 1rem;
   }
   
-  .search-box {
-    flex-direction: column;
+  .search-box input {
+    padding-right: 5.5rem;
+    font-size: 0.875rem;
   }
   
   .search-box button {
-    width: 100%;
+    padding: 0.5rem 0.875rem;
+    font-size: 0.8125rem;
   }
   
   .stats-row,
@@ -1240,18 +1246,5 @@ footer a:hover {
   
   .carousel-btn {
     display: none;
-  }
-  
-  .mobile-search .search-box {
-    flex-direction: row;
-  }
-  
-  .mobile-search .search-box input {
-    font-size: 0.875rem;
-  }
-  
-  .mobile-search .search-box button {
-    width: auto;
-    padding: 0.5rem 1rem;
   }
 }
