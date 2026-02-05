@@ -1,39 +1,71 @@
 // Cloudflare Pages Function to proxy Koios script_utxos API (for datums)
-export const onRequestGet: PagesFunction = async (context) => {
-  const url = new URL(context.request.url);
-  const scriptHash = url.searchParams.get('_script_hash');
-  const limit = url.searchParams.get('limit') || '10';
-  
-  if (!scriptHash) {
-    return new Response(JSON.stringify({ error: 'Missing _script_hash' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
+
+interface Env {}
+
+export const onRequest: PagesFunction<Env> = async (context) => {
+  if (context.request.method === 'OPTIONS') {
+    return new Response(null, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
     });
   }
-  
-  const koiosUrl = `https://api.koios.rest/api/v1/script_utxos?_script_hash=${scriptHash}&_extended=true&limit=${limit}`;
-  
-  const response = await fetch(koiosUrl, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
-  
-  const data = await response.json();
-  
-  return new Response(JSON.stringify(data), {
-    headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
-};
 
-export const onRequestOptions: PagesFunction = async () => {
-  return new Response(null, {
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
-    },
-  });
+  try {
+    let scriptHash: string | null = null;
+    
+    if (context.request.method === 'GET') {
+      const url = new URL(context.request.url);
+      scriptHash = url.searchParams.get('_script_hash');
+    } else if (context.request.method === 'POST') {
+      const body = await context.request.json() as { _script_hash?: string };
+      scriptHash = body._script_hash || null;
+    }
+
+    if (!scriptHash) {
+      return new Response(JSON.stringify({ error: 'Missing _script_hash parameter' }), {
+        status: 400,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
+    const response = await fetch('https://api.koios.rest/api/v1/script_utxos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ _script_hash: scriptHash }),
+    });
+
+    if (!response.ok) {
+      return new Response(JSON.stringify({ error: `Koios API error: ${response.status}` }), {
+        status: response.status,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
+    const data = await response.json();
+
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    return new Response(JSON.stringify({ error: message }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
+  }
 };

@@ -135,7 +135,7 @@ function prettyPrintPlutusData(data: any, indent: number = 0): string {
     return `${pad}[\n${items.join(',\n')}\n${pad}]`;
   }
   
-  if (data instanceof Uint8Array || Buffer.isBuffer(data)) {
+  if (data instanceof Uint8Array || (typeof Buffer !== 'undefined' && Buffer.isBuffer(data))) {
     const hex = Array.from(data as Uint8Array).map(b => b.toString(16).padStart(2, '0')).join('');
     if (hex.length <= 64) {
       return `${pad}bytes: ${hex}`;
@@ -218,11 +218,16 @@ function decodeCborHex(hex: string): { decoded: any; prettyPrinted: string } {
 export async function fetchScriptDatums(scriptHash: string, limit: number = 10): Promise<DecodedDatum[]> {
   const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
   const apiUrl = isProduction
-    ? `/api/script_utxos?_script_hash=${scriptHash}&limit=${limit}`
-    : `https://api.koios.rest/api/v1/script_utxos?_script_hash=${scriptHash}&_extended=true&limit=${limit}`;
+    ? '/api/script_utxos'
+    : 'https://api.koios.rest/api/v1/script_utxos';
   
   try {
-    const response = await fetch(apiUrl);
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ _script_hash: scriptHash, _extended: true }),
+    });
+    
     if (!response.ok) {
       console.warn('Failed to fetch UTXOs:', response.statusText);
       return [];
@@ -235,7 +240,7 @@ export async function fetchScriptDatums(scriptHash: string, limit: number = 10):
     
     const datums: DecodedDatum[] = [];
     
-    for (const utxo of data) {
+    for (const utxo of data.slice(0, limit)) {
       // Check for inline datum
       if (utxo.inline_datum && utxo.inline_datum.bytes) {
         const { decoded, prettyPrinted } = decodeCborHex(utxo.inline_datum.bytes);
@@ -272,11 +277,16 @@ export async function fetchScriptDatums(scriptHash: string, limit: number = 10):
 export async function fetchScriptRedeemers(scriptHash: string, limit: number = 10): Promise<DecodedRedeemer[]> {
   const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
   const apiUrl = isProduction
-    ? `/api/script_redeemers?_script_hash=${scriptHash}&limit=${limit}`
-    : `https://api.koios.rest/api/v1/script_redeemers?_script_hash=${scriptHash}&limit=${limit}`;
+    ? '/api/script_redeemers'
+    : 'https://api.koios.rest/api/v1/script_redeemers';
   
   try {
-    const response = await fetch(apiUrl);
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ _script_hash: scriptHash }),
+    });
+    
     if (!response.ok) {
       console.warn('Failed to fetch redeemers:', response.statusText);
       return [];
@@ -289,7 +299,7 @@ export async function fetchScriptRedeemers(scriptHash: string, limit: number = 1
     
     const redeemers: DecodedRedeemer[] = [];
     
-    for (const item of data) {
+    for (const item of data.slice(0, limit)) {
       if (item.redeemer && item.redeemer.datum && item.redeemer.datum.bytes) {
         const { decoded, prettyPrinted } = decodeCborHex(item.redeemer.datum.bytes);
         redeemers.push({

@@ -655,6 +655,106 @@ export default function ScriptAnalyzer() {
                 </p>
               </section>
             )}
+
+            {activeTab === 'datums' && (
+              <section className="docs-section" id="datums">
+                <h2>{Icons.datum} Datums</h2>
+                <p>
+                  Recent datums from script UTXOs on-chain. These are the actual data structures locked at this script address.
+                </p>
+                {result.datums.length > 0 ? (
+                  <div className="datums-list">
+                    {result.datums.map((datum, i) => (
+                      <div key={i} className="datum-item">
+                        <div className="datum-header">
+                          <h3>Datum #{i + 1}</h3>
+                          <span className="tx-ref">
+                            tx: {datum.txHash.slice(0, 8)}...#{datum.outputIndex}
+                          </span>
+                        </div>
+                        {datum.raw && (
+                          <>
+                            <div className="datum-section">
+                              <div className="datum-label">Raw CBOR:</div>
+                              <div className="code-block datum-raw">
+                                <pre>{datum.raw.length > 200 ? datum.raw.slice(0, 200) + '...' : datum.raw}</pre>
+                              </div>
+                            </div>
+                            <div className="datum-section">
+                              <div className="datum-label">Decoded:</div>
+                              <div className="code-block datum-decoded">
+                                <pre>{datum.prettyPrinted}</pre>
+                              </div>
+                            </div>
+                          </>
+                        )}
+                        {!datum.raw && (
+                          <div className="datum-section">
+                            <div className="code-block datum-decoded">
+                              <pre>{datum.prettyPrinted}</pre>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No datums found in recent UTXOs for this script</p>
+                    <p className="empty-hint">This script may not have active UTXOs, or datums may be stored by hash reference.</p>
+                  </div>
+                )}
+              </section>
+            )}
+
+            {activeTab === 'redeemers' && (
+              <section className="docs-section" id="redeemers">
+                <h2>{Icons.redeemer} Redeemers</h2>
+                <p>
+                  Recent redeemer data from transactions that executed this script. Redeemers are the arguments provided to unlock UTXOs.
+                </p>
+                {result.redeemers.length > 0 ? (
+                  <div className="redeemers-list">
+                    {result.redeemers.map((redeemer, i) => (
+                      <div key={i} className="redeemer-item">
+                        <div className="redeemer-header">
+                          <h3>Redeemer #{i + 1}</h3>
+                          <span className="tx-ref">
+                            tx: {redeemer.txHash.slice(0, 8)}...
+                          </span>
+                        </div>
+                        <div className="redeemer-meta">
+                          <span className="purpose-badge">{redeemer.purpose}</span>
+                          <span className="exec-units">
+                            Mem: {redeemer.unitMem.toLocaleString()} | Steps: {redeemer.unitSteps.toLocaleString()}
+                          </span>
+                          {redeemer.fee !== '0' && (
+                            <span className="fee">Fee: {(parseInt(redeemer.fee) / 1000000).toFixed(2)} ₳</span>
+                          )}
+                        </div>
+                        <div className="redeemer-section">
+                          <div className="redeemer-label">Raw CBOR:</div>
+                          <div className="code-block redeemer-raw">
+                            <pre>{redeemer.raw.length > 200 ? redeemer.raw.slice(0, 200) + '...' : redeemer.raw}</pre>
+                          </div>
+                        </div>
+                        <div className="redeemer-section">
+                          <div className="redeemer-label">Decoded:</div>
+                          <div className="code-block redeemer-decoded">
+                            <pre>{redeemer.prettyPrinted}</pre>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No recent redeemers found for this script</p>
+                    <p className="empty-hint">This script may not have been executed recently, or redeemer data may not be available.</p>
+                  </div>
+                )}
+              </section>
+            )}
           </main>
         </div>
       )}

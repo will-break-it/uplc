@@ -370,3 +370,132 @@
   border-radius: 4px;
   font-size: 0.8125rem;
 }
+
+/* Datums and Redeemers sections */
+.datums-list,
+.redeemers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin-top: 1rem;
+}
+
+.datum-item,
+.redeemer-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.datum-header,
+.redeemer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.datum-header h3,
+.redeemer-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--accent);
+}
+
+.tx-ref {
+  font-size: 0.75rem;
+  font-family: 'SF Mono', Consolas, monospace;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.redeemer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  font-size: 0.8125rem;
+}
+
+.purpose-badge {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.exec-units {
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+.fee {
+  color: #22c55e;
+  font-weight: 500;
+}
+
+.datum-section,
+.redeemer-section {
+  margin-top: 0.75rem;
+}
+
+.datum-label,
+.redeemer-label {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 0.375rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.datum-raw,
+.redeemer-raw {
+  max-height: 100px;
+  overflow: auto;
+}
+
+.datum-raw pre,
+.redeemer-raw pre {
+  font-size: 0.6875rem;
+  color: #94a3b8;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+.datum-decoded,
+.redeemer-decoded {
+  max-height: 300px;
+  overflow: auto;
+}
+
+.datum-decoded pre,
+.redeemer-decoded pre {
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: #e2e8f0;
+}
+
+.empty-hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+}
+
+/* Add highlight colors for different Plutus data types in decoded view */
+.datum-decoded pre,
+.redeemer-decoded pre {
+  color: #e2e8f0;
+}
