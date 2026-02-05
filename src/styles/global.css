@@ -430,13 +430,29 @@ header {
   margin-bottom: 1rem;
 }
 
+/* Overview header with classification badge */
+.overview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.overview-header h2 {
+  margin: 0;
+}
+
+.overview-header .classification-badge {
+  margin: 0;
+}
+
 /* Script hash card - full width */
 .script-hash-card {
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1rem 1.25rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
 }
 
 .script-hash-card .label {
@@ -461,11 +477,27 @@ header {
   word-break: break-all;
 }
 
-.script-hash-card .dapp-name {
-  font-size: 0.9375rem;
-  font-weight: 500;
+/* dApp name card */
+.dapp-name-card {
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.dapp-name-card .label {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 0.375rem;
+}
+
+.dapp-name-card .dapp-name {
+  font-size: 1.125rem;
+  font-weight: 600;
   color: var(--text);
-  margin-top: 0.25rem;
 }
 
 .copy-hash-btn {

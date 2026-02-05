@@ -403,7 +403,7 @@ export default function ScriptAnalyzer() {
                 onKeyDown={(e) => e.key === 'Enter' && analyze()}
               />
               <button onClick={() => analyze()} disabled={loading}>
-                Analyze
+                Decode
               </button>
             </div>
             {error && <div className="error-message">{error}</div>}
@@ -488,8 +488,11 @@ export default function ScriptAnalyzer() {
             {/* Main content */}
             <main className="docs-content">
               {activeTab === 'overview' && (
-                <section className="docs-section">
-                  <h2>{Icons.overview} Overview</h2>
+                <section className="docs-section overview-section">
+                  <div className="overview-header">
+                    <h2>{Icons.overview} Overview</h2>
+                    <div className="classification-badge">{result.classification}</div>
+                  </div>
                   
                   {/* Script hash card */}
                   <div className="script-hash-card">
@@ -500,10 +503,14 @@ export default function ScriptAnalyzer() {
                         {Icons.copy}
                       </button>
                     </div>
-                    {getKnownContract(result.scriptInfo.scriptHash) && (
-                      <div className="dapp-name">{getKnownContract(result.scriptInfo.scriptHash)?.label}</div>
-                    )}
                   </div>
+
+                  {getKnownContract(result.scriptInfo.scriptHash) && (
+                    <div className="dapp-name-card">
+                      <div className="label">Contract</div>
+                      <div className="dapp-name">{getKnownContract(result.scriptInfo.scriptHash)?.label}</div>
+                    </div>
+                  )}
 
                   {/* Stats row */}
                   <div className="stats-row">
@@ -520,10 +527,6 @@ export default function ScriptAnalyzer() {
                       <div className="value small">{result.version}</div>
                     </div>
                   </div>
-
-                  {/* Classification */}
-                  <h3>Classification</h3>
-                  <div className="classification-badge">{result.classification}</div>
                 </section>
               )}
 
