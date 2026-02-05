@@ -171,8 +171,8 @@ export function decodeUPLC(bytes: string): {
   
   traverse(program._body);
   
-  // Generate pretty print
-  const prettyPrint = prettyPrintUPLC(program._body, 0, 80);
+  // Generate pretty print in aiken style
+  const prettyPrint = prettyPrintUPLC(program._body, 0, 100, version);
   
   return {
     program,
@@ -201,8 +201,10 @@ function bufferToHex(buffer: Uint8Array): string {
     .join('');
 }
 
-function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
+// Pretty print UPLC in aiken-style format
+function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: string): string {
   const lines: string[] = [];
+  let varCounter = 0;
   
   function emit(s: string) {
     if (lines.length < maxLines) {
@@ -210,7 +212,8 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
     }
   }
   
-  function pp(term: any, depth: number) {
+  // Track variable names through lambda scopes
+  function pp(term: any, depth: number, varStack: string[]) {
     if (lines.length >= maxLines) return;
     
     const pad = '  '.repeat(depth);
@@ -218,39 +221,46 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
     
     switch (name) {
       case 'Application':
-        emit(`${pad}(apply`);
-        pp(term.funcTerm, depth + 1);
-        pp(term.argTerm, depth + 1);
-        emit(`${pad})`);
+        emit(`${pad}[`);
+        pp(term.funcTerm, depth + 1, varStack);
+        pp(term.argTerm, depth + 1, varStack);
+        emit(`${pad}]`);
         break;
       case 'Lambda':
+        const varName = `i_${varCounter++}`;
         emit(`${pad}(lam`);
-        pp(term.body, depth + 1);
+        emit(`${pad}  ${varName}`);
+        pp(term.body, depth + 1, [varName, ...varStack]);
         emit(`${pad})`);
         break;
       case 'Delay':
         emit(`${pad}(delay`);
-        pp(term.delayedTerm, depth + 1);
+        pp(term.delayedTerm, depth + 1, varStack);
         emit(`${pad})`);
         break;
       case 'Force':
         emit(`${pad}(force`);
-        pp(term.termToForce, depth + 1);
+        pp(term.termToForce, depth + 1, varStack);
         emit(`${pad})`);
         break;
       case 'UPLCVar':
-        emit(`${pad}(var ${term.deBruijn})`);
+        // Convert De Bruijn index to named variable
+        const idx = Number(term.deBruijn);
+        const resolvedVar = idx < varStack.length ? varStack[idx] : `?_${idx}`;
+        emit(`${pad}${resolvedVar}`);
         break;
       case 'Builtin':
         const tag = builtinTagToString(term._tag);
-        emit(`${pad}(builtin ${tag})`);
+        emit(`${pad}(builtin`);
+        emit(`${pad}  ${tag}`);
+        emit(`${pad})`);
         break;
       case 'UPLCConst':
         const val = term.value;
         if (typeof val === 'bigint') {
           emit(`${pad}(con integer ${val})`);
         } else if (typeof val === 'boolean') {
-          emit(`${pad}(con bool ${val})`);
+          emit(`${pad}(con bool ${val ? 'True' : 'False'})`);
         } else if (typeof val === 'string') {
           emit(`${pad}(con string "${val.slice(0, 50)}")`);
         } else if (val instanceof Uint8Array) {
@@ -258,10 +268,10 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
           if (hex.length <= 40) {
             emit(`${pad}(con bytestring #${hex})`);
           } else {
-            emit(`${pad}(con bytestring #${hex.slice(0, 40)}... [${val.length} bytes])`);
+            emit(`${pad}(con bytestring #${hex.slice(0, 40)}...)`);
           }
         } else if (val === undefined || val === null) {
-          emit(`${pad}(con unit)`);
+          emit(`${pad}(con unit ())`);
         } else {
           emit(`${pad}(con ${typeof val})`);
         }
@@ -272,15 +282,15 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
       case 'Constr':
         emit(`${pad}(constr ${term.index}`);
         if (term.terms) {
-          term.terms.forEach((t: any) => pp(t, depth + 1));
+          term.terms.forEach((t: any) => pp(t, depth + 1, varStack));
         }
         emit(`${pad})`);
         break;
       case 'Case':
         emit(`${pad}(case`);
-        pp(term.scrutinee, depth + 1);
+        pp(term.scrutinee, depth + 1, varStack);
         if (term.branches) {
-          term.branches.forEach((b: any) => pp(b, depth + 1));
+          term.branches.forEach((b: any) => pp(b, depth + 1, varStack));
         }
         emit(`${pad})`);
         break;
@@ -289,7 +299,11 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number): string {
     }
   }
   
-  pp(term, indent);
+  // Start with program wrapper
+  emit(`(program`);
+  emit(`  ${version}`);
+  pp(term, 1, []);
+  emit(`)`);
   
   if (lines.length >= maxLines) {
     lines.push('  ...');
