@@ -355,11 +355,12 @@ export default function ScriptAnalyzer() {
       {/* Header */}
       <header>
         <a href="/" className="header-brand">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <polyline points="16,18 22,12 16,6" />
-            <polyline points="8,6 2,12 8,18" />
+          <svg viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="6" fill="#0891b2"/>
+            <path d="M9 11l4 5-4 5" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M15 21h8" stroke="white" strokeWidth="2" strokeLinecap="round"/>
           </svg>
-          <h1>UPLC Analyzer</h1>
+          <h1>UPLC.WTF</h1>
         </a>
         
         {/* Compact search in header when we have results */}
@@ -392,6 +393,7 @@ export default function ScriptAnalyzer() {
         {/* Centered search (landing state only) */}
         {!result && !loading && (
           <div className="landing-search">
+            <p className="tagline">WTF is this script doing?</p>
             <div className="search-box">
               <input
                 type="text"
