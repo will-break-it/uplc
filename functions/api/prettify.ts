@@ -5,17 +5,34 @@ interface Env {
   UPLC_CACHE: KVNamespace;
 }
 
-const SYSTEM_PROMPT = `You are an expert Cardano/Plutus developer. Convert raw UPLC AST into readable Aiken-style pseudocode.
+const SYSTEM_PROMPT = `You are an expert Cardano/Plutus decompiler. Convert UPLC AST into actual Aiken-style code.
 
-Guidelines:
-- Rename variables (i_0 → datum, redeemer, ctx, value, pkh, etc.)
-- Add comments explaining logic
-- Use Aiken syntax (validator, fn, let, if/else, match)
-- Add type annotations where inferrable
-- Identify common patterns (signature checks, deadlines, transfers)
-- Keep output concise but readable
+CRITICAL RULES:
+1. ACTUALLY DECOMPILE - don't describe structure, show the real logic
+2. Follow every lambda, every application, every builtin call
+3. Trace data flow: what gets extracted from datum/redeemer/ctx?
+4. Show actual conditions: what builtins are called? what comparisons?
+5. NO PLACEHOLDERS - never write "True", "validation logic here", etc.
+6. NO META-COMMENTARY - don't say "this appears to be" or "likely"
 
-Output ONLY the prettified code. No markdown fences.`;
+Aiken syntax guide:
+- validator name(datum: Type, redeemer: Type, ctx: ScriptContext) -> Bool
+- let x = expr
+- if condition { ... } else { ... }
+- when expr is { Pattern -> result, ... }
+- list.any(), list.find(), etc. for list operations
+
+For parameterized validators (curried lambdas):
+- First N lambdas are compile-time parameters, show as: validator name(p1, p2, ...)(datum, redeemer, ctx)
+- Name parameters based on usage (policy_id, deadline, owner_pkh, etc.)
+
+Common patterns to recognize:
+- EqualsData + HeadList/TailList = field access
+- VerifyEd25519Signature = signature check  
+- LessThanEqualsInteger on POSIXTime = deadline check
+- UnConstrData index 0/1 = True/False or custom constructor
+
+Output ONLY working Aiken-style code with comments. No markdown.`;
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { ANTHROPIC_API_KEY, UPLC_CACHE } = context.env;
