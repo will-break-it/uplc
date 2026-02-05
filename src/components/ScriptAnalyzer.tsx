@@ -729,12 +729,7 @@ export default function ScriptAnalyzer() {
 
       <footer>
         <p>
-          Built by <a href="https://pagebase.dev" target="_blank" rel="noopener">Pagebase</a> for Cardano smart contract analysis.
-        </p>
-        <p style={{ marginTop: '0.5rem' }}>
-          <a href="https://github.com/will-break-it/uplc" target="_blank" rel="noopener">Source</a>
-          {' · '}
-          <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener">☕ Support</a>
+          Find this useful? <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener">Support the project</a>
         </p>
       </footer>
     </div>
