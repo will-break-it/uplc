@@ -1,6 +1,26 @@
 import { useState, useEffect, useRef } from 'react';
+import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult, DecodedDatum, DecodedRedeemer } from '../lib/analyzer';
 import { analyzeScriptCore, fetchScriptDatums, fetchScriptRedeemers } from '../lib/analyzer';
+
+// Syntax-highlighted code block component
+function CodeBlock({ code, language = 'haskell' }: { code: string; language?: string }) {
+  return (
+    <Highlight theme={themes.nightOwl} code={code} language={language}>
+      {({ className, style, tokens, getLineProps, getTokenProps }) => (
+        <pre className={className} style={{ ...style, background: 'transparent', margin: 0, padding: 0 }}>
+          {tokens.map((line, i) => (
+            <div key={i} {...getLineProps({ line })}>
+              {line.map((token, key) => (
+                <span key={key} {...getTokenProps({ token })} />
+              ))}
+            </div>
+          ))}
+        </pre>
+      )}
+    </Highlight>
+  );
+}
 
 // Top Cardano contracts by activity
 const TOP_CONTRACTS = [
@@ -623,12 +643,12 @@ export default function ScriptAnalyzer() {
                       prettifyLoading && !aikenCode ? (
                         <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
                       ) : aikenCode ? (
-                        <pre>{aikenCode}</pre>
+                        <CodeBlock code={aikenCode} language="rust" />
                       ) : (
                         <pre style={{ color: '#6b7280' }}>Failed to generate Aiken code. Switch to Raw UPLC or retry.</pre>
                       )
                     ) : (
-                      <pre>{result.uplcPreview}</pre>
+                      <CodeBlock code={result.uplcPreview} language="haskell" />
                     )}
                   </div>
                 </div>
