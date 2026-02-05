@@ -101,7 +101,7 @@ export default function ScriptAnalyzer() {
       const scriptInfo = await fetchScriptInfo(targetHash);
       const errorMessages = extractErrorMessages(scriptInfo.bytes);
       const builtins = extractBuiltinsFromHex(scriptInfo.bytes);
-      const { classification, mevRisk } = classifyContract(builtins, errorMessages);
+      const { classification, mevRisk, protocol } = classifyContract(builtins, errorMessages, scriptInfo.bytes);
       const pseudoAiken = generatePseudoAiken(classification, errorMessages, builtins, targetHash);
       const flowDiagram = generateContractDiagram(classification, errorMessages, builtins);
       const dataDiagram = generateDataStructureDiagram(classification, errorMessages);
@@ -217,12 +217,6 @@ export default function ScriptAnalyzer() {
                 <span className="meta-label">Classification</span>
                 <span className="meta-value">{result.classification}</span>
               </div>
-              <div className="meta-item">
-                <span className="meta-label">MEV Risk</span>
-                <span className={`badge ${getRiskBadgeClass(result.mevRisk)}`}>
-                  {result.mevRisk}
-                </span>
-              </div>
             </div>
 
             <div className="stats-grid">
@@ -306,20 +300,6 @@ export default function ScriptAnalyzer() {
                 </div>
               </div>
 
-              <div className="card">
-                <h2>{Icons.shield} MEV Risk Assessment</h2>
-                <p style={{ marginBottom: '1rem' }}>
-                  <span className={`badge ${getRiskBadgeClass(result.mevRisk)}`} style={{ marginRight: '0.5rem' }}>
-                    {result.mevRisk}
-                  </span>
-                  {result.classification}
-                </p>
-                <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-                  {result.mevRisk === 'HIGH' && 'DEX contracts are susceptible to front-running, sandwich attacks, and arbitrage.'}
-                  {result.mevRisk === 'MEDIUM' && 'NFT marketplaces have moderate MEV risk from sniping and sweep attacks.'}
-                  {result.mevRisk === 'LOW' && 'Staking and governance contracts have minimal MEV exposure.'}
-                </p>
-              </div>
             </>
           )}
 

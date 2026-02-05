@@ -68,6 +68,20 @@ const BUILTIN_CATEGORIES: Record<string, string> = {
   bData: 'data',
 };
 
+// Helper: Convert hex bytes to readable text (for protocol detection)
+function hexToText(hex: string): string {
+  let result = '';
+  for (let i = 0; i < hex.length; i += 2) {
+    const byte = parseInt(hex.substring(i, i + 2), 16);
+    if (byte >= 32 && byte < 127) {
+      result += String.fromCharCode(byte);
+    } else {
+      result += '.';
+    }
+  }
+  return result;
+}
+
 export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
   // Use local proxy to avoid CORS issues
   const apiUrl = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
@@ -100,22 +114,51 @@ export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
 }
 
 export function extractErrorMessages(bytes: string): string[] {
-  // Convert hex to text and extract readable strings
   const text = hexToText(bytes);
   const messages: string[] = [];
+  const protocols: string[] = [];
   
-  // Match readable ASCII strings (8+ chars with spaces/punctuation)
-  const regex = /[\x20-\x7E]{8,}/g;
+  // Known protocol names to look for
+  const knownProtocols = ['MINSWAP', 'SUNDAE', 'WINGRIDERS', 'MUESLI', 'SPECTRUM', 'JPG', 'LIQWID', 'LENFI', 'INDIGO'];
+  for (const proto of knownProtocols) {
+    if (text.toUpperCase().includes(proto)) {
+      protocols.push(proto);
+    }
+  }
+  
+  // Error message patterns - look for meaningful phrases
+  const errorPatterns = [
+    /\b(not|invalid|must|failed|error|missing|expected|unauthorized|insufficient|cannot|forbidden|denied|required|already|exceeded|wrong|bad)\b/i,
+    /\b(buyer|seller|owner|admin|fee|royalt|payment|collateral|stake|reward|swap|pool|mint|burn|withdraw|deposit)\b/i,
+  ];
+  
+  // Match readable ASCII strings (6+ chars)
+  const regex = /[a-zA-Z][a-zA-Z0-9 _-]{5,}[a-zA-Z]/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
     const str = match[0].trim();
-    // Filter out noise - keep messages with lowercase letters
-    if (/[a-z]/.test(str) && !/^[0-9#]+$/.test(str)) {
+    
+    // Skip binary noise patterns
+    if (/^[A-Z#.]+$/.test(str)) continue;  // All caps/symbols
+    if (/(.)\1{3,}/.test(str)) continue;   // Repeated chars (aaaa, 2222)
+    if (/^[0-9a-fA-F]+$/.test(str)) continue;  // Hex-looking
+    if (str.length > 100) continue;  // Too long = noise
+    
+    // Require meaningful content (spaces or error-like words)
+    const hasSpace = str.includes(' ');
+    const hasErrorPattern = errorPatterns.some(p => p.test(str));
+    
+    if (hasSpace || hasErrorPattern) {
       messages.push(str);
     }
   }
   
-  return [...new Set(messages)];
+  // Add protocol detections at the start
+  if (protocols.length > 0) {
+    messages.unshift(`[Protocol: ${protocols.join(', ')}]`);
+  }
+  
+  return [...new Set(messages)].slice(0, 15);  // Limit to 15 messages
 }
 
 export function extractBuiltins(uplc: string): Record<string, number> {
@@ -143,31 +186,71 @@ export function extractBuiltins(uplc: string): Record<string, number> {
   return builtins;
 }
 
+// Known Cardano protocol identifiers
+const KNOWN_PROTOCOLS: Record<string, { name: string; type: string; risk: 'LOW' | 'MEDIUM' | 'HIGH' }> = {
+  'minswap': { name: 'Minswap', type: 'DEX/AMM', risk: 'HIGH' },
+  'sundae': { name: 'SundaeSwap', type: 'DEX/AMM', risk: 'HIGH' },
+  'wingriders': { name: 'WingRiders', type: 'DEX/AMM', risk: 'HIGH' },
+  'muesliswap': { name: 'MuesliSwap', type: 'DEX/AMM', risk: 'HIGH' },
+  'spectrum': { name: 'Spectrum', type: 'DEX/AMM', risk: 'HIGH' },
+  'jpg.store': { name: 'JPG Store', type: 'NFT Marketplace', risk: 'MEDIUM' },
+  'jpgstore': { name: 'JPG Store', type: 'NFT Marketplace', risk: 'MEDIUM' },
+  'liqwid': { name: 'Liqwid', type: 'Lending Protocol', risk: 'HIGH' },
+  'lenfi': { name: 'Lenfi', type: 'Lending Protocol', risk: 'HIGH' },
+  'indigo': { name: 'Indigo', type: 'Synthetic Assets', risk: 'HIGH' },
+};
+
 export function classifyContract(
   builtins: Record<string, number>,
-  errorMessages: string[]
-): { classification: string; mevRisk: 'LOW' | 'MEDIUM' | 'HIGH' } {
+  errorMessages: string[],
+  rawBytes?: string
+): { classification: string; mevRisk: 'LOW' | 'MEDIUM' | 'HIGH'; protocol?: string } {
   const errorText = errorMessages.join(' ').toLowerCase();
   const builtinSet = new Set(Object.keys(builtins));
+  
+  // Check for known protocol names in bytes
+  if (rawBytes) {
+    const bytesLower = hexToText(rawBytes).toLowerCase();
+    for (const [key, proto] of Object.entries(KNOWN_PROTOCOLS)) {
+      if (bytesLower.includes(key)) {
+        return { 
+          classification: `${proto.type} (${proto.name})`, 
+          mevRisk: proto.risk,
+          protocol: proto.name
+        };
+      }
+    }
+  }
+  
+  // Count arithmetic operations (DEX contracts are math-heavy)
+  const arithmeticCount = 
+    (builtins['multiplyInteger'] || 0) + 
+    (builtins['divideInteger'] || 0) +
+    (builtins['quotientInteger'] || 0) +
+    (builtins['remainderInteger'] || 0);
   
   // NFT Marketplace patterns
   if (
     errorText.includes('buyer') ||
     errorText.includes('seller') ||
     errorText.includes('royalt') ||
-    errorText.includes('nft')
+    errorText.includes('nft') ||
+    errorText.includes('sale') ||
+    errorText.includes('listing')
   ) {
     return { classification: 'NFT Marketplace', mevRisk: 'MEDIUM' };
   }
   
-  // DEX/AMM patterns
-  if (
-    (builtinSet.has('multiplyInteger') && builtinSet.has('divideInteger')) ||
+  // DEX/AMM patterns - require EITHER keywords OR heavy arithmetic (20+ ops)
+  const hasDexKeywords = 
     errorText.includes('swap') ||
     errorText.includes('pool') ||
     errorText.includes('liquidity') ||
-    errorText.includes('slippage')
-  ) {
+    errorText.includes('slippage') ||
+    errorText.includes('amm') ||
+    errorText.includes('lp token');
+  
+  if (hasDexKeywords || arithmeticCount >= 20) {
     return { classification: 'DEX/AMM', mevRisk: 'HIGH' };
   }
   
@@ -199,6 +282,30 @@ export function classifyContract(
   // Oracle patterns
   if (errorText.includes('oracle') || errorText.includes('price feed')) {
     return { classification: 'Oracle', mevRisk: 'HIGH' };
+  }
+  
+  // Escrow/Payment patterns (uses arithmetic for fee splitting)
+  if (
+    errorText.includes('fee') ||
+    errorText.includes('payment') ||
+    errorText.includes('escrow') ||
+    errorText.includes('recipient')
+  ) {
+    return { classification: 'Escrow/Payment', mevRisk: 'LOW' };
+  }
+  
+  // Token/Minting patterns
+  if (
+    errorText.includes('mint') ||
+    errorText.includes('burn') ||
+    errorText.includes('policy')
+  ) {
+    return { classification: 'Token/Minting', mevRisk: 'LOW' };
+  }
+  
+  // If arithmetic-heavy but no keywords, might be a generic DeFi contract
+  if (arithmeticCount >= 10) {
+    return { classification: 'DeFi (Generic)', mevRisk: 'MEDIUM' };
   }
   
   return { classification: 'Unknown', mevRisk: 'MEDIUM' };
@@ -278,19 +385,6 @@ export function generatePseudoAiken(
   }
   
   return lines.join('\n');
-}
-
-function hexToText(hex: string): string {
-  let result = '';
-  for (let i = 0; i < hex.length; i += 2) {
-    const byte = parseInt(hex.substring(i, i + 2), 16);
-    if (byte >= 32 && byte < 127) {
-      result += String.fromCharCode(byte);
-    } else {
-      result += '.';
-    }
-  }
-  return result;
 }
 
 export function analyzeUplc(uplc: string): {
