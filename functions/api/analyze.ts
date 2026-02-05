@@ -119,6 +119,7 @@ JSON only:
 - Identify enum variants from pattern matching
 </type_inference>`;
 
+// Standard call (for fallback/simpler tasks)
 async function callAnthropic(
   apiKey: string,
   systemPrompt: string,
@@ -149,6 +150,44 @@ async function callAnthropic(
 
   const data = await response.json() as { content: Array<{ type: string; text?: string }> };
   return prefill + data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+}
+
+// Extended thinking call (for complex UPLC analysis)
+async function callAnthropicWithThinking(
+  apiKey: string,
+  systemPrompt: string,
+  userContent: string,
+  thinkingBudget: number = 10000
+): Promise<string> {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 16000,
+      thinking: {
+        type: 'enabled',
+        budget_tokens: thinkingBudget,
+      },
+      messages: [
+        { role: 'user', content: systemPrompt + '\n\n' + userContent }
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.error('Anthropic thinking API error:', errText);
+    throw new Error(`Anthropic API error: ${response.status}`);
+  }
+
+  const data = await response.json() as { content: Array<{ type: string; text?: string; thinking?: string }> };
+  // Extended thinking returns thinking blocks + text blocks - we only want the text
+  return data.content.filter(b => b.type === 'text').map(b => b.text).join('');
 }
 
 function parseJsonSafe<T>(text: string): T | null {
@@ -206,15 +245,18 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     const compactedUplc = compactUplc(uplc);
     let result: AnalysisResult;
 
-    // Strategy 1: Try combined request
+    // Strategy 1: Try combined request with extended thinking for better analysis
     try {
-      const rawResponse = await callAnthropic(
+      const rawResponse = await callAnthropicWithThinking(
         ANTHROPIC_API_KEY,
         COMBINED_PROMPT,
-        `Analyze this UPLC:\n\n${compactedUplc}`
+        `<uplc_bytecode>\n${compactedUplc}\n</uplc_bytecode>\n\nAnalyze this UPLC bytecode and respond with JSON only.`,
+        10000  // 10k thinking tokens for complex analysis
       );
       
-      const parsed = parseJsonSafe<{ aiken?: string; mermaid?: string; types?: { datum: string; redeemer: string } }>(rawResponse);
+      // Extract JSON from response (may have text around it)
+      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
+      const parsed = jsonMatch ? parseJsonSafe<{ aiken?: string; mermaid?: string; types?: { datum: string; redeemer: string } }>(jsonMatch[0]) : null;
       
       if (parsed?.aiken && parsed.aiken.length > 50) {
         result = {
