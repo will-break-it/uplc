@@ -777,6 +777,49 @@ export function classifyContract(
   return { classification: 'Unknown' };
 }
 
+// Core analysis (fast) - fetches script and decodes UPLC
+export async function analyzeScriptCore(scriptHash: string): Promise<Omit<AnalysisResult, 'datums' | 'redeemers'>> {
+  const scriptInfo = await fetchScriptInfo(scriptHash);
+  
+  // Decode UPLC
+  let decoded;
+  let errorMessages: string[] = [];
+  
+  try {
+    decoded = decodeUPLC(scriptInfo.bytes);
+    errorMessages = extractErrorMessages(scriptInfo.bytes);
+  } catch (e: any) {
+    throw new Error(`Failed to decode UPLC: ${e.message}`);
+  }
+  
+  // Classify
+  const { classification, protocol } = classifyContract(
+    decoded.builtins,
+    errorMessages,
+    scriptInfo.bytes
+  );
+  
+  const totalBuiltins = Object.values(decoded.builtins).reduce((a, b) => a + b, 0);
+  
+  return {
+    scriptInfo,
+    builtins: decoded.builtins,
+    errorMessages,
+    constants: decoded.constants,
+    classification: protocol ? `${classification}` : classification,
+    version: decoded.version,
+    stats: {
+      totalBuiltins,
+      uniqueBuiltins: Object.keys(decoded.builtins).length,
+      ...decoded.stats,
+    },
+    uplcPreview: decoded.prettyPrint,
+    datums: [],
+    redeemers: [],
+  };
+}
+
+// Full analysis (blocking) - for backwards compatibility
 export async function analyzeScript(scriptHash: string): Promise<AnalysisResult> {
   // Fetch script from chain and on-chain data in parallel
   const [scriptInfo, datums, redeemers] = await Promise.all([

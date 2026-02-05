@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import type { AnalysisResult, DecodedDatum, DecodedRedeemer } from '../lib/analyzer';
-import { analyzeScript } from '../lib/analyzer';
+import { analyzeScriptCore, fetchScriptDatums, fetchScriptRedeemers } from '../lib/analyzer';
 
 // Top Cardano contracts by activity
 const TOP_CONTRACTS = [
@@ -91,6 +91,10 @@ export default function ScriptAnalyzer() {
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
   
+  // Progressive loading state
+  const [datumsLoading, setDatumsLoading] = useState(false);
+  const [redeemersLoading, setRedeemersLoading] = useState(false);
+  
   // AI Prettify state
   const [aikenCode, setAikenCode] = useState<string | null>(null);
   const [prettifyLoading, setPrettifyLoading] = useState(false);
@@ -129,38 +133,6 @@ export default function ScriptAnalyzer() {
     }
   }, []);
 
-  const prettifyWithAI = async () => {
-    if (!result?.uplcPreview) return;
-    
-    setPrettifyLoading(true);
-    setPrettifyError(null);
-    
-    try {
-      const response = await fetch('/api/prettify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uplc: result.uplcPreview }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to prettify');
-      }
-      
-      // Strip any markdown code fences the AI might include
-      let code = data.aiken || '';
-      code = code.replace(/^```(?:aiken|plutus|haskell)?\n?/gm, '').replace(/```$/gm, '').trim();
-      
-      setAikenCode(code);
-      setShowAiken(true);
-    } catch (err) {
-      setPrettifyError(err instanceof Error ? err.message : 'Failed to prettify');
-    } finally {
-      setPrettifyLoading(false);
-    }
-  };
-
   const analyze = async (hash?: string) => {
     const targetHash = hash || scriptHash.trim();
     if (!targetHash) return;
@@ -178,17 +150,75 @@ export default function ScriptAnalyzer() {
     // Reset AI state
     setAikenCode(null);
     setPrettifyError(null);
-    setShowAiken(false);
+    setShowAiken(true); // Default to Aiken view
+    setPrettifyLoading(true); // Start loading indicator
 
     window.history.pushState({}, '', `/?hash=${targetHash}`);
 
     try {
-      const analysisResult = await analyzeScript(targetHash);
-      setResult(analysisResult);
+      // Step 1: Core analysis (fast) - shows immediately
+      const coreResult = await analyzeScriptCore(targetHash);
+      setResult(coreResult);
+      setLoading(false);
+      
+      // Step 2: Auto-trigger AI prettify in background
+      triggerPrettify(coreResult.uplcPreview);
+      
+      // Step 3: Load datums and redeemers in background
+      setDatumsLoading(true);
+      setRedeemersLoading(true);
+      
+      fetchScriptDatums(targetHash, 10)
+        .then(datums => {
+          setResult(prev => prev ? { ...prev, datums } : null);
+        })
+        .catch(err => console.warn('Failed to load datums:', err))
+        .finally(() => setDatumsLoading(false));
+      
+      fetchScriptRedeemers(targetHash, 10)
+        .then(redeemers => {
+          setResult(prev => prev ? { ...prev, redeemers } : null);
+        })
+        .catch(err => console.warn('Failed to load redeemers:', err))
+        .finally(() => setRedeemersLoading(false));
+        
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
-    } finally {
       setLoading(false);
+      setPrettifyLoading(false);
+    }
+  };
+  
+  // Separate function for AI prettify (can be retriggered)
+  const triggerPrettify = async (uplc: string) => {
+    if (!uplc) return;
+    
+    setPrettifyLoading(true);
+    setPrettifyError(null);
+    
+    try {
+      const response = await fetch('/api/prettify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uplc }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to prettify');
+      }
+      
+      // Strip any markdown code fences the AI might include
+      let code = data.aiken || '';
+      code = code.replace(/^```(?:aiken|plutus|haskell)?\n?/gm, '').replace(/```$/gm, '').trim();
+      
+      setAikenCode(code);
+    } catch (err) {
+      setPrettifyError(err instanceof Error ? err.message : 'Failed to prettify');
+      setShowAiken(false); // Fall back to raw UPLC on error
+    } finally {
+      setPrettifyLoading(false);
     }
   };
 
@@ -346,12 +376,12 @@ export default function ScriptAnalyzer() {
               <a href="#datums" className={activeTab === 'datums' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('datums'); }}>
                 {Icons.datum}
                 <span>Datums</span>
-                <span className="badge-small">{result.datums.length}</span>
+                <span className="badge-small">{datumsLoading ? '…' : result.datums.length}</span>
               </a>
               <a href="#redeemers" className={activeTab === 'redeemers' ? 'active' : ''} onClick={(e) => { e.preventDefault(); setActiveTab('redeemers'); }}>
                 {Icons.redeemer}
                 <span>Redeemers</span>
-                <span className="badge-small">{result.redeemers.length}</span>
+                <span className="badge-small">{redeemersLoading ? '…' : result.redeemers.length}</span>
               </a>
             </nav>
           </aside>
@@ -365,8 +395,8 @@ export default function ScriptAnalyzer() {
               <option value="errors">Trace Strings ({result.errorMessages.length})</option>
               <option value="constants">Constants</option>
               <option value="raw">Raw CBOR</option>
-              <option value="datums">Datums ({result.datums.length})</option>
-              <option value="redeemers">Redeemers ({result.redeemers.length})</option>
+              <option value="datums">Datums ({datumsLoading ? '…' : result.datums.length})</option>
+              <option value="redeemers">Redeemers ({redeemersLoading ? '…' : result.redeemers.length})</option>
             </select>
           </div>
 
@@ -471,101 +501,135 @@ export default function ScriptAnalyzer() {
                   The actual UPLC abstract syntax tree decoded from flat encoding.
                 </p>
                 
-                {/* AI Prettify Controls */}
-                <div className="ai-prettify-section" style={{ marginBottom: '1rem' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button
-                      className="prettify-btn"
-                      onClick={prettifyWithAI}
-                      disabled={prettifyLoading}
-                      style={{
-                        background: 'linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%)',
-                        color: 'white',
-                        border: 'none',
-                        padding: '0.5rem 1rem',
-                        borderRadius: '0.375rem',
-                        cursor: prettifyLoading ? 'wait' : 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.5rem',
-                        fontSize: '0.875rem',
-                        fontWeight: 500,
-                        opacity: prettifyLoading ? 0.7 : 1,
+                <div className="code-section">
+                  {/* Toggle + Copy in header bar */}
+                  <div className="code-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    {/* Format Toggle */}
+                    <div style={{ display: 'flex', gap: '0.25rem' }}>
+                      <button
+                        onClick={() => setShowAiken(false)}
+                        style={{
+                          background: !showAiken ? '#374151' : 'transparent',
+                          color: !showAiken ? 'white' : '#9ca3af',
+                          border: '1px solid #374151',
+                          padding: '0.375rem 0.75rem',
+                          borderRadius: '0.375rem 0 0 0.375rem',
+                          cursor: 'pointer',
+                          fontSize: '0.8125rem',
+                        }}
+                      >
+                        Raw UPLC
+                      </button>
+                      <button
+                        onClick={() => setShowAiken(true)}
+                        disabled={prettifyLoading && !aikenCode}
+                        style={{
+                          background: showAiken ? '#374151' : 'transparent',
+                          color: showAiken ? 'white' : '#9ca3af',
+                          border: '1px solid #374151',
+                          padding: '0.375rem 0.75rem',
+                          borderRadius: '0 0.375rem 0.375rem 0',
+                          cursor: prettifyLoading && !aikenCode ? 'wait' : 'pointer',
+                          fontSize: '0.8125rem',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.375rem',
+                        }}
+                      >
+                        {prettifyLoading && !aikenCode ? (
+                          <>
+                            <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
+                            Aiken
+                          </>
+                        ) : (
+                          <>Aiken ✨</>
+                        )}
+                      </button>
+                    </div>
+                    
+                    {/* Copy button */}
+                    <button 
+                      className="copy-btn"
+                      onClick={() => {
+                        const textToCopy = showAiken && aikenCode ? aikenCode : result.uplcPreview;
+                        navigator.clipboard.writeText(textToCopy);
+                        const btn = document.querySelector('#uplc .copy-btn') as HTMLButtonElement;
+                        if (btn) {
+                          btn.textContent = 'Copied!';
+                          setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+                        }
                       }}
                     >
-                      {prettifyLoading ? (
-                        <>
-                          <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
-                          Converting with AI...
-                        </>
-                      ) : (
-                        <>
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
-                          </svg>
-                          Prettify with AI
-                        </>
-                      )}
+                      Copy
                     </button>
-                    
-                    {aikenCode && (
-                      <div style={{ display: 'flex', gap: '0.25rem' }}>
-                        <button
-                          onClick={() => setShowAiken(false)}
-                          style={{
-                            background: !showAiken ? '#374151' : 'transparent',
-                            color: !showAiken ? 'white' : '#9ca3af',
-                            border: '1px solid #374151',
-                            padding: '0.375rem 0.75rem',
-                            borderRadius: '0.375rem 0 0 0.375rem',
-                            cursor: 'pointer',
-                            fontSize: '0.8125rem',
-                          }}
-                        >
-                          Raw UPLC
-                        </button>
-                        <button
-                          onClick={() => setShowAiken(true)}
-                          style={{
-                            background: showAiken ? '#374151' : 'transparent',
-                            color: showAiken ? 'white' : '#9ca3af',
-                            border: '1px solid #374151',
-                            padding: '0.375rem 0.75rem',
-                            borderRadius: '0 0.375rem 0.375rem 0',
-                            cursor: 'pointer',
-                            fontSize: '0.8125rem',
-                          }}
-                        >
-                          Aiken Style ✨
-                        </button>
-                      </div>
-                    )}
                   </div>
                   
-                  {prettifyError && (
-                    <div style={{ color: '#ef4444', marginTop: '0.5rem', fontSize: '0.875rem' }}>
-                      ⚠️ {prettifyError}
+                  {/* AI disclaimer for Aiken view */}
+                  {showAiken && (
+                    <div style={{ 
+                      background: 'rgba(139, 92, 246, 0.1)', 
+                      border: '1px solid rgba(139, 92, 246, 0.3)',
+                      borderRadius: '0.375rem',
+                      padding: '0.5rem 0.75rem',
+                      marginBottom: '0.5rem',
+                      fontSize: '0.8125rem',
+                      color: '#a78bfa',
+                    }}>
+                      ✨ AI-generated approximation — may not be valid Aiken syntax
+                      {!aikenCode && !prettifyError && (
+                        <button
+                          onClick={() => result?.uplcPreview && triggerPrettify(result.uplcPreview)}
+                          disabled={prettifyLoading}
+                          style={{
+                            marginLeft: '0.5rem',
+                            background: 'transparent',
+                            border: '1px solid #a78bfa',
+                            color: '#a78bfa',
+                            padding: '0.125rem 0.5rem',
+                            borderRadius: '0.25rem',
+                            cursor: 'pointer',
+                            fontSize: '0.75rem',
+                          }}
+                        >
+                          Retry
+                        </button>
+                      )}
                     </div>
                   )}
-                </div>
-                
-                <div className="code-section">
-                  <button 
-                    className="copy-btn"
-                    onClick={() => {
-                      const textToCopy = showAiken && aikenCode ? aikenCode : result.uplcPreview;
-                      navigator.clipboard.writeText(textToCopy);
-                      const btn = document.querySelector('#uplc .copy-btn') as HTMLButtonElement;
-                      if (btn) {
-                        btn.textContent = 'Copied!';
-                        setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
-                      }
-                    }}
-                  >
-                    Copy
-                  </button>
+                  
+                  {prettifyError && showAiken && (
+                    <div style={{ color: '#ef4444', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
+                      ⚠️ {prettifyError}
+                      <button
+                        onClick={() => result?.uplcPreview && triggerPrettify(result.uplcPreview)}
+                        style={{
+                          marginLeft: '0.5rem',
+                          background: 'transparent',
+                          border: '1px solid #ef4444',
+                          color: '#ef4444',
+                          padding: '0.125rem 0.5rem',
+                          borderRadius: '0.25rem',
+                          cursor: 'pointer',
+                          fontSize: '0.75rem',
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  )}
+                  
                   <div className="code-block uplc-code" style={{ maxHeight: '600px' }}>
-                    <pre>{showAiken && aikenCode ? aikenCode : result.uplcPreview}</pre>
+                    {showAiken ? (
+                      prettifyLoading && !aikenCode ? (
+                        <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
+                      ) : aikenCode ? (
+                        <pre>{aikenCode}</pre>
+                      ) : (
+                        <pre style={{ color: '#6b7280' }}>Failed to generate Aiken code. Switch to Raw UPLC or retry.</pre>
+                      )
+                    ) : (
+                      <pre>{result.uplcPreview}</pre>
+                    )}
                   </div>
                 </div>
               </section>
@@ -662,7 +726,12 @@ export default function ScriptAnalyzer() {
                 <p>
                   Recent datums from script UTXOs on-chain. These are the actual data structures locked at this script address.
                 </p>
-                {result.datums.length > 0 ? (
+                {datumsLoading ? (
+                  <div className="loading-placeholder" style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    <span className="spinner" style={{ width: '24px', height: '24px', marginBottom: '0.5rem' }} />
+                    <p>Loading datums...</p>
+                  </div>
+                ) : result.datums.length > 0 ? (
                   <div className="datums-list">
                     {result.datums.map((datum, i) => (
                       <div key={i} className="datum-item">
@@ -713,7 +782,12 @@ export default function ScriptAnalyzer() {
                 <p>
                   Recent redeemer data from transactions that executed this script. Redeemers are the arguments provided to unlock UTXOs.
                 </p>
-                {result.redeemers.length > 0 ? (
+                {redeemersLoading ? (
+                  <div className="loading-placeholder" style={{ padding: '2rem', textAlign: 'center', color: '#9ca3af' }}>
+                    <span className="spinner" style={{ width: '24px', height: '24px', marginBottom: '0.5rem' }} />
+                    <p>Loading redeemers...</p>
+                  </div>
+                ) : result.redeemers.length > 0 ? (
                   <div className="redeemers-list">
                     {result.redeemers.map((redeemer, i) => (
                       <div key={i} className="redeemer-item">
