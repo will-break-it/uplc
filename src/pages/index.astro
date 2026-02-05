@@ -1,7 +1,6 @@
 ---
 import ScriptAnalyzer from '../components/ScriptAnalyzer';
 import '../styles/global.css';
-import '../styles/docs.css';
 ---
 
 <!doctype html>
@@ -9,40 +8,27 @@ import '../styles/docs.css';
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UPLC Analyzer — Cardano Smart Contract Decoder</title>
-    <meta name="description" content="Decode and analyze Cardano Plutus smart contracts. View UPLC bytecode, AI-powered Aiken decompilation, builtin usage, and trace strings." />
+    <title>UPLC Analyzer - Cardano Smart Contract Decoder</title>
+    <meta name="description" content="Decode and analyze Cardano Plutus smart contracts. View UPLC bytecode, AI-powered Aiken decompilation, architecture diagrams, builtin usage, and trace strings." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    
     <!-- Open Graph -->
-    <meta property="og:title" content="UPLC Analyzer — Cardano Smart Contract Decoder" />
-    <meta property="og:description" content="Decode and analyze Cardano Plutus smart contracts. View UPLC bytecode, AI-powered Aiken decompilation, builtin usage, and trace strings." />
+    <meta property="og:title" content="UPLC Analyzer - Cardano Smart Contract Decoder" />
+    <meta property="og:description" content="Decode and analyze Cardano Plutus smart contracts. View UPLC bytecode, AI-powered Aiken decompilation, architecture diagrams, and more." />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://uplc.pages.dev" />
     
     <!-- Twitter -->
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="UPLC Analyzer — Cardano Smart Contract Decoder" />
+    <meta name="twitter:title" content="UPLC Analyzer - Cardano Smart Contract Decoder" />
     <meta name="twitter:description" content="Decode and analyze Cardano Plutus smart contracts with AI-powered decompilation." />
   </head>
   <body>
-    <div class="container">
-      <header>
-        <a href="/" class="header-link" onclick="window.history.pushState({}, '', '/'); window.location.reload(); return false;">
-          <h1>UPLC <span class="accent">Analyzer</span></h1>
-        </a>
-        <p>Decode and visualize Cardano smart contracts</p>
-      </header>
-
-      <main>
-        <ScriptAnalyzer client:load />
-      </main>
-
-      <footer>
-        <p>
-          Data from <a href="https://api.koios.rest" target="_blank">Koios API</a> · 
-          <a href="https://github.com/will-break-it/uplc" target="_blank">GitHub</a>
-        </p>
-      </footer>
-    </div>
+    <ScriptAnalyzer client:load />
   </body>
 </html>

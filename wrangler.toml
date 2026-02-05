@@ -3,8 +3,7 @@ name = "uplc"
 compatibility_date = "2024-01-01"
 
 # KV namespace for caching prettified results
-# Create via: wrangler kv:namespace create UPLC_CACHE
-# Then add the id below and bind in Pages dashboard
-[[kv_namespaces]]
-binding = "UPLC_CACHE"
-id = ""  # Set after creating namespace
+# Bound via Cloudflare Pages dashboard
+# [[kv_namespaces]]
+# binding = "UPLC_CACHE"
+# id = "your-kv-namespace-id"

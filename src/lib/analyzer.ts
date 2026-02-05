@@ -68,10 +68,8 @@ function hexToText(hex: string): string {
 }
 
 export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
-  // Use local proxy to avoid CORS issues
-  const apiUrl = typeof window !== 'undefined' && window.location.hostname !== 'localhost'
-    ? '/api/koios'  // Cloudflare Function proxy
-    : 'https://api.koios.rest/api/v1/script_info';  // Direct for local dev
+  // Always use proxy to avoid CORS issues (works in both local dev + production)
+  const apiUrl = '/api/koios';
     
   const response = await fetch(apiUrl, {
     method: 'POST',
@@ -216,10 +214,7 @@ function decodeCborHex(hex: string): { decoded: any; prettyPrinted: string } {
 
 // Fetch recent datums from script UTXOs
 export async function fetchScriptDatums(scriptHash: string, limit: number = 10): Promise<DecodedDatum[]> {
-  const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
-  const apiUrl = isProduction
-    ? '/api/script_utxos'
-    : 'https://api.koios.rest/api/v1/script_utxos';
+  const apiUrl = '/api/script_utxos';
   
   try {
     const response = await fetch(apiUrl, {
@@ -275,10 +270,7 @@ export async function fetchScriptDatums(scriptHash: string, limit: number = 10):
 
 // Fetch recent redeemers
 export async function fetchScriptRedeemers(scriptHash: string, limit: number = 10): Promise<DecodedRedeemer[]> {
-  const isProduction = typeof window !== 'undefined' && window.location.hostname !== 'localhost';
-  const apiUrl = isProduction
-    ? '/api/script_redeemers'
-    : 'https://api.koios.rest/api/v1/script_redeemers';
+  const apiUrl = '/api/script_redeemers';
   
   try {
     const response = await fetch(apiUrl, {
