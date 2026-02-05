@@ -119,7 +119,7 @@ export default function ScriptAnalyzer() {
   const [aikenCode, setAikenCode] = useState<string | null>(null);
   const [prettifyLoading, setPrettifyLoading] = useState(false);
   const [prettifyError, setPrettifyError] = useState<string | null>(null);
-  const [showAiken, setShowAiken] = useState(false);
+  const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('uplc');
 
   const checkScrollPosition = () => {
     if (carouselRef.current) {
@@ -195,7 +195,7 @@ export default function ScriptAnalyzer() {
     // Reset AI state
     setAikenCode(null);
     setPrettifyError(null);
-    setShowAiken(true); // Default to Aiken view
+    setContractView('aiken'); // Default to Aiken view
     setPrettifyLoading(true); // Start loading indicator
 
     window.history.pushState({}, '', `/?hash=${targetHash}&tab=${activeTab}`);
@@ -261,7 +261,7 @@ export default function ScriptAnalyzer() {
       setAikenCode(code);
     } catch (err) {
       setPrettifyError(err instanceof Error ? err.message : 'Failed to prettify');
-      setShowAiken(false); // Fall back to raw UPLC on error
+      setContractView('uplc'); // Fall back to UPLC on error
     } finally {
       setPrettifyLoading(false);
     }
@@ -541,22 +541,22 @@ export default function ScriptAnalyzer() {
 
             {activeTab === 'uplc' && (
               <section className="docs-section" id="uplc">
-                <h2>{Icons.tree} Decoded UPLC</h2>
+                <h2>{Icons.tree} Contract</h2>
                 <p>
-                  The actual UPLC abstract syntax tree decoded from flat encoding.
+                  View the smart contract in different formats.
                 </p>
                 
                 <div className="code-section">
-                  {/* Toggle + Copy in header bar */}
+                  {/* 3-way Toggle + Copy in header bar */}
                   <div className="code-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                     {/* Format Toggle */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                       <div style={{ display: 'flex' }}>
                         <button
-                          onClick={() => setShowAiken(false)}
+                          onClick={() => setContractView('cbor')}
                           style={{
-                            background: !showAiken ? '#374151' : 'transparent',
-                            color: !showAiken ? 'white' : '#9ca3af',
+                            background: contractView === 'cbor' ? '#374151' : 'transparent',
+                            color: contractView === 'cbor' ? 'white' : '#9ca3af',
                             border: '1px solid #374151',
                             borderRight: 'none',
                             padding: '0.375rem 0.75rem',
@@ -565,14 +565,28 @@ export default function ScriptAnalyzer() {
                             fontSize: '0.8125rem',
                           }}
                         >
+                          CBOR
+                        </button>
+                        <button
+                          onClick={() => setContractView('uplc')}
+                          style={{
+                            background: contractView === 'uplc' ? '#374151' : 'transparent',
+                            color: contractView === 'uplc' ? 'white' : '#9ca3af',
+                            border: '1px solid #374151',
+                            borderRight: 'none',
+                            padding: '0.375rem 0.75rem',
+                            cursor: 'pointer',
+                            fontSize: '0.8125rem',
+                          }}
+                        >
                           UPLC
                         </button>
                         <button
-                          onClick={() => setShowAiken(true)}
+                          onClick={() => setContractView('aiken')}
                           disabled={prettifyLoading && !aikenCode}
                           style={{
-                            background: showAiken ? '#374151' : 'transparent',
-                            color: showAiken ? 'white' : '#9ca3af',
+                            background: contractView === 'aiken' ? '#374151' : 'transparent',
+                            color: contractView === 'aiken' ? 'white' : '#9ca3af',
                             border: '1px solid #374151',
                             padding: '0.375rem 0.75rem',
                             borderRadius: '0 0.375rem 0.375rem 0',
@@ -594,7 +608,7 @@ export default function ScriptAnalyzer() {
                         </button>
                       </div>
                       {/* Inline AI disclaimer */}
-                      {showAiken && (
+                      {contractView === 'aiken' && (
                         <span style={{ fontSize: '0.75rem', color: '#a78bfa' }}>
                           AI approximation
                         </span>
@@ -605,7 +619,14 @@ export default function ScriptAnalyzer() {
                     <button 
                       className="copy-btn"
                       onClick={() => {
-                        const textToCopy = showAiken && aikenCode ? aikenCode : result.uplcPreview;
+                        let textToCopy = '';
+                        if (contractView === 'cbor') {
+                          textToCopy = result.bytes;
+                        } else if (contractView === 'aiken' && aikenCode) {
+                          textToCopy = aikenCode;
+                        } else {
+                          textToCopy = result.uplcPreview;
+                        }
                         navigator.clipboard.writeText(textToCopy);
                         const btn = document.querySelector('#uplc .copy-btn') as HTMLButtonElement;
                         if (btn) {
@@ -618,7 +639,7 @@ export default function ScriptAnalyzer() {
                     </button>
                   </div>
                   
-                  {prettifyError && showAiken && (
+                  {prettifyError && contractView === 'aiken' && (
                     <div style={{ color: '#ef4444', marginBottom: '0.5rem', fontSize: '0.875rem' }}>
                       {prettifyError}
                       <button
@@ -640,7 +661,9 @@ export default function ScriptAnalyzer() {
                   )}
                   
                   <div className="code-block uplc-code" style={{ maxHeight: '600px' }}>
-                    {showAiken ? (
+                    {contractView === 'cbor' ? (
+                      <pre style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{result.bytes}</pre>
+                    ) : contractView === 'aiken' ? (
                       prettifyLoading && !aikenCode ? (
                         <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
                       ) : aikenCode ? (
