@@ -403,7 +403,7 @@ export default function ScriptAnalyzer() {
               </a>
               <a href="#uplc" className={activeTab === 'uplc' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('uplc'); }}>
                 {Icons.tree}
-                <span>UPLC Code</span>
+                <span>Contract</span>
               </a>
               <a href="#errors" className={activeTab === 'errors' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('errors'); }}>
                 {Icons.alert}
@@ -418,7 +418,7 @@ export default function ScriptAnalyzer() {
             <select value={activeTab} onChange={(e) => handleTabChange(e.target.value as typeof activeTab)}>
               <option value="overview">Overview</option>
               <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
-              <option value="uplc">UPLC Code</option>
+              <option value="uplc">Contract</option>
               <option value="errors">Trace Strings ({result.errorMessages.length})</option>
             </select>
           </div>
