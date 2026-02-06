@@ -33,48 +33,98 @@ interface AnalysisResult {
   cached?: boolean;
 }
 
-const COMBINED_PROMPT = `<role>You are an expert Cardano/Plutus reverse engineer specializing in UPLC bytecode analysis.</role>
+const COMBINED_PROMPT = `<role>You are an expert Cardano/Aiken developer who reverse-engineers UPLC bytecode into valid, compilable Aiken code.</role>
 
 <task>
-Analyze the provided UPLC bytecode to:
-1. Decompile to Aiken-style pseudocode
-2. Create a Mermaid flowchart showing validation logic
-3. Infer Datum and Redeemer type definitions from code patterns
+Analyze the provided UPLC bytecode and produce:
+1. Valid Aiken source code that compiles
+2. A Mermaid flowchart showing validation logic
+3. Proper Aiken type definitions for Datum and Redeemer
 </task>
 
 <output_format>
 Respond with valid JSON only (no markdown, no code fences):
 {
-  "aiken": "// decompiled validator code here",
+  "aiken": "// valid aiken code here",
   "mermaid": "flowchart TD\\n  A[Entry] --> B{Redeemer}\\n  ...",
   "types": {
-    "datum": "type Datum = { field1: Type, field2: Type }",
-    "redeemer": "type Redeemer = Variant1 | Variant2 | Variant3(args)"
+    "datum": "type Datum { field1: Type, field2: Type }",
+    "redeemer": "type Redeemer { Variant1 Variant2 { arg: Type } }"
   }
 }
 </output_format>
 
-<decompilation_rules>
-- Show actual logic, not descriptions or summaries
-- Follow every lambda, application, and builtin call
-- Trace data flow through datum/redeemer/ctx destructuring
-- Preserve validation conditions and their relationships
-- Use Aiken syntax: validator, let, if/else, when/is
+<aiken_syntax_rules>
+CRITICAL: Output MUST be valid Aiken that compiles. Never use raw UPLC builtins.
 
-CRITICAL - DO NOT:
-- Write "// Implementation omitted" or similar
-- Use placeholder "True" or "False" returns
-- Write "// ... rest of logic" comments
-- Create stub functions with fake bodies
-- Summarize what code "would do"
+CORRECT Aiken syntax:
+- Comparisons: == != < > <= >= (NOT equalsInteger, lessThanInteger)
+- Arithmetic: + - * / % (NOT addInteger, multiplyInteger, divideInteger)
+- Boolean: && || ! (NOT andBool, orBool, not)
+- Pattern matching: when x is { Variant1 -> ... Variant2 { field } -> ... }
+- Conditionals: if condition { ... } else { ... }
+- Lists: list.head, list.tail, list.length, list.map(), list.filter(), list.any()
+- ByteArray: bytearray.length(), bytearray.take(), bytearray.drop()
+- Option: when opt is { Some(x) -> ... None -> ... }
+- String interpolation not supported, use bytearray literals: #"deadbeef"
 
-INSTEAD:
-- Decompile the ACTUAL builtin calls you see
-- Show the REAL comparisons, arithmetic, list operations
-- If you see equalsByteString, show the exact comparison
-- If you see ifThenElse, show both branches fully
-- Every function body must contain real decompiled logic
-</decompilation_rules>
+VALIDATOR STRUCTURE:
+validator my_validator {
+  spend(datum: Option<Datum>, redeemer: Redeemer, _own_ref: OutputReference, tx: Transaction) {
+    expect Some(d) = datum
+    // validation logic
+    True
+  }
+}
+
+TYPE DEFINITIONS:
+type Datum {
+  owner: VerificationKeyHash,
+  deadline: Int,
+  amount: Int,
+}
+
+type Redeemer {
+  Cancel
+  Claim { signature: ByteArray }
+  Swap { amount_in: Int, min_out: Int }
+}
+
+PATTERN MATCHING on redeemer:
+when redeemer is {
+  Cancel -> handle_cancel(datum, tx)
+  Claim { signature } -> verify_signature(datum.owner, signature)
+  Swap { amount_in, min_out } -> validate_swap(amount_in, min_out, tx)
+}
+
+COMMON PATTERNS:
+- Signature check: list.has(tx.extra_signatories, datum.owner)
+- Deadline check: tx.validity_range.lower_bound > datum.deadline
+- Output finding: list.find(tx.outputs, fn(o) { o.address == own_address })
+- Value check: value.lovelace_of(output.value) >= min_amount
+
+IMPORTS (include if used):
+use aiken/collection/list
+use aiken/crypto.{VerificationKeyHash}
+use cardano/transaction.{Transaction, OutputReference}
+</aiken_syntax_rules>
+
+<uplc_to_aiken_translation>
+When you see these UPLC patterns, translate to Aiken:
+- equalsInteger(a, b) → a == b
+- lessThanInteger(a, b) → a < b
+- addInteger(a, b) → a + b
+- multiplyInteger(a, b) → a * b
+- divideInteger(a, b) → a / b
+- ifThenElse(cond, t, f) → if cond { t } else { f }
+- unConstrData + fstPair check → when redeemer is { ... }
+- headList/tailList chains → pattern matching on constructor fields
+- verifyEd25519Signature → crypto.verify_signature()
+- sha2_256 → crypto.sha256()
+- equalsByteString → ==
+- appendByteString → bytearray.concat()
+- trace("msg") → trace @"msg"
+</uplc_to_aiken_translation>
 
 <mermaid_rules>
 - Use flowchart TD (top-down direction)
@@ -84,81 +134,57 @@ INSTEAD:
 - Escape special characters in labels
 </mermaid_rules>
 
-<type_inference_patterns>
-Datum fields - look for:
-- unConstrData followed by headList/tailList chains (field extraction)
-- unBData = ByteString field
-- unIData = Integer field
-- Name fields by usage context (e.g., verifySignature param = "signer")
-
-Redeemer variants - look for:
-- equalsInteger on fstPair of unConstrData (constructor matching)
-- Constr 0, 1, 2... indices = variant cases
-- Pattern: ifThenElse with constructor checks = when/is branches
-
-TYPE FORMATTING (CRITICAL):
-Format types as Aiken-style with proper indentation and newlines.
-
-Datum example (use 2-space indent, newline per field):
-type Datum {
-  owner: ByteArray,
-  deadline: Int,
-  amount: Int,
-}
-
-Redeemer with variants (one variant per line, newline for variant fields):
-type Redeemer {
-  Cancel
-  Claim { signature: ByteArray }
-  SwapAtoB {
-    amount_in: Int,
-    min_amount_out: Int,
-  }
-  Update { new_value: Int }
-}
-
-For complex variants with many fields, break into multiple lines:
-type Redeemer {
-  SimpleAction
-  ComplexAction {
-    field1: Int,
-    field2: ByteArray,
-    field3: List<Int>,
-  }
-}
-</type_inference_patterns>
-
 <important>
-- If UPLC is truncated, provide best-effort analysis of what's visible
-- Every line of code must be REAL decompiled logic - no stubs or placeholders
-- Prefer showing raw builtin operations over making up "clean" helper functions
-- If unsure about a section, show the raw UPLC pattern rather than inventing code
+- The output MUST compile with the Aiken compiler
+- Never output raw UPLC builtins like unConstrData, fstPair, equalsInteger
+- Always use proper Aiken operators and syntax
+- Include necessary imports at the top
+- Use descriptive variable names inferred from usage context
+- If logic is too complex, break into helper functions
 </important>`;
 
-const AIKEN_ONLY_PROMPT = `<role>Cardano/Plutus decompiler</role>
+const AIKEN_ONLY_PROMPT = `<role>Cardano/Aiken expert reverse-engineer</role>
 
-<task>Convert UPLC bytecode to Aiken-style pseudocode</task>
+<task>Convert UPLC bytecode to valid, compilable Aiken code</task>
 
 <output_format>
-JSON only: {"aiken": "// decompiled code"}
+JSON only: {"aiken": "// valid aiken code"}
 </output_format>
 
 <rules>
-- Decompile actual logic, not descriptions
-- Follow every lambda, application, builtin
-- Use Aiken syntax: validator, let, if/else, when/is
+CRITICAL: Output MUST be valid Aiken syntax that compiles.
 
-FORBIDDEN - never output:
-- "// Implementation omitted"
-- "// ... rest of logic"  
-- Placeholder "True" or "False" returns
-- Stub functions with fake bodies
-- Comments describing what code "would do"
+CORRECT syntax:
+- Comparisons: == != < > <= >= (NOT equalsInteger, lessThanInteger)
+- Arithmetic: + - * / % (NOT addInteger, multiplyInteger)
+- Boolean: && || ! (NOT andBool, orBool)
+- Pattern matching: when x is { Variant -> ... }
+- Conditionals: if cond { ... } else { ... }
 
-REQUIRED:
-- Show REAL builtin operations (equalsByteString, addInteger, etc.)
-- Show ACTUAL comparisons and arithmetic
-- If uncertain, show raw pattern not invented code
+TRANSLATE UPLC builtins:
+- equalsInteger(a,b) → a == b
+- lessThanInteger(a,b) → a < b  
+- addInteger(a,b) → a + b
+- multiplyInteger(a,b) → a * b
+- divideInteger(a,b) → a / b
+- ifThenElse → if/else
+- unConstrData pattern → when/is pattern matching
+
+STRUCTURE:
+validator name {
+  spend(datum: Option<Datum>, redeemer: Redeemer, _ref: OutputReference, tx: Transaction) {
+    expect Some(d) = datum
+    when redeemer is {
+      Variant1 -> ...
+      Variant2 { field } -> ...
+    }
+  }
+}
+
+FORBIDDEN:
+- Raw UPLC builtins (unConstrData, fstPair, headList, equalsInteger, etc.)
+- "// Implementation omitted" comments
+- Placeholder returns
 </rules>`;
 
 const MERMAID_TYPES_PROMPT = `<role>Smart contract analyzer</role>
