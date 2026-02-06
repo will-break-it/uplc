@@ -44,40 +44,15 @@ The generated code is valid Aiken syntax — paste it into any Aiken project wit
 ## Architecture
 
 ```mermaid
-flowchart TD
-    subgraph Input
-        A[Script Hash] --> B[Koios API]
-        C[CBOR Hex] --> D
-    end
+flowchart LR
+    A[Script Hash<br/>or CBOR] --> B[Decode<br/>UPLC]
+    B --> C[Parse &<br/>Analyze]
+    C --> D[Generate<br/>Aiken Code]
 
-    B --> D[CBOR Bytes]
-    
-    subgraph Decoding
-        D --> E["CBOR Decode<br/>(59XXXX header)"]
-        E --> F["Flat Decode<br/>(@harmoniclabs/uplc)"]
-        F --> G[UPLC AST]
-    end
-
-    subgraph Analysis["@uplc/parser + @uplc/patterns"]
-        G --> H[Parse UPLC Text]
-        H --> I[Detect Script Purpose]
-        I --> J[Extract Datum Fields]
-        J --> K[Find Redeemer Variants]
-        K --> L[Identify Validation Checks]
-    end
-
-    subgraph Codegen["@uplc/codegen"]
-        L --> M[Generate Types]
-        M --> N[Map Builtins → Stdlib]
-        N --> O[Emit Aiken Code]
-    end
-
-    O --> P[Aiken Output]
-
-    style Input fill:#1a1a2e
-    style Decoding fill:#16213e
-    style Analysis fill:#0f3460
-    style Codegen fill:#533483
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    style B fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    style C fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    style D fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
 ```
 
 ## Packages
