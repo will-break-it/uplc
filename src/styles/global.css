@@ -784,8 +784,8 @@ header > .header-inner {
 }
 
 .aiken-subtab.active {
-  background: rgba(255,255,255,0.1);
-  color: var(--text);
+  background: var(--accent);
+  color: #fff;
 }
 
 .aiken-subtab:disabled {
