@@ -129,24 +129,68 @@ function extractBuiltinName(term: UplcTerm): string | null {
 }
 
 /**
- * Simple pattern: just count lambdas
+ * Simple pattern: Detect Plutus-style utility binding pattern
+ * Pattern: ((lam i_0 (lam i_1 ... (lam i_N BODY))) util_0) util_1) ...
+ * The AST might be an application chain applying utilities to nested lambdas
  */
 function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
-  const params: string[] = [];
+  // Check if root is an application chain (Plutus utility pattern)
+  const appliedArgs: UplcTerm[] = [];
   let current: UplcTerm = ast;
-  
-  // Unwrap nested lambdas
+
+  // Peel off application layers and collect arguments
+  while (current.tag === 'app') {
+    appliedArgs.unshift(current.arg);  // Collect in reverse order
+    current = current.func;
+  }
+
+  // Now current should be the nested lambda structure
+  // Collect all lambda parameters
+  const lambdaParams: string[] = [];
   while (current.tag === 'lam') {
-    params.push(current.param);
+    lambdaParams.push(current.param);
     current = current.body;
   }
-  
-  const purpose = inferPurposeFromParams(params, current);
-  
+
+  // Current is now the innermost body
+
+  // Match applied arguments to lambda parameters
+  // appliedArgs are in application order: ((f arg0) arg1) arg2
+  // lambdaParams are in lambda order: (lam p0 (lam p1 (lam p2 ...)))
+  // They match: p0 gets arg0, p1 gets arg1, etc.
+
+  const utilityBindings: Record<string, string> = {};
+  const realParams: string[] = [];
+
+  for (let i = 0; i < lambdaParams.length; i++) {
+    const param = lambdaParams[i];
+
+    if (i < appliedArgs.length) {
+      // This parameter has an applied argument
+      const arg = appliedArgs[i];
+      const builtinName = extractBuiltinName(arg);
+
+      if (builtinName) {
+        // It's a utility binding
+        utilityBindings[param] = builtinName;
+      } else {
+        // Applied but not a builtin - could be error/value
+        // Still treat as a real param since we can't determine it's a utility
+        realParams.push(param);
+      }
+    } else {
+      // No applied argument - this is a real validator parameter
+      realParams.push(param);
+    }
+  }
+
+  const purpose = inferPurposeFromParams(realParams, current);
+
   return {
     type: purpose,
-    params,
-    body: current
+    params: realParams,
+    body: current,
+    utilityBindings: Object.keys(utilityBindings).length > 0 ? utilityBindings : undefined
   };
 }
 
