@@ -58,10 +58,6 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 The CBOR and UPLC views work without any API keys — only the AI features require configuration.
 
-### Deployment
-
-Deployed on Cloudflare Pages. Set `ANTHROPIC_API_KEY` in your Pages project settings.
-
 ## License
 
 MIT
