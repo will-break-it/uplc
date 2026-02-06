@@ -711,11 +711,12 @@ export default function ScriptAnalyzer() {
                 <a href="#architecture" className={activeTab === 'architecture' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('architecture'); }}>
                   {Icons.architecture}
                   <span>Architecture</span>
-                  {aiLoading && <span className="badge-small">...</span>}
+                  {aiLoading && <span className="tab-spinner" />}
                 </a>
                 <a href="#contract" className={activeTab === 'contract' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('contract'); }}>
                   {Icons.contract}
                   <span>Contract</span>
+                  {aiLoading && <span className="tab-spinner" />}
                 </a>
                 <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('builtins'); }}>
                   {Icons.builtins}
@@ -820,7 +821,14 @@ export default function ScriptAnalyzer() {
                       ) : (
                         <>
                           {aiError}
-                          <button onClick={() => fetchAiAnalysis(result.uplcPreview, scriptHash)} style={{ marginLeft: '1rem' }}>
+                          <button 
+                            className="retry-btn"
+                            onClick={() => fetchAiAnalysis(result.uplcPreview, scriptHash)}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M1 4v6h6M23 20v-6h-6"/>
+                              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
+                            </svg>
                             Retry
                           </button>
                         </>
