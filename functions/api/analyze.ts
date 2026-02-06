@@ -176,6 +176,9 @@ async function callAnthropic(
   });
 
   if (!response.ok) {
+    if (response.status === 429 || response.status === 529) {
+      throw new Error('RATE_LIMIT');
+    }
     throw new Error(`Anthropic API error: ${response.status}`);
   }
 
@@ -211,6 +214,9 @@ async function callAnthropicWithThinking(
   });
 
   if (!response.ok) {
+    if (response.status === 429 || response.status === 529) {
+      throw new Error('RATE_LIMIT');
+    }
     const errText = await response.text();
     console.error('Anthropic thinking API error:', errText);
     throw new Error(`Anthropic API error: ${response.status}`);
@@ -299,6 +305,10 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         throw new Error('Combined request returned insufficient data');
       }
     } catch (combinedError) {
+      // If rate limited, throw immediately
+      if (combinedError instanceof Error && combinedError.message === 'RATE_LIMIT') {
+        throw combinedError;
+      }
       console.log('Combined request failed, trying split strategy:', combinedError);
       
       // Strategy 2: Split - Aiken first
@@ -347,8 +357,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     });
   } catch (err) {
     console.error('Analyze error:', err);
-    return new Response(JSON.stringify({ error: 'Analysis failed' }), {
-      status: 500,
+    const isRateLimit = err instanceof Error && err.message === 'RATE_LIMIT';
+    return new Response(JSON.stringify({ 
+      error: isRateLimit ? 'BUDGET_EXHAUSTED' : 'Analysis failed'
+    }), {
+      status: isRateLimit ? 429 : 500,
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
   }

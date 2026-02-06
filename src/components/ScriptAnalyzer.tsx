@@ -387,7 +387,8 @@ export default function ScriptAnalyzer() {
       
       setAiAnalysis(data);
     } catch (err) {
-      setAiError(err instanceof Error ? err.message : 'Analysis failed');
+      const msg = err instanceof Error ? err.message : 'Analysis failed';
+      setAiError(msg === 'BUDGET_EXHAUSTED' ? 'BUDGET_EXHAUSTED' : msg);
       setContractView('uplc');
     } finally {
       setAiLoading(false);
@@ -669,10 +670,21 @@ export default function ScriptAnalyzer() {
 
                   {aiError && (
                     <div className="error-message">
-                      {aiError}
-                      <button onClick={() => fetchAiAnalysis(result.uplcPreview, scriptHash)} style={{ marginLeft: '1rem' }}>
-                        Retry
-                      </button>
+                      {aiError === 'BUDGET_EXHAUSTED' ? (
+                        <>
+                          AI budget exhausted for this month. Raw UPLC still works!{' '}
+                          <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
+                            Help keep AI features running
+                          </a>
+                        </>
+                      ) : (
+                        <>
+                          {aiError}
+                          <button onClick={() => fetchAiAnalysis(result.uplcPreview, scriptHash)} style={{ marginLeft: '1rem' }}>
+                            Retry
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
 
@@ -785,6 +797,16 @@ export default function ScriptAnalyzer() {
                           <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
                         ) : aiAnalysis?.aiken ? (
                           <CodeBlock code={aiAnalysis.aiken} language="rust" />
+                        ) : aiError === 'BUDGET_EXHAUSTED' ? (
+                          <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+                            <p style={{ marginBottom: '1rem' }}>AI budget exhausted for this month.</p>
+                            <p>Raw UPLC is still available in the UPLC tab.</p>
+                            <p style={{ marginTop: '1rem' }}>
+                              <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
+                                Help keep AI features running
+                              </a>
+                            </p>
+                          </div>
                         ) : (
                           <pre style={{ color: '#6b7280' }}>
                             {aiError || 'Failed to generate Aiken code. Switch to UPLC view.'}
