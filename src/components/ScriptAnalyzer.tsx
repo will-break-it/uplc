@@ -339,6 +339,7 @@ export default function ScriptAnalyzer() {
   const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
   const [aikenSubView, setAikenSubView] = useState<'validator' | 'datum' | 'redeemer'>('validator');
+  const [uplcViewMode, setUplcViewMode] = useState<'pretty' | 'compact'>('pretty');
   const carouselRef = useRef<HTMLDivElement>(null);
   const carouselDirectionRef = useRef<1 | -1>(1);
   const carouselPausedRef = useRef(false);
@@ -874,7 +875,11 @@ export default function ScriptAnalyzer() {
                         onClick={() => {
                           let text = '';
                           if (contractView === 'cbor') text = result.scriptInfo.bytes;
-                          else if (contractView === 'uplc') text = result.uplcPreview;
+                          else if (contractView === 'uplc') {
+                            text = uplcViewMode === 'compact' 
+                              ? result.uplcPreview.replace(/\s+/g, ' ').trim()
+                              : result.uplcPreview;
+                          }
                           else if (contractView === 'aiken') {
                             if (aikenSubView === 'validator') text = aiAnalysis?.aiken || '';
                             else if (aikenSubView === 'datum') text = aiAnalysis?.types?.datum || '';
@@ -887,6 +892,23 @@ export default function ScriptAnalyzer() {
                       </button>
                     </div>
                     
+                    {contractView === 'uplc' && (
+                      <div className="aiken-subtabs">
+                        <button 
+                          className={`aiken-subtab ${uplcViewMode === 'pretty' ? 'active' : ''}`} 
+                          onClick={() => setUplcViewMode('pretty')}
+                        >
+                          Pretty
+                        </button>
+                        <button 
+                          className={`aiken-subtab ${uplcViewMode === 'compact' ? 'active' : ''}`} 
+                          onClick={() => setUplcViewMode('compact')}
+                        >
+                          Compact
+                        </button>
+                      </div>
+                    )}
+
                     {contractView === 'aiken' && (
                       <>
                         <div className="aiken-subtabs">
@@ -927,7 +949,13 @@ export default function ScriptAnalyzer() {
                         <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
                       )}
                       {contractView === 'uplc' && (
-                        <CodeBlock code={result.uplcPreview} language="haskell" />
+                        uplcViewMode === 'pretty' ? (
+                          <CodeBlock code={result.uplcPreview} language="haskell" />
+                        ) : (
+                          <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
+                            {result.uplcPreview.replace(/\s+/g, ' ').trim()}
+                          </pre>
+                        )
                       )}
                       {contractView === 'aiken' && (
                         aiLoading && !aiAnalysis ? (
