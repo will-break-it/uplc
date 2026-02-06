@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/banner.png" alt="UPLC.WTF - Decode Cardano smart contracts" width="100%" />
+  <img src="public/banner.svg" alt="UPLC.WTF - Decode Cardano smart contracts" width="100%" />
 </p>
 
 <p align="center">
