@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult } from '../lib/analyzer';
 import { analyzeScriptCore } from '../lib/analyzer';
+import { checkAikenSyntax, preloadAikenWasm } from '../lib/aikenCheck';
 
 // Types
 interface AIAnalysis {
@@ -397,6 +398,8 @@ export default function ScriptAnalyzer() {
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [aikenValid, setAikenValid] = useState<boolean | null>(null);
+  const [aikenValidating, setAikenValidating] = useState(false);
 
   // Initialize theme
   useEffect(() => {
@@ -405,6 +408,9 @@ export default function ScriptAnalyzer() {
     const initialTheme = stored || (prefersDark ? 'dark' : 'light');
     setTheme(initialTheme as 'light' | 'dark');
     document.documentElement.setAttribute('data-theme', initialTheme);
+    
+    // Preload Aiken WASM in background
+    preloadAikenWasm();
   }, []);
 
   const toggleTheme = () => {
@@ -442,15 +448,22 @@ export default function ScriptAnalyzer() {
     }
   };
 
-  // Fetch AI analysis
-  const fetchAiAnalysis = async (uplc: string, hash: string) => {
+  // Fetch AI analysis with Aiken validation and retry
+  const fetchAiAnalysis = async (uplc: string, hash: string, isRetry = false) => {
     setAiLoading(true);
     setAiError(null);
+    setAikenValid(null);
+    setAikenValidating(false);
+    
     try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uplc, scriptHash: hash }),
+        body: JSON.stringify({ 
+          uplc, 
+          scriptHash: hash,
+          retryHint: isRetry ? 'Previous Aiken output had syntax errors. Please fix.' : undefined
+        }),
       });
       
       const data = await response.json();
@@ -459,6 +472,27 @@ export default function ScriptAnalyzer() {
       }
       
       setAiAnalysis(data);
+      
+      // Validate Aiken syntax in background
+      if (data.aiken) {
+        setAikenValidating(true);
+        try {
+          const validationResult = await checkAikenSyntax(data.aiken);
+          setAikenValid(validationResult.valid);
+          
+          // If invalid and this is the first attempt, retry once
+          if (!validationResult.valid && !isRetry && !data.cached) {
+            console.log('Aiken syntax invalid, retrying...');
+            setAikenValidating(false);
+            return fetchAiAnalysis(uplc, hash, true);
+          }
+        } catch (validationErr) {
+          console.error('Aiken validation failed:', validationErr);
+          setAikenValid(null); // Unknown state
+        } finally {
+          setAikenValidating(false);
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Analysis failed';
       setAiError(msg === 'BUDGET_EXHAUSTED' ? 'BUDGET_EXHAUSTED' : msg);
@@ -481,6 +515,8 @@ export default function ScriptAnalyzer() {
     setError(null);
     setResult(null);
     setAiAnalysis(null);
+    setAikenValid(null);
+    setAikenValidating(false);
     setScriptHash(targetHash);
     setContractView('aiken');
 
@@ -821,6 +857,15 @@ export default function ScriptAnalyzer() {
                           onClick={() => setContractView('aiken')}
                         >
                           Aiken{aiLoading && !aiAnalysis && '...'}
+                          {aiAnalysis?.aiken && !aikenValidating && aikenValid === true && (
+                            <span className="aiken-badge valid" title="Syntax validated">✓</span>
+                          )}
+                          {aiAnalysis?.aiken && !aikenValidating && aikenValid === false && (
+                            <span className="aiken-badge invalid" title="Syntax errors detected">⚠</span>
+                          )}
+                          {aikenValidating && (
+                            <span className="aiken-badge validating" title="Validating...">•</span>
+                          )}
                         </button>
                       </div>
                       <button 
