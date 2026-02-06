@@ -1,18 +1,21 @@
+/**
+ * Pattern Recognition Output Types
+ */
 import type { UplcTerm } from '@uplc/parser';
 
 /**
- * Overall contract structure extracted from UPLC
+ * Overall contract structure analysis
  */
 export interface ContractStructure {
   type: 'validator' | 'minting_policy' | 'unknown';
   params: string[];           // Parameter names (datum, redeemer, ctx)
   redeemer: RedeemerInfo;
   checks: ValidationCheck[];
-  body: UplcTerm;
+  rawBody: UplcTerm;
 }
 
 /**
- * Information about the redeemer type
+ * Redeemer structure analysis
  */
 export interface RedeemerInfo {
   variants: RedeemerVariant[];
@@ -20,30 +23,30 @@ export interface RedeemerInfo {
 }
 
 /**
- * A single redeemer variant (constructor case)
+ * A single redeemer variant (branch in the match)
  */
 export interface RedeemerVariant {
   index: number;              // Constructor index (0, 1, 2...)
-  name: string;               // Generated name: "Variant0", "Variant1"
-  fields: FieldInfo[];        // Extracted field accesses
+  name: string;               // Generated name: "variant_0", "variant_1"
+  fields: FieldInfo[];        // Extracted fields
   body: UplcTerm;             // Branch body
 }
 
 /**
- * Field access information
+ * Information about an extracted field
  */
 export interface FieldInfo {
-  index: number;              // Field index in constructor
-  accessPath: string;         // e.g., "headList(sndPair(...))"
-  inferredType: 'integer' | 'bytestring' | 'bool' | 'list' | 'data' | 'unknown';
+  index: number;
+  accessPattern: string;      // "headList", "headList(tailList(...))"
+  inferredType: string;       // "integer", "bytestring", "unknown"
 }
 
 /**
  * A validation check found in the contract
  */
 export interface ValidationCheck {
-  type: 'signature' | 'deadline' | 'value' | 'equality' | 'comparison' | 'builtin_call' | 'unknown';
-  builtin: string;            // The builtin function used
+  type: 'signature' | 'deadline' | 'value' | 'equality' | 'comparison' | 'unknown';
+  builtin: string;            // The builtin used
   description: string;        // Human-readable description
-  node: UplcTerm;             // The AST node
+  location: UplcTerm;         // The AST node
 }

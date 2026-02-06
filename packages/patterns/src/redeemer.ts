@@ -1,253 +1,265 @@
-import type { UplcTerm } from '@uplc/parser';
-import type { RedeemerInfo, RedeemerVariant, FieldInfo } from './types.js';
-
 /**
- * Detect redeemer pattern matching in the contract body.
+ * Redeemer Pattern Detection
  * 
- * Looks for patterns like:
+ * Detects redeemer variants by looking for constructor matching patterns:
+ * 
  * (force (builtin ifThenElse)
  *   [(builtin equalsInteger) (fstPair (unConstrData redeemer)) (con integer N)]
  *   BRANCH_N
  *   ELSE)
  */
-export function detectRedeemerVariants(body: UplcTerm, redeemerParam: string): RedeemerInfo {
-  const variants: RedeemerVariant[] = [];
+import type { UplcTerm } from '@uplc/parser';
+import type { RedeemerInfo, RedeemerVariant, FieldInfo } from './types.js';
+import { 
+  flattenApp, 
+  getBuiltinName, 
+  referencesVar, 
+  findAll,
+  extractIntConstant 
+} from './traversal.js';
+
+/**
+ * Analyze redeemer patterns in a validator body
+ */
+export function analyzeRedeemer(body: UplcTerm, redeemerParam: string | undefined): RedeemerInfo {
+  if (!redeemerParam) {
+    return { variants: [], matchPattern: 'unknown' };
+  }
   
-  // Find constructor matching patterns
-  findConstructorMatches(body, redeemerParam, variants);
+  // Look for ifThenElse patterns that check the redeemer
+  const variants = findRedeemerBranches(body, redeemerParam);
+  
+  // Determine the match pattern
+  let matchPattern: 'constructor' | 'integer' | 'unknown' = 'unknown';
+  if (variants.length > 0) {
+    matchPattern = 'constructor';  // We found constructor-based matching
+  }
   
   return {
     variants,
-    matchPattern: variants.length > 0 ? 'constructor' : 'unknown',
+    matchPattern
   };
 }
 
 /**
- * Recursively find constructor matching patterns
+ * Find all redeemer variant branches
  */
-function findConstructorMatches(
-  term: UplcTerm,
-  redeemerParam: string,
-  variants: RedeemerVariant[]
+function findRedeemerBranches(term: UplcTerm, redeemerParam: string): RedeemerVariant[] {
+  const variants: RedeemerVariant[] = [];
+  const seen = new Set<number>();
+  
+  findBranchesRecursive(term, redeemerParam, variants, seen);
+  
+  // Sort by index
+  variants.sort((a, b) => a.index - b.index);
+  
+  return variants;
+}
+
+/**
+ * Recursively find branches that match on the redeemer constructor
+ */
+function findBranchesRecursive(
+  term: UplcTerm, 
+  redeemerParam: string, 
+  variants: RedeemerVariant[],
+  seen: Set<number>
 ): void {
-  // Look for: (force (builtin ifThenElse) COND THEN ELSE)
-  if (term.tag === 'app') {
-    const { condition, thenBranch, elseBranch } = parseIfThenElse(term);
+  // Look for: [[[force (builtin ifThenElse)] condition] thenBranch] elseBranch]
+  const ifPattern = matchIfThenElse(term);
+  
+  if (ifPattern) {
+    // Check if condition is checking the redeemer constructor index
+    const indexCheck = matchConstructorIndexCheck(ifPattern.condition, redeemerParam);
     
-    if (condition && thenBranch && elseBranch) {
-      // Check if condition is constructor index match
-      const constructorIndex = parseConstructorMatch(condition, redeemerParam);
+    if (indexCheck !== undefined && !seen.has(indexCheck)) {
+      seen.add(indexCheck);
       
-      if (constructorIndex !== null) {
-        // Found a variant!
-        const fields = detectFieldAccess(thenBranch, redeemerParam);
-        
-        variants.push({
-          index: constructorIndex,
-          name: `Variant${constructorIndex}`,
-          fields,
-          body: thenBranch,
-        });
-        
-        // Continue looking in else branch for more variants
-        findConstructorMatches(elseBranch, redeemerParam, variants);
-        return;
-      }
+      // Extract fields accessed in the then branch
+      const fields = extractFieldAccesses(ifPattern.thenBranch, redeemerParam);
+      
+      variants.push({
+        index: indexCheck,
+        name: `variant_${indexCheck}`,
+        fields,
+        body: ifPattern.thenBranch
+      });
     }
     
-    // Recurse into both sides
-    findConstructorMatches(term.func, redeemerParam, variants);
-    findConstructorMatches(term.arg, redeemerParam, variants);
-  } else if (term.tag === 'lam') {
-    findConstructorMatches(term.body, redeemerParam, variants);
-  } else if (term.tag === 'force' || term.tag === 'delay') {
-    findConstructorMatches(term.term, redeemerParam, variants);
+    // Recurse into else branch to find more variants
+    findBranchesRecursive(ifPattern.elseBranch, redeemerParam, variants, seen);
+    // Also check the then branch for nested conditionals
+    findBranchesRecursive(ifPattern.thenBranch, redeemerParam, variants, seen);
+  }
+  
+  // Also recurse through the AST to find nested patterns
+  switch (term.tag) {
+    case 'lam':
+      findBranchesRecursive(term.body, redeemerParam, variants, seen);
+      break;
+    case 'app':
+      // Don't recurse into the parts we already checked if it was an ifThenElse
+      if (!ifPattern) {
+        findBranchesRecursive(term.func, redeemerParam, variants, seen);
+        findBranchesRecursive(term.arg, redeemerParam, variants, seen);
+      }
+      break;
+    case 'force':
+      findBranchesRecursive(term.term, redeemerParam, variants, seen);
+      break;
+    case 'delay':
+      findBranchesRecursive(term.term, redeemerParam, variants, seen);
+      break;
   }
 }
 
-/**
- * Parse an ifThenElse application pattern
- */
-function parseIfThenElse(term: UplcTerm): {
-  condition: UplcTerm | null;
-  thenBranch: UplcTerm | null;
-  elseBranch: UplcTerm | null;
-} {
-  // Pattern: [[[force (builtin ifThenElse)] cond] then] else
-  if (term.tag !== 'app') return { condition: null, thenBranch: null, elseBranch: null };
-  
-  const elseBranch = term.arg;
-  const inner1 = term.func;
-  
-  if (inner1.tag !== 'app') return { condition: null, thenBranch: null, elseBranch: null };
-  
-  const thenBranch = inner1.arg;
-  const inner2 = inner1.func;
-  
-  if (inner2.tag !== 'app') return { condition: null, thenBranch: null, elseBranch: null };
-  
-  const condition = inner2.arg;
-  const ifThenElse = inner2.func;
-  
-  // Check if it's (force (builtin ifThenElse))
-  if (ifThenElse.tag === 'force' && 
-      ifThenElse.term.tag === 'builtin' && 
-      ifThenElse.term.name === 'ifThenElse') {
-    return { condition, thenBranch, elseBranch };
-  }
-  
-  return { condition: null, thenBranch: null, elseBranch: null };
+interface IfThenElsePattern {
+  condition: UplcTerm;
+  thenBranch: UplcTerm;
+  elseBranch: UplcTerm;
 }
 
 /**
- * Check if a condition is matching constructor index
- * Pattern: [(builtin equalsInteger) (fstPair (unConstrData VAR)) (con integer N)]
+ * Match an ifThenElse application pattern
  */
-function parseConstructorMatch(cond: UplcTerm, redeemerParam: string): number | null {
-  // Pattern: [[equalsInteger [fstPair [unConstrData var]]] const]
-  if (cond.tag !== 'app') return null;
+function matchIfThenElse(term: UplcTerm): IfThenElsePattern | undefined {
+  // [[[force (builtin ifThenElse)] cond] then] else]
+  const parts = flattenApp(term);
   
-  const constVal = cond.arg;
-  const inner = cond.func;
+  if (parts.length < 4) return undefined;
   
-  if (inner.tag !== 'app') return null;
+  const builtinName = getBuiltinName(parts[0]);
+  if (builtinName !== 'ifThenElse') return undefined;
   
-  const fstPairApp = inner.arg;
-  const eqInt = inner.func;
-  
-  // Check for equalsInteger builtin
-  if (!(eqInt.tag === 'builtin' && eqInt.name === 'equalsInteger') &&
-      !(eqInt.tag === 'app' && eqInt.func.tag === 'builtin' && eqInt.func.name === 'equalsInteger')) {
-    return null;
-  }
-  
-  // Check for fstPair(unConstrData(redeemer))
-  if (!checkFstPairUnConstrData(fstPairApp, redeemerParam)) {
-    return null;
-  }
-  
-  // Extract constant integer
-  if (constVal.tag === 'con' && constVal.value.tag === 'integer') {
-    return Number(constVal.value.value);
-  }
-  
-  return null;
+  return {
+    condition: parts[1],
+    thenBranch: parts[2],
+    elseBranch: parts[3]
+  };
 }
 
 /**
- * Check for pattern: (fstPair (unConstrData VAR))
+ * Check if a condition is checking the constructor index of the redeemer
+ * Pattern: [(builtin equalsInteger) (fstPair (unConstrData redeemer)) (con integer N)]
+ * 
+ * Returns the constructor index being checked, or undefined
  */
-function checkFstPairUnConstrData(term: UplcTerm, varName: string): boolean {
-  // [fstPair [unConstrData var]]
-  if (term.tag !== 'app') return false;
+function matchConstructorIndexCheck(condition: UplcTerm, redeemerParam: string): number | undefined {
+  const parts = flattenApp(condition);
   
-  const unConstrApp = term.arg;
-  const fstPair = term.func;
+  if (parts.length < 3) return undefined;
   
-  // Check fstPair - might be forced
-  const isFstPair = 
-    (fstPair.tag === 'builtin' && fstPair.name === 'fstPair') ||
-    (fstPair.tag === 'force' && fstPair.term.tag === 'builtin' && fstPair.term.name === 'fstPair');
+  const builtinName = getBuiltinName(parts[0]);
+  if (builtinName !== 'equalsInteger') return undefined;
   
-  if (!isFstPair) return false;
+  // One of the args should be the fstPair(unConstrData(redeemer)) pattern
+  // The other should be an integer constant
   
-  // Check unConstrData
-  if (unConstrApp.tag !== 'app') return false;
+  for (let i = 1; i < parts.length; i++) {
+    const constValue = extractIntConstant(parts[i]);
+    if (constValue !== undefined) {
+      // Check if another argument accesses the redeemer constructor index
+      for (let j = 1; j < parts.length; j++) {
+        if (i === j) continue;
+        if (isConstructorIndexAccess(parts[j], redeemerParam)) {
+          return Number(constValue);
+        }
+      }
+    }
+  }
   
-  const varTerm = unConstrApp.arg;
-  const unConstr = unConstrApp.func;
-  
-  const isUnConstrData = 
-    (unConstr.tag === 'builtin' && unConstr.name === 'unConstrData');
-  
-  if (!isUnConstrData) return false;
-  
-  // Check if it's our variable
-  return varTerm.tag === 'var' && varTerm.name === varName;
+  return undefined;
 }
 
 /**
- * Detect field access patterns in a branch body
- * Pattern: headList(tailList(...(sndPair(unConstrData(VAR)))))
+ * Check if a term accesses the constructor index of a variable
+ * Pattern: fstPair(unConstrData(var))
  */
-function detectFieldAccess(body: UplcTerm, redeemerParam: string): FieldInfo[] {
+function isConstructorIndexAccess(term: UplcTerm, varName: string): boolean {
+  const parts = flattenApp(term);
+  
+  // Looking for [[force (force (builtin fstPair))] [[(force (builtin unConstrData))] var]]
+  const builtinName = getBuiltinName(parts[0]);
+  if (builtinName !== 'fstPair') return false;
+  if (parts.length < 2) return false;
+  
+  // Check the argument is unConstrData applied to our variable
+  const innerParts = flattenApp(parts[1]);
+  const innerBuiltin = getBuiltinName(innerParts[0]);
+  if (innerBuiltin !== 'unConstrData') return false;
+  if (innerParts.length < 2) return false;
+  
+  // Final argument should reference our variable
+  return referencesVar(innerParts[1], varName);
+}
+
+/**
+ * Extract field accesses from a term
+ */
+function extractFieldAccesses(term: UplcTerm, redeemerParam: string): FieldInfo[] {
   const fields: FieldInfo[] = [];
-  findFieldAccesses(body, redeemerParam, fields);
+  const seenIndices = new Set<number>();
+  
+  // Find all headList applications
+  const headListApps = findAll(term, t => {
+    if (t.tag !== 'app') return false;
+    return getBuiltinName(t.func) === 'headList';
+  });
+  
+  for (const app of headListApps) {
+    if (app.tag !== 'app') continue;
+    
+    const fieldIndex = measureTailDepth(app.arg, redeemerParam);
+    if (fieldIndex !== undefined && !seenIndices.has(fieldIndex)) {
+      seenIndices.add(fieldIndex);
+      fields.push({
+        index: fieldIndex,
+        accessPattern: fieldIndex === 0 
+          ? 'headList(sndPair(unConstrData(...)))' 
+          : `headList(${'tailList('.repeat(fieldIndex)}sndPair(unConstrData(...))${')'.repeat(fieldIndex)})`,
+        inferredType: 'unknown'  // TODO: could infer from how the field is used
+      });
+    }
+  }
+  
+  // Sort by index
+  fields.sort((a, b) => a.index - b.index);
+  
   return fields;
 }
 
-function findFieldAccesses(
-  term: UplcTerm,
-  redeemerParam: string,
-  fields: FieldInfo[]
-): void {
-  // Look for headList applications
-  if (term.tag === 'app') {
-    const fieldInfo = parseFieldAccess(term, redeemerParam);
-    if (fieldInfo) {
-      // Avoid duplicates
-      if (!fields.some(f => f.index === fieldInfo.index)) {
-        fields.push(fieldInfo);
-      }
-    }
-    
-    // Recurse
-    findFieldAccesses(term.func, redeemerParam, fields);
-    findFieldAccesses(term.arg, redeemerParam, fields);
-  } else if (term.tag === 'lam') {
-    findFieldAccesses(term.body, redeemerParam, fields);
-  } else if (term.tag === 'force' || term.tag === 'delay') {
-    findFieldAccesses(term.term, redeemerParam, fields);
-  }
-}
-
-function parseFieldAccess(term: UplcTerm, varName: string): FieldInfo | null {
-  // Pattern: [headList [tailList* [sndPair [unConstrData var]]]]
-  if (term.tag !== 'app') return null;
-  
-  const isHeadList = 
-    term.func.tag === 'builtin' && term.func.name === 'headList' ||
-    term.func.tag === 'force' && term.func.term.tag === 'builtin' && term.func.term.name === 'headList';
-  
-  if (!isHeadList) return null;
-  
-  // Count tailList depth
+/**
+ * Count the depth of tailList wrapping to determine field index
+ * 
+ * sndPair(unConstrData(x)) -> 0
+ * tailList(sndPair(unConstrData(x))) -> 1
+ * tailList(tailList(sndPair(unConstrData(x)))) -> 2
+ */
+function measureTailDepth(term: UplcTerm, redeemerParam: string): number | undefined {
   let depth = 0;
-  let current = term.arg;
+  let current = term;
   
-  while (current.tag === 'app') {
-    const isTailList = 
-      current.func.tag === 'builtin' && current.func.name === 'tailList' ||
-      current.func.tag === 'force' && current.func.term.tag === 'builtin' && current.func.term.name === 'tailList';
+  while (true) {
+    const parts = flattenApp(current);
+    const builtinName = getBuiltinName(parts[0]);
     
-    if (isTailList) {
+    if (builtinName === 'tailList') {
       depth++;
-      current = current.arg;
-    } else {
-      break;
-    }
-  }
-  
-  // Check for sndPair(unConstrData(var))
-  if (current.tag === 'app') {
-    const isSndPair = 
-      current.func.tag === 'builtin' && current.func.name === 'sndPair' ||
-      current.func.tag === 'force' && current.func.term.tag === 'builtin' && current.func.term.name === 'sndPair';
-    
-    if (isSndPair && current.arg.tag === 'app') {
-      const unConstrApp = current.arg;
-      const isUnConstr = 
-        unConstrApp.func.tag === 'builtin' && unConstrApp.func.name === 'unConstrData';
-      
-      if (isUnConstr && unConstrApp.arg.tag === 'var' && unConstrApp.arg.name === varName) {
-        return {
-          index: depth,
-          accessPath: depth === 0 ? 'field_0' : `field_${depth}`,
-          inferredType: 'unknown',
-        };
+      if (parts.length < 2) return undefined;
+      current = parts[1];
+    } else if (builtinName === 'sndPair') {
+      // Check if this is sndPair(unConstrData(redeemerParam))
+      if (parts.length < 2) return undefined;
+      const innerParts = flattenApp(parts[1]);
+      const innerBuiltin = getBuiltinName(innerParts[0]);
+      if (innerBuiltin === 'unConstrData' && innerParts.length >= 2) {
+        if (referencesVar(innerParts[1], redeemerParam)) {
+          return depth;
+        }
       }
+      return undefined;
+    } else {
+      return undefined;
     }
   }
-  
-  return null;
 }

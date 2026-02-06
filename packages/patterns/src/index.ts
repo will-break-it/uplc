@@ -1,39 +1,70 @@
-import type { UplcTerm } from '@uplc/parser';
-import type { ContractStructure } from './types.js';
-import { detectValidatorEntry } from './validator.js';
-import { detectRedeemerVariants } from './redeemer.js';
-import { detectChecks } from './checks.js';
+/**
+ * @uplc/patterns - UPLC Pattern Recognition
+ * 
+ * Analyzes UPLC AST to identify smart contract structures:
+ * - Validator entry point detection (validator vs minting policy)
+ * - Redeemer variant analysis
+ * - Validation check identification
+ */
 
-export * from './types.js';
-export { detectValidatorEntry } from './validator.js';
-export { detectRedeemerVariants } from './redeemer.js';
-export { detectChecks } from './checks.js';
+import type { UplcTerm } from '@uplc/parser';
+import type { ContractStructure, RedeemerInfo, RedeemerVariant, ValidationCheck, FieldInfo } from './types.js';
+import { detectValidator, getRedeemerParam } from './validator.js';
+import { analyzeRedeemer } from './redeemer.js';
+import { findValidationChecks } from './checks.js';
+
+// Re-export types
+export type { 
+  ContractStructure, 
+  RedeemerInfo, 
+  RedeemerVariant, 
+  ValidationCheck,
+  FieldInfo 
+} from './types.js';
+
+// Re-export utilities for advanced usage
+export { detectValidator, getRedeemerParam, getContextParam, getDatumParam } from './validator.js';
+export { analyzeRedeemer } from './redeemer.js';
+export { findValidationChecks } from './checks.js';
+export * from './traversal.js';
 
 /**
- * Analyze a UPLC contract and extract its structure
+ * Analyze a UPLC AST to extract contract structure
+ * 
+ * @param ast - The parsed UPLC term
+ * @returns Contract structure analysis
+ * 
+ * @example
+ * ```typescript
+ * import { parseUplc } from '@uplc/parser';
+ * import { analyzeContract } from '@uplc/patterns';
+ * 
+ * const source = '(lam d (lam r (lam ctx (con unit ()))))';
+ * const ast = parseUplc(source);
+ * const structure = analyzeContract(ast);
+ * 
+ * console.log(structure.type);     // 'validator'
+ * console.log(structure.params);   // ['d', 'r', 'ctx']
+ * ```
  */
 export function analyzeContract(ast: UplcTerm): ContractStructure {
-  // 1. Detect validator entry point
-  const entry = detectValidatorEntry(ast);
+  // Detect validator entry point
+  const validator = detectValidator(ast);
   
-  // 2. Find redeemer parameter (second-to-last for validators)
-  const redeemerParam = entry.type === 'validator' && entry.params.length >= 2
-    ? entry.params[1]  // datum, redeemer, ctx
-    : entry.params[0]; // redeemer, ctx for minting
+  // Get the redeemer parameter name
+  const redeemerParam = getRedeemerParam(validator);
   
-  // 3. Detect redeemer variants
-  const redeemer = redeemerParam 
-    ? detectRedeemerVariants(entry.body, redeemerParam)
-    : { variants: [], matchPattern: 'unknown' as const };
+  // Analyze redeemer patterns
+  const redeemer = analyzeRedeemer(validator.body, redeemerParam);
   
-  // 4. Detect validation checks
-  const checks = detectChecks(entry.body);
+  // Find validation checks in the body
+  const checks = findValidationChecks(validator.body);
   
   return {
-    type: entry.type,
-    params: entry.params,
+    type: validator.type,
+    params: validator.params,
     redeemer,
     checks,
-    body: entry.body,
+    rawBody: validator.body
   };
 }
