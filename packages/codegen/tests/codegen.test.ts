@@ -6,7 +6,7 @@ describe('@uplc/codegen', () => {
   describe('generate', () => {
     it('generates simple validator', () => {
       const structure: ContractStructure = {
-        type: 'validator',
+        type: 'spend',
         params: ['datum', 'redeemer', 'own_ref', 'tx'],
         redeemer: {
           variants: [],
@@ -25,7 +25,7 @@ describe('@uplc/codegen', () => {
 
     it('generates multi-variant redeemer', () => {
       const structure: ContractStructure = {
-        type: 'validator',
+        type: 'spend',
         params: ['datum', 'redeemer', 'own_ref', 'tx'],
         redeemer: {
           variants: [
@@ -50,7 +50,7 @@ describe('@uplc/codegen', () => {
 
     it('generates minting policy', () => {
       const structure: ContractStructure = {
-        type: 'minting_policy',
+        type: 'mint',
         params: ['redeemer', 'policy_id', 'tx'],
         redeemer: {
           variants: [],
@@ -68,7 +68,7 @@ describe('@uplc/codegen', () => {
 
     it('generates with validation checks', () => {
       const structure: ContractStructure = {
-        type: 'validator',
+        type: 'spend',
         params: ['datum', 'redeemer', 'own_ref', 'tx'],
         redeemer: {
           variants: [],

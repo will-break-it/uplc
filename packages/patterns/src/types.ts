@@ -4,14 +4,27 @@
 import type { UplcTerm } from '@uplc/parser';
 
 /**
+ * Script purpose (Plutus V3 terminology)
+ */
+export type ScriptPurpose = 
+  | 'spend'           // UTxO spending validator
+  | 'mint'            // Minting/burning policy
+  | 'withdraw'        // Staking reward withdrawal
+  | 'publish'         // Certificate publishing (delegation, registration)
+  | 'vote'            // Governance voting (CIP-1694)
+  | 'propose'         // Governance proposals (CIP-1694)
+  | 'unknown';
+
+/**
  * Overall contract structure analysis
  */
 export interface ContractStructure {
-  type: 'validator' | 'minting_policy' | 'unknown';
-  params: string[];           // Parameter names (datum, redeemer, ctx)
+  type: ScriptPurpose;
+  params: string[];           // Parameter names
   redeemer: RedeemerInfo;
   checks: ValidationCheck[];
   rawBody: UplcTerm;
+  utilities?: UplcTerm;       // Utility functions from V3 wrapper
 }
 
 /**

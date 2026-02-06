@@ -20,7 +20,7 @@ describe('Validator Detection', () => {
     const ast = parseUplc(source);
     const result = analyzeContract(ast);
     
-    expect(result.type).toBe('validator');
+    expect(result.type).toBe('spend');
     expect(result.params).toEqual(['datum', 'redeemer', 'ctx']);
     expect(result.rawBody).toEqual({ tag: 'con', type: 'unit', value: { tag: 'unit' } });
   });
@@ -34,7 +34,7 @@ describe('Validator Detection', () => {
     const ast = parseUplc(source);
     const result = analyzeContract(ast);
     
-    expect(result.type).toBe('minting_policy');
+    expect(result.type).toBe('mint');
     expect(result.params).toEqual(['redeemer', 'ctx']);
   });
 
@@ -47,7 +47,7 @@ describe('Validator Detection', () => {
     expect(result.params).toEqual(['x']);
   });
 
-  it('handles deeply nested lambdas (takes first 3)', () => {
+  it('handles deeply nested lambdas (returns all params)', () => {
     const source = `
       (lam d
         (lam r
@@ -58,8 +58,9 @@ describe('Validator Detection', () => {
     const ast = parseUplc(source);
     const result = analyzeContract(ast);
     
-    expect(result.type).toBe('validator');
-    expect(result.params).toEqual(['d', 'r', 'ctx']);
+    expect(result.type).toBe('spend');
+    // All params are now returned (no artificial slicing)
+    expect(result.params).toEqual(['d', 'r', 'ctx', 'extra']);
   });
 });
 
@@ -348,7 +349,7 @@ describe('Integration: Full Contract Analysis', () => {
     const result = analyzeContract(ast);
     
     // Basic structure
-    expect(result.type).toBe('validator');
+    expect(result.type).toBe('spend');
     expect(result.params).toEqual(['datum', 'redeemer', 'ctx']);
     
     // Redeemer variants

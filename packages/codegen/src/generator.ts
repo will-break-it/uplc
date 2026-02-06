@@ -2,7 +2,7 @@
  * Code Generator - ContractStructure → GeneratedCode
  */
 
-import type { ContractStructure, RedeemerVariant, ValidationCheck } from '@uplc/patterns';
+import type { ContractStructure, RedeemerVariant, ValidationCheck, ScriptPurpose } from '@uplc/patterns';
 import type { 
   GeneratorOptions, 
   GeneratedCode, 
@@ -21,6 +21,21 @@ const DEFAULT_OPTIONS: GeneratorOptions = {
 };
 
 /**
+ * Map script purpose to handler kind
+ */
+function purposeToHandlerKind(purpose: ScriptPurpose): HandlerBlock['kind'] {
+  switch (purpose) {
+    case 'spend': return 'spend';
+    case 'mint': return 'mint';
+    case 'withdraw': return 'withdraw';
+    case 'publish': return 'publish';
+    case 'vote': return 'vote';
+    case 'propose': return 'propose';
+    default: return 'spend';  // Default fallback
+  }
+}
+
+/**
  * Generate code structure from contract analysis
  */
 export function generateValidator(
@@ -37,8 +52,8 @@ export function generateValidator(
     types.push(generateRedeemerType(structure.redeemer.variants, opts));
   }
   
-  // Determine handler kind based on contract type
-  const handlerKind = structure.type === 'minting_policy' ? 'mint' : 'spend';
+  // Determine handler kind based on script purpose
+  const handlerKind = purposeToHandlerKind(structure.type);
   
   // Generate handler body
   const body = generateHandlerBody(structure, opts);
@@ -80,27 +95,73 @@ function generateRedeemerType(variants: RedeemerVariant[], opts: GeneratorOption
 }
 
 /**
- * Generate handler parameters
+ * Generate handler parameters based on script purpose
+ * 
+ * Plutus V3 handler signatures:
+ * - spend(datum?, redeemer, output_ref, tx) - 4 params
+ * - mint(redeemer, policy_id, tx) - 3 params  
+ * - withdraw(redeemer, credential, tx) - 3 params
+ * - publish(redeemer, certificate, tx) - 3 params
+ * - vote(redeemer, voter, governance_action_id, tx) - 4 params
+ * - propose(redeemer, proposal_procedure, tx) - 3 params
  */
 function generateParams(structure: ContractStructure, opts: GeneratorOptions): ParameterInfo[] {
   const params = structure.params;
+  const redeemerType = structure.redeemer.variants.length > 1 ? 'Action' : 'Data';
   
-  if (structure.type === 'minting_policy') {
-    // mint(redeemer, policy_id, tx)
-    return [
-      { name: params[0] || 'redeemer', type: 'Data' },
-      { name: params[1] || 'policy_id', type: 'PolicyId' },
-      { name: params[2] || 'tx', type: 'Transaction' }
-    ];
+  switch (structure.type) {
+    case 'spend':
+      return [
+        { name: params[0] || 'datum', type: 'Option<Data>', isOptional: true },
+        { name: params[1] || 'redeemer', type: redeemerType },
+        { name: params[2] || 'own_ref', type: 'OutputReference' },
+        { name: params[3] || 'tx', type: 'Transaction' }
+      ];
+      
+    case 'mint':
+      return [
+        { name: params[0] || 'redeemer', type: redeemerType },
+        { name: params[1] || 'policy_id', type: 'PolicyId' },
+        { name: params[2] || 'tx', type: 'Transaction' }
+      ];
+      
+    case 'withdraw':
+      return [
+        { name: params[0] || 'redeemer', type: redeemerType },
+        { name: params[1] || 'credential', type: 'Credential' },
+        { name: params[2] || 'tx', type: 'Transaction' }
+      ];
+      
+    case 'publish':
+      return [
+        { name: params[0] || 'redeemer', type: redeemerType },
+        { name: params[1] || 'certificate', type: 'Certificate' },
+        { name: params[2] || 'tx', type: 'Transaction' }
+      ];
+      
+    case 'vote':
+      return [
+        { name: params[0] || 'redeemer', type: redeemerType },
+        { name: params[1] || 'voter', type: 'Voter' },
+        { name: params[2] || 'governance_action_id', type: 'GovernanceActionId' },
+        { name: params[3] || 'tx', type: 'Transaction' }
+      ];
+      
+    case 'propose':
+      return [
+        { name: params[0] || 'redeemer', type: redeemerType },
+        { name: params[1] || 'proposal', type: 'ProposalProcedure' },
+        { name: params[2] || 'tx', type: 'Transaction' }
+      ];
+      
+    default:
+      // Unknown - use generic spend-like signature
+      return [
+        { name: params[0] || 'datum', type: 'Option<Data>', isOptional: true },
+        { name: params[1] || 'redeemer', type: redeemerType },
+        { name: params[2] || 'ctx', type: 'ScriptContext' }
+      ];
   }
-  
-  // spend(datum, redeemer, own_ref, tx)
-  return [
-    { name: params[0] || 'datum', type: 'Option<Data>', isOptional: true },
-    { name: params[1] || 'redeemer', type: structure.redeemer.variants.length > 1 ? 'Action' : 'Data' },
-    { name: params[2] || 'own_ref', type: 'OutputReference' },
-    { name: params[3] || 'tx', type: 'Transaction' }
-  ];
 }
 
 /**

@@ -94,8 +94,8 @@ describe('End-to-end decompilation', () => {
       variantCount: structure.redeemer.variants.length
     }, null, 2));
     
-    // Should be detected as a validator (or unknown if detection isn't working yet)
-    expect(['validator', 'unknown']).toContain(structure.type);
+    // Should be detected as spend (Plutus V3 terminology)
+    expect(['spend', 'unknown']).toContain(structure.type);
   });
 
   it('generates code for simple_validator', () => {
