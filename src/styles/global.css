@@ -969,6 +969,21 @@ header > .header-inner {
   overflow: hidden;
   height: 400px;
   user-select: none;
+  transition: all 0.2s ease;
+}
+
+.mermaid-viewport.mermaid-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  border-radius: 0;
+  border: none;
+  margin: 0;
 }
 
 .mermaid-container {
