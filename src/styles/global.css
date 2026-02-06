@@ -727,6 +727,9 @@ header > .header-inner {
   font-size: 0.8125rem;
   font-weight: 500;
   transition: all 0.1s;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
 }
 
 .code-tab:hover {
@@ -739,8 +742,6 @@ header > .header-inner {
 }
 
 .code-tab.loading {
-  display: inline-flex;
-  align-items: center;
   gap: 0.375rem;
 }
 

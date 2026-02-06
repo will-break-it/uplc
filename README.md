@@ -1,6 +1,6 @@
 # UPLC.WTF
 
-Reverse-engineer Cardano smart contracts from on-chain bytecode.
+Reverse-engineer Cardano Plutus smart contracts from on-chain UPLC bytecode.
 
 **Live:** [uplc.wtf](https://uplc.wtf)
 
