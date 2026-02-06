@@ -24,22 +24,20 @@ type Datum {
 
 type Action {
   Cancel
-  Update
   Claim
 }
 
 validator decompiled_validator {
   spend(datum: Option<Datum>, redeemer: Action, own_ref: OutputReference, tx: Transaction) {
+    expect Some(d) = datum
+
     when redeemer is {
-      Cancel -> ...
-      Update -> ...
-      Claim -> ...
+      Cancel -> list.has(tx.extra_signatories, d.owner)
+      Claim -> d.deadline < tx.validity_range.upper_bound
     }
   }
 }
 ```
-
-The generated code is valid Aiken syntax — paste it into any Aiken project with stdlib.
 
 ## Architecture
 
