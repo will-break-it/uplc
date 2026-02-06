@@ -12,6 +12,10 @@ import type {
   TypeDefinition,
   ParameterInfo 
 } from './types.js';
+import { BUILTIN_MAP, getRequiredImports } from './stdlib.js';
+
+// Track builtins used during code generation (reset per generateValidator call)
+let usedBuiltins: Set<string> = new Set();
 
 const DEFAULT_OPTIONS: GeneratorOptions = {
   comments: true,
@@ -44,8 +48,10 @@ export function generateValidator(
 ): GeneratedCode {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   
+  // Reset builtin tracking
+  usedBuiltins = new Set();
+  
   const types: TypeDefinition[] = [];
-  const imports: string[] = [];
   
   // Generate redeemer type if we have variants
   if (structure.redeemer.variants.length > 1) {
@@ -55,7 +61,7 @@ export function generateValidator(
   // Determine handler kind based on script purpose
   const handlerKind = purposeToHandlerKind(structure.type);
   
-  // Generate handler body
+  // Generate handler body (this populates usedBuiltins)
   const body = generateHandlerBody(structure, opts);
   
   // Build handler
@@ -71,6 +77,9 @@ export function generateValidator(
     params: [], // No validator-level params detected yet
     handlers: [handler]
   };
+  
+  // Collect required imports from used builtins
+  const imports = getRequiredImports(Array.from(usedBuiltins));
   
   return { validator, types, imports };
 }
@@ -314,78 +323,42 @@ function appToExpression(term: any, params: string[], depth: number): string {
 }
 
 /**
- * Convert builtin call to expression
+ * Convert builtin call to Aiken expression using stdlib mapping
  */
 function builtinCallToExpression(name: string, args: any[], params: string[], depth: number): string {
   const argExprs = args.map((a: any) => termToExpression(a, params, depth + 1));
   
-  // Map common builtins to Aiken-style expressions
-  switch (name) {
-    // Comparisons
-    case 'equalsInteger':
-    case 'equalsData':
-      return argExprs.length >= 2 ? `${argExprs[0]} == ${argExprs[1]}` : `equals(${argExprs.join(', ')})`;
-    case 'equalsByteString':
-      return argExprs.length >= 2 ? `${argExprs[0]} == ${argExprs[1]}` : `bytes_eq(${argExprs.join(', ')})`;
-    case 'lessThanInteger':
-      return argExprs.length >= 2 ? `${argExprs[0]} < ${argExprs[1]}` : `less_than(${argExprs.join(', ')})`;
-    case 'lessThanEqualsInteger':
-      return argExprs.length >= 2 ? `${argExprs[0]} <= ${argExprs[1]}` : `less_eq(${argExprs.join(', ')})`;
-      
-    // Arithmetic
-    case 'addInteger':
-      return argExprs.length >= 2 ? `${argExprs[0]} + ${argExprs[1]}` : `add(${argExprs.join(', ')})`;
-    case 'subtractInteger':
-      return argExprs.length >= 2 ? `${argExprs[0]} - ${argExprs[1]}` : `subtract(${argExprs.join(', ')})`;
-    case 'multiplyInteger':
-      return argExprs.length >= 2 ? `${argExprs[0]} * ${argExprs[1]}` : `multiply(${argExprs.join(', ')})`;
-    case 'divideInteger':
-      return argExprs.length >= 2 ? `${argExprs[0]} / ${argExprs[1]}` : `divide(${argExprs.join(', ')})`;
-      
-    // Boolean
-    case 'ifThenElse':
-      if (argExprs.length >= 3) {
-        return `if ${argExprs[0]} { ${argExprs[1]} } else { ${argExprs[2]} }`;
-      }
-      return `if_then_else(${argExprs.join(', ')})`;
-      
-    // Data destructuring
-    case 'unConstrData':
-      return `unpack_constr(${argExprs.join(', ')})`;
-    case 'unListData':
-      return `unpack_list(${argExprs.join(', ')})`;
-    case 'unMapData':
-      return `unpack_map(${argExprs.join(', ')})`;
-    case 'unIData':
-      return `unpack_int(${argExprs.join(', ')})`;
-    case 'unBData':
-      return `unpack_bytes(${argExprs.join(', ')})`;
-      
-    // Pair operations
-    case 'fstPair':
-      return argExprs.length >= 1 ? `${argExprs[0]}.1st` : `fst(${argExprs.join(', ')})`;
-    case 'sndPair':
-      return argExprs.length >= 1 ? `${argExprs[0]}.2nd` : `snd(${argExprs.join(', ')})`;
-      
-    // List operations
-    case 'headList':
-      return argExprs.length >= 1 ? `list.head(${argExprs[0]})` : `head(${argExprs.join(', ')})`;
-    case 'tailList':
-      return argExprs.length >= 1 ? `list.tail(${argExprs[0]})` : `tail(${argExprs.join(', ')})`;
-    case 'nullList':
-      return argExprs.length >= 1 ? `list.is_empty(${argExprs[0]})` : `is_empty(${argExprs.join(', ')})`;
-      
-    // Crypto
-    case 'sha2_256':
-    case 'sha3_256':
-    case 'blake2b_256':
-      return `hash.${name}(${argExprs.join(', ')})`;
-    case 'verifyEd25519Signature':
-      return `crypto.verify_signature(${argExprs.join(', ')})`;
-      
-    default:
-      return `${name}(${argExprs.join(', ')})`;
+  // Track this builtin usage for import collection
+  usedBuiltins.add(name);
+  
+  const mapping = BUILTIN_MAP[name];
+  
+  if (!mapping) {
+    // Unknown builtin - use as-is
+    return `${name}(${argExprs.join(', ')})`;
   }
+  
+  // Handle inline templates (operators, simple expressions)
+  if (mapping.inline) {
+    let result = mapping.inline;
+    argExprs.forEach((arg, i) => {
+      result = result.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
+    });
+    return result;
+  }
+  
+  const fnName = mapping.aikenName || name;
+  
+  // Handle method call style: x.method() or x.method(y)
+  if (mapping.method && argExprs.length > 0) {
+    const [first, ...rest] = argExprs;
+    return rest.length > 0 
+      ? `${first}.${fnName}(${rest.join(', ')})`
+      : `${first}.${fnName}()`;
+  }
+  
+  // Regular function call
+  return `${fnName}(${argExprs.join(', ')})`;
 }
 
 /**

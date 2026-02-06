@@ -19,7 +19,15 @@ const INDENT = '  ';
 export function formatCode(code: GeneratedCode): string {
   const parts: string[] = [];
   
-  // Format type definitions first
+  // Format imports first
+  if (code.imports && code.imports.length > 0) {
+    for (const mod of code.imports) {
+      parts.push(`use ${mod}`);
+    }
+    parts.push('');
+  }
+  
+  // Format type definitions
   for (const type of code.types) {
     parts.push(formatType(type));
     parts.push('');

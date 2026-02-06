@@ -1,8 +1,8 @@
 /**
- * @uplc/codegen - Generate Aiken-like code from UPLC analysis
+ * @uplc/codegen - Generate Aiken code from UPLC analysis
  * 
  * Takes ContractStructure from @uplc/patterns and generates
- * readable Aiken-style pseudocode.
+ * compilable Aiken code with proper imports.
  */
 
 import type { ContractStructure } from '@uplc/patterns';
@@ -15,6 +15,8 @@ export type { GeneratorOptions, GeneratedCode } from './types.js';
 // Re-export utilities
 export { generateValidator } from './generator.js';
 export { formatCode } from './formatter.js';
+export { BUILTIN_MAP, getRequiredImports, builtinToAiken } from './stdlib.js';
+export type { BuiltinMapping } from './stdlib.js';
 
 /**
  * Generate Aiken-like code from a contract structure
