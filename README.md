@@ -10,7 +10,7 @@
 
 ## How It Works
 
-Cardano smart contracts are stored on-chain as nested binary encodings:
+Cardano smart contracts are stored on-chain as nested binary encodings. This tool decodes them through a deterministic pipeline:
 
 ```
 On-chain script bytes
@@ -24,23 +24,57 @@ On-chain script bytes
 ┌─────────────────────────────────┐
 │  Flat-encoded UPLC program      │  ← Compact bit-level encoding
 └─────────────────────────────────┘
-    │
+    │  @harmoniclabs/uplc
     ▼
 ┌─────────────────────────────────┐
 │  UPLC AST                       │  ← Lambda calculus: Lambda, App,
 │  (Untyped Plutus Core)          │    Force, Delay, Builtin, Const
 └─────────────────────────────────┘
-    │
+    │  @uplc/parser
     ▼
 ┌─────────────────────────────────┐
-│  Aiken-style pseudocode         │  ← AI-reconstructed high-level code
+│  Parsed AST                     │  ← TypeScript representation
+│                                 │    with Plutus V3 support
+└─────────────────────────────────┘
+    │  @uplc/patterns
+    ▼
+┌─────────────────────────────────┐
+│  Contract Structure             │  ← Script purpose detection
+│                                 │    (spend/mint/withdraw/vote/...)
+│                                 │    Redeemer variant analysis
+│                                 │    Validation check identification
+└─────────────────────────────────┘
+    │  @uplc/codegen
+    ▼
+┌─────────────────────────────────┐
+│  Aiken-style pseudocode         │  ← Deterministic decompilation
+│                                 │    with readable expressions
 └─────────────────────────────────┘
 ```
 
 **The three views in the tool:**
 - **CBOR:** Raw hex bytes as stored on-chain
-- **UPLC:** Decoded lambda calculus (parsed from flat encoding via [@harmoniclabs/uplc](https://github.com/harmoniclabs/uplc))
-- **Aiken:** AI-decompiled pseudocode with inferred variable names and types
+- **UPLC:** Decoded lambda calculus (parsed from flat encoding)
+- **Aiken:** Decompiled pseudocode with Plutus V3 support
+
+### Packages
+
+This project includes three npm packages for programmatic use:
+
+| Package | Description |
+|---------|-------------|
+| `@uplc/parser` | UPLC text → AST (supports Plutus V3 case/constr) |
+| `@uplc/patterns` | AST → Contract structure (purpose, redeemer variants, checks) |
+| `@uplc/codegen` | Structure → Aiken-style code |
+
+### Supported Script Purposes (Plutus V3)
+
+- `spend` — UTxO spending validator
+- `mint` — Minting/burning policy  
+- `withdraw` — Staking reward withdrawal
+- `publish` — Certificate publishing
+- `vote` — Governance voting (CIP-1694)
+- `propose` — Governance proposals (CIP-1694)
 
 <p align="center">
   <img src="public/preview.gif" alt="UPLC.WTF demo - switching between CBOR, UPLC, and Aiken views" width="100%" />
@@ -52,17 +86,22 @@ On-chain script bytes
 npm install
 npm run dev     # localhost:4321
 npm run build   # production build
+npm test        # run all tests
 ```
 
-### Environment Variables
-
-For AI decompilation (Aiken tab) to work locally, create a `.dev.vars` file:
+### Project Structure
 
 ```
-ANTHROPIC_API_KEY=sk-ant-...
+packages/
+  parser/     # UPLC text parser
+  patterns/   # Contract pattern recognition
+  codegen/    # Aiken code generation
+src/
+  lib/        # Frontend utilities
+  components/ # React components
+test/
+  fixtures/   # Test contracts (Aiken-compiled)
 ```
-
-The CBOR and UPLC views work without any API keys — only the AI features require configuration.
 
 ## License
 
@@ -70,4 +109,4 @@ MIT
 
 ---
 
-<sub>Free to use. AI features cost money to run — [sponsors help keep it available](https://github.com/sponsors/will-break-it).</sub>
+<sub>Free to use. [Sponsors help keep it available](https://github.com/sponsors/will-break-it).</sub>
