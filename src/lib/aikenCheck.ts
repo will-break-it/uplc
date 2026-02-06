@@ -16,7 +16,9 @@ async function initWasm(): Promise<void> {
   initPromise = (async () => {
     try {
       const wasmUrl = '/wasm/aiken_check_wasm_bg.wasm';
-      const jsModule = await import('/wasm/aiken_check_wasm.js');
+      const jsUrl = '/wasm/aiken_check_wasm.js';
+      // Use @vite-ignore to prevent Rollup from trying to resolve at build time
+      const jsModule = await import(/* @vite-ignore */ jsUrl);
       
       const wasmResponse = await fetch(wasmUrl);
       const wasmBytes = await wasmResponse.arrayBuffer();
