@@ -696,32 +696,6 @@ export default function ScriptAnalyzer() {
                     </>
                   )}
 
-                  {!aiLoading && !aiError && (
-                    <>
-                      <h3>UTxO Flow</h3>
-                      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
-                        How value flows through this validator during a transaction.
-                      </p>
-                      <MermaidDiagram chart={`flowchart LR
-  utxo1[Input UTxO + Datum]
-  redeemer[Redeemer]
-  validator{Validator}
-  ctx[Script Context]
-  utxo2[Output UTxOs]
-  
-  utxo1 --> validator
-  redeemer --> validator
-  ctx --> validator
-  validator --> utxo2
-  
-  style utxo1 fill:#e0f2fe,stroke:#0284c7
-  style redeemer fill:#fef3c7,stroke:#d97706
-  style validator fill:#f3e8ff,stroke:#9333ea
-  style ctx fill:#f1f5f9,stroke:#64748b
-  style utxo2 fill:#dcfce7,stroke:#16a34a`} />
-                    </>
-                  )}
-
                   {!aiLoading && !aiAnalysis?.mermaid && !aiError && (
                     <div className="empty-state">
                       <p>Validation flow diagram not available for this contract.</p>
