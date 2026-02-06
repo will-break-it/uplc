@@ -3,8 +3,7 @@ name = "uplc"
 pages_build_output_dir = "dist"
 compatibility_date = "2024-01-01"
 
-# KV namespace for caching prettified results
-# Bound via Cloudflare Pages dashboard
-# [[kv_namespaces]]
-# binding = "UPLC_CACHE"
-# id = "your-kv-namespace-id"
+# KV namespace for caching AI analysis results
+[[kv_namespaces]]
+binding = "UPLC_CACHE"
+id = "7afe617d961440eab41446b192b03769"
