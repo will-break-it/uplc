@@ -16,6 +16,7 @@ Paste a Cardano script hash or CBOR hex → get readable Aiken code.
 
 ```aiken
 use aiken/list
+use aiken/transaction.{OutputReference, Transaction}
 
 type Datum {
   owner: ByteArray,
