@@ -842,15 +842,14 @@ header > .header-inner {
 
 .code-block pre {
   margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  overflow-x: auto;
 }
 
-/* CBOR hex: horizontal scroll, no wrap */
+/* CBOR hex: wrap allowed */
 .code-block pre.cbor-hex {
-  white-space: pre;
-  word-break: normal;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 /* Builtin table */
