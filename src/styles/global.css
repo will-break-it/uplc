@@ -730,6 +730,8 @@ header > .header-inner {
   height: 28px;
   display: inline-flex;
   align-items: center;
+  flex-direction: row;
+  flex-shrink: 0;
 }
 
 .code-tab:hover {
@@ -742,8 +744,16 @@ header > .header-inner {
 }
 
 .code-tab.loading {
-  flex-direction: row;
   gap: 0.375rem;
+}
+
+.code-tab:disabled {
+  cursor: default;
+  outline: none;
+}
+
+.code-tab:focus {
+  outline: none;
 }
 
 .code-tab .spinner-sm {
