@@ -453,7 +453,7 @@ export default function ScriptAnalyzer() {
       const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
       
-      // Decompile UPLC to Aiken-style code
+      // Decompile UPLC to Aiken code
       if (coreResult.uplcPreview) {
         const decompiledResult = decompileUplc(coreResult.uplcPreview);
         setDecompiled(decompiledResult);
@@ -768,7 +768,7 @@ export default function ScriptAnalyzer() {
                         <button 
                           className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
                           onClick={() => setContractView('aiken')}
-                          title="Decompiled Aiken-style pseudocode"
+                          title="Decompiled Aiken code"
                         >
                           Aiken
                         </button>
@@ -852,7 +852,7 @@ export default function ScriptAnalyzer() {
                               </div>
                             )}
                             <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                              <em>Note: This is auto-generated pseudocode. Variable names are derived from UPLC structure.</em>
+                              <em>Note: Auto-generated from UPLC. Variable names derived from bytecode structure.</em>
                             </div>
                           </div>
                         ) : (
