@@ -250,7 +250,9 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         if (val === undefined || val === null) return `(con unit ())`;
         if (typeof val === 'string' && val.length <= 20) return `(con string "${val}")`;
         if (val instanceof Uint8Array && val.length <= 16) return `(con bytestring #${bufferToHex(val)})`;
-        return null; // Too long
+        // For complex constants (Data, lists, etc.), don't inline
+        if (typeof val === 'object' && val !== null) return null;
+        return null; // Too long or unknown
       }
       case 'Force': {
         const inner = inline(term.termToForce, varStack, maxLen - 8);
@@ -310,12 +312,28 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         if (typeof val === 'string') return `${pad}(con string "${val.slice(0, 80)}")`;
         if (val instanceof Uint8Array) {
           const hex = bufferToHex(val);
-          return hex.length <= 64 
+          return hex.length <= 64
             ? `${pad}(con bytestring #${hex})`
             : `${pad}(con bytestring #${hex.slice(0, 60)}...)`;
         }
         if (val === undefined || val === null) return `${pad}(con unit ())`;
-        return `${pad}(con ${typeof val})`;
+
+        // Handle Plutus Data constants (lists, pairs, etc.)
+        if (typeof val === 'object' && val !== null) {
+          // Check if it's a Data type from Harmonic Labs
+          if ('toData' in val || 'toCbor' in val) {
+            return `${pad}(con data <complex>)`;
+          }
+          // Check if it's a list-like structure
+          if (Array.isArray(val)) {
+            return `${pad}(con list [...])`;
+          }
+          // Unknown object type
+          console.warn('Unknown constant type:', val);
+          return `${pad}(error)`;
+        }
+
+        return `${pad}(error)`;
       }
       case 'Constr': {
         const terms = term.terms?.map((t: any) => pp(t, depth + 1, varStack)).join('\n') || '';
