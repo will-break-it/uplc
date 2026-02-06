@@ -168,11 +168,22 @@ function generateParams(structure: ContractStructure, opts: GeneratorOptions): P
  * Generate the handler body
  */
 function generateHandlerBody(structure: ContractStructure, opts: GeneratorOptions): CodeBlock {
-  const { redeemer, checks } = structure;
+  const { redeemer, checks, rawBody, params } = structure;
   
   // If we have multiple redeemer variants, generate a when expression
   if (redeemer.variants.length > 1) {
     return generateWhenBlock(redeemer.variants, opts);
+  }
+  
+  // If we have a raw body, try to generate code from it
+  if (rawBody) {
+    const expr = termToExpression(rawBody, params, 0);
+    if (expr !== '???' && expr !== 'True') {
+      return {
+        kind: 'expression',
+        content: expr
+      };
+    }
   }
   
   // If we have checks, generate condition chain
@@ -180,11 +191,203 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
     return generateChecksBlock(checks, opts);
   }
   
-  // Simple validator - just return True
+  // Fallback - just return True (always-succeeding validator)
   return {
     kind: 'expression',
     content: 'True'
   };
+}
+
+/**
+ * Convert a UPLC term to an Aiken-style expression string
+ */
+function termToExpression(term: any, params: string[], depth: number): string {
+  if (!term || depth > 20) return '???';  // Prevent infinite recursion
+  
+  switch (term.tag) {
+    case 'con':
+      return constToExpression(term);
+      
+    case 'var':
+      return term.name;
+      
+    case 'builtin':
+      return `builtin::${term.name}`;
+      
+    case 'lam':
+      const body = termToExpression(term.body, [...params, term.param], depth + 1);
+      return `fn(${term.param}) { ${body} }`;
+      
+    case 'app':
+      return appToExpression(term, params, depth);
+      
+    case 'force':
+      return termToExpression(term.term, params, depth + 1);
+      
+    case 'delay':
+      return `delay { ${termToExpression(term.term, params, depth + 1)} }`;
+      
+    case 'error':
+      return 'fail';
+      
+    case 'case':
+      return caseToExpression(term, params, depth);
+      
+    case 'constr':
+      const args = term.args?.map((a: any) => termToExpression(a, params, depth + 1)).join(', ') || '';
+      return `Constr(${term.index}${args ? ', ' + args : ''})`;
+      
+    default:
+      return '???';
+  }
+}
+
+/**
+ * Convert a constant to expression
+ */
+function constToExpression(term: any): string {
+  if (!term.value) return '()';
+  
+  switch (term.value.tag) {
+    case 'integer':
+      return term.value.value.toString();
+    case 'bool':
+      return term.value.value ? 'True' : 'False';
+    case 'unit':
+      return '()';
+    case 'bytestring':
+      const hex = Array.from(term.value.value as Uint8Array)
+        .map((b: number) => b.toString(16).padStart(2, '0'))
+        .join('');
+      return `#"${hex.substring(0, 16)}${hex.length > 16 ? '...' : ''}"`;
+    case 'string':
+      return `"${term.value.value}"`;
+    default:
+      return `<${term.type || 'data'}>`;
+  }
+}
+
+/**
+ * Convert function application to expression
+ */
+function appToExpression(term: any, params: string[], depth: number): string {
+  // Flatten nested applications
+  const parts: any[] = [];
+  let current = term;
+  while (current.tag === 'app') {
+    parts.unshift(current.arg);
+    current = current.func;
+  }
+  // Handle force at the head
+  while (current.tag === 'force') {
+    current = current.term;
+  }
+  parts.unshift(current);
+  
+  // Check if it's a builtin call
+  if (parts[0]?.tag === 'builtin') {
+    return builtinCallToExpression(parts[0].name, parts.slice(1), params, depth);
+  }
+  
+  // Regular function call
+  const func = termToExpression(parts[0], params, depth + 1);
+  const args = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
+  
+  if (args.length === 0) return func;
+  return `${func}(${args.join(', ')})`;
+}
+
+/**
+ * Convert builtin call to expression
+ */
+function builtinCallToExpression(name: string, args: any[], params: string[], depth: number): string {
+  const argExprs = args.map((a: any) => termToExpression(a, params, depth + 1));
+  
+  // Map common builtins to Aiken-style expressions
+  switch (name) {
+    // Comparisons
+    case 'equalsInteger':
+    case 'equalsData':
+      return argExprs.length >= 2 ? `${argExprs[0]} == ${argExprs[1]}` : `equals(${argExprs.join(', ')})`;
+    case 'equalsByteString':
+      return argExprs.length >= 2 ? `${argExprs[0]} == ${argExprs[1]}` : `bytes_eq(${argExprs.join(', ')})`;
+    case 'lessThanInteger':
+      return argExprs.length >= 2 ? `${argExprs[0]} < ${argExprs[1]}` : `less_than(${argExprs.join(', ')})`;
+    case 'lessThanEqualsInteger':
+      return argExprs.length >= 2 ? `${argExprs[0]} <= ${argExprs[1]}` : `less_eq(${argExprs.join(', ')})`;
+      
+    // Arithmetic
+    case 'addInteger':
+      return argExprs.length >= 2 ? `${argExprs[0]} + ${argExprs[1]}` : `add(${argExprs.join(', ')})`;
+    case 'subtractInteger':
+      return argExprs.length >= 2 ? `${argExprs[0]} - ${argExprs[1]}` : `subtract(${argExprs.join(', ')})`;
+    case 'multiplyInteger':
+      return argExprs.length >= 2 ? `${argExprs[0]} * ${argExprs[1]}` : `multiply(${argExprs.join(', ')})`;
+    case 'divideInteger':
+      return argExprs.length >= 2 ? `${argExprs[0]} / ${argExprs[1]}` : `divide(${argExprs.join(', ')})`;
+      
+    // Boolean
+    case 'ifThenElse':
+      if (argExprs.length >= 3) {
+        return `if ${argExprs[0]} { ${argExprs[1]} } else { ${argExprs[2]} }`;
+      }
+      return `if_then_else(${argExprs.join(', ')})`;
+      
+    // Data destructuring
+    case 'unConstrData':
+      return `unpack_constr(${argExprs.join(', ')})`;
+    case 'unListData':
+      return `unpack_list(${argExprs.join(', ')})`;
+    case 'unMapData':
+      return `unpack_map(${argExprs.join(', ')})`;
+    case 'unIData':
+      return `unpack_int(${argExprs.join(', ')})`;
+    case 'unBData':
+      return `unpack_bytes(${argExprs.join(', ')})`;
+      
+    // Pair operations
+    case 'fstPair':
+      return argExprs.length >= 1 ? `${argExprs[0]}.1st` : `fst(${argExprs.join(', ')})`;
+    case 'sndPair':
+      return argExprs.length >= 1 ? `${argExprs[0]}.2nd` : `snd(${argExprs.join(', ')})`;
+      
+    // List operations
+    case 'headList':
+      return argExprs.length >= 1 ? `list.head(${argExprs[0]})` : `head(${argExprs.join(', ')})`;
+    case 'tailList':
+      return argExprs.length >= 1 ? `list.tail(${argExprs[0]})` : `tail(${argExprs.join(', ')})`;
+    case 'nullList':
+      return argExprs.length >= 1 ? `list.is_empty(${argExprs[0]})` : `is_empty(${argExprs.join(', ')})`;
+      
+    // Crypto
+    case 'sha2_256':
+    case 'sha3_256':
+    case 'blake2b_256':
+      return `hash.${name}(${argExprs.join(', ')})`;
+    case 'verifyEd25519Signature':
+      return `crypto.verify_signature(${argExprs.join(', ')})`;
+      
+    default:
+      return `${name}(${argExprs.join(', ')})`;
+  }
+}
+
+/**
+ * Convert case expression to when block
+ */
+function caseToExpression(term: any, params: string[], depth: number): string {
+  const scrutinee = termToExpression(term.scrutinee, params, depth + 1);
+  
+  if (!term.branches || term.branches.length === 0) {
+    return `when ${scrutinee} is { }`;
+  }
+  
+  const branches = term.branches.map((b: any, i: number) => {
+    const body = termToExpression(b, params, depth + 1);
+    return `  ${i} -> ${body}`;
+  }).join('\n');
+  
+  return `when ${scrutinee} is {\n${branches}\n}`;
 }
 
 /**
@@ -200,7 +403,7 @@ function generateWhenBlock(variants: RedeemerVariant[], opts: GeneratorOptions):
         : `Variant${i}`,
       body: {
         kind: 'expression',
-        content: '...' // TODO: Analyze variant body
+        content: termToExpression(v.body, [], 0)
       }
     }))
   };
