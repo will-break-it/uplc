@@ -338,7 +338,6 @@ export default function ScriptAnalyzer() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
-  const [aikenSubView, setAikenSubView] = useState<'validator' | 'datum' | 'redeemer'>('validator');
   const [uplcViewMode, setUplcViewMode] = useState<'pretty' | 'compact'>('pretty');
   const carouselRef = useRef<HTMLDivElement>(null);
   const carouselDirectionRef = useRef<1 | -1>(1);
@@ -877,9 +876,7 @@ export default function ScriptAnalyzer() {
                               : result.uplcPreview;
                           }
                           else if (contractView === 'aiken') {
-                            if (aikenSubView === 'validator') text = aiAnalysis?.aiken || '';
-                            else if (aikenSubView === 'datum') text = aiAnalysis?.types?.datum || '';
-                            else if (aikenSubView === 'redeemer') text = aiAnalysis?.types?.redeemer || '';
+                            text = aiAnalysis?.aiken || '';
                           }
                           copyToClipboard(text, 'copy-code');
                         }}
@@ -907,35 +904,11 @@ export default function ScriptAnalyzer() {
 
                     {contractView === 'aiken' && (
                       <>
-                        <div className="aiken-subtabs">
-                          <button 
-                            className={`aiken-subtab ${aikenSubView === 'validator' ? 'active' : ''}`} 
-                            onClick={() => setAikenSubView('validator')}
-                          >
-                            Validator
-                          </button>
-                          <button 
-                            className={`aiken-subtab ${aikenSubView === 'datum' ? 'active' : ''}`} 
-                            onClick={() => setAikenSubView('datum')}
-                            disabled={!aiAnalysis?.types?.datum}
-                          >
-                            Datum
-                          </button>
-                          <button 
-                            className={`aiken-subtab ${aikenSubView === 'redeemer' ? 'active' : ''}`} 
-                            onClick={() => setAikenSubView('redeemer')}
-                            disabled={!aiAnalysis?.types?.redeemer}
-                          >
-                            Redeemer
-                          </button>
-                        </div>
                         <div className="decompile-notice">
                           <svg viewBox="0 0 16 16" fill="currentColor">
                             <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
                           </svg>
-                          {aikenSubView === 'validator' && 'Reconstructed from UPLC bytecode. Variable names and types are inferred.'}
-                          {aikenSubView === 'datum' && 'Inferred from how the validator destructures on-chain state.'}
-                          {aikenSubView === 'redeemer' && 'Inferred from pattern matching on transaction inputs.'}
+                          AI-decompiled from UPLC bytecode. Types and variable names are inferred.
                         </div>
                       </>
                     )}
@@ -967,32 +940,18 @@ export default function ScriptAnalyzer() {
                                 </a>
                               </p>
                             </div>
-                          ) : aikenSubView === 'validator' ? (
-                            aiAnalysis?.aiken ? (
-                              <CodeBlock code={aiAnalysis.aiken} language="rust" />
-                            ) : (
-                              <pre style={{ color: '#6b7280' }}>
-                                {aiError || 'Failed to generate Aiken code. Switch to UPLC view.'}
-                              </pre>
-                            )
-                          ) : aikenSubView === 'datum' ? (
-                            aiAnalysis?.types?.datum ? (
-                              <CodeBlock code={aiAnalysis.types.datum} language="rust" />
-                            ) : (
-                              <pre style={{ color: '#6b7280' }}>Datum type not available.</pre>
-                            )
-                          ) : aikenSubView === 'redeemer' ? (
-                            aiAnalysis?.types?.redeemer ? (
-                              <CodeBlock code={aiAnalysis.types.redeemer} language="rust" />
-                            ) : (
-                              <pre style={{ color: '#6b7280' }}>Redeemer type not available.</pre>
-                            )
-                          ) : null
+                          ) : aiAnalysis?.aiken ? (
+                            <CodeBlock code={aiAnalysis.aiken} language="rust" />
+                          ) : (
+                            <pre style={{ color: '#6b7280' }}>
+                              {aiError || 'Failed to decompile. Switch to UPLC view.'}
+                            </pre>
+                          )
                         )}
                       </div>
                       
-                      {/* Floating validation badge - only for Aiken > Validator */}
-                      {contractView === 'aiken' && aikenSubView === 'validator' && aiAnalysis?.aiken && (
+                      {/* Floating validation badge */}
+                      {contractView === 'aiken' && aiAnalysis?.aiken && (
                         aikenValidating ? (
                           <div className="validation-badge validating" title="Validating syntax...">
                             <span className="badge-icon">

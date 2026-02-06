@@ -1,5 +1,5 @@
-// Cloudflare Pages Function for combined AI analysis with retry fallback
-// Strategy: Try combined (aiken+mermaid+types) first, on failure split into separate calls
+// Cloudflare Pages Function for AI-powered UPLC decompilation
+// Returns valid, compilable Aiken code
 
 interface Env {
   ANTHROPIC_API_KEY: string;
@@ -18,249 +18,100 @@ function getCorsOrigin(request: Request): string {
   if (ALLOWED_ORIGINS.includes(origin)) {
     return origin;
   }
-  // Reject unknown origins by returning the primary domain
-  // (browser will block the response due to CORS mismatch)
   return 'https://uplc.wtf';
 }
 
 interface AnalysisResult {
   aiken: string;
   mermaid?: string;
-  types?: {
-    datum: string;
-    redeemer: string;
-  };
   cached?: boolean;
 }
 
-const COMBINED_PROMPT = `<role>You are an expert Cardano/Aiken developer who reverse-engineers UPLC bytecode into valid, compilable Aiken code.</role>
+const DECOMPILE_PROMPT = `You are an expert UPLC reverse engineer. Your task is to decompile UPLC bytecode into valid, compilable Aiken source code.
 
-<task>
-Analyze the provided UPLC bytecode and produce:
-1. Valid Aiken source code that compiles
-2. A Mermaid flowchart showing validation logic
-3. Proper Aiken type definitions for Datum and Redeemer
-</task>
+CRITICAL RULES:
+1. OUTPUT MUST BE VALID AIKEN that compiles with the Aiken compiler
+2. TRACE THE ACTUAL UPLC - do not guess or invent logic
+3. Include type definitions inline (Datum, Redeemer types at top of file)
+4. Use proper Aiken syntax, not raw UPLC builtins
 
-<output_format>
-Respond with valid JSON only (no markdown, no code fences):
-{
-  "aiken": "// valid aiken code here",
-  "mermaid": "flowchart TD\\n  A[Entry] --> B{Redeemer}\\n  ...",
-  "types": {
-    "datum": "type Datum { field1: Type, field2: Type }",
-    "redeemer": "type Redeemer { Variant1 Variant2 { arg: Type } }"
-  }
-}
-</output_format>
-
-<aiken_syntax_rules>
-CRITICAL: Output MUST be valid Aiken that compiles. Never use raw UPLC builtins.
-
-CORRECT Aiken syntax:
-- Comparisons: == != < > <= >= (NOT equalsInteger, lessThanInteger)
-- Arithmetic: + - * / % (NOT addInteger, multiplyInteger, divideInteger)
-- Boolean: && || ! (NOT andBool, orBool, not)
-- Pattern matching: when x is { Variant1 -> ... Variant2 { field } -> ... }
-- Conditionals: if condition { ... } else { ... }
-- Lists: list.head, list.tail, list.length, list.map(), list.filter(), list.any()
-- ByteArray: bytearray.length(), bytearray.take(), bytearray.drop()
-- Option: when opt is { Some(x) -> ... None -> ... }
-- String interpolation not supported, use bytearray literals: #"deadbeef"
-
-VALIDATOR STRUCTURE:
-validator my_validator {
-  spend(datum: Option<Datum>, redeemer: Redeemer, _own_ref: OutputReference, tx: Transaction) {
-    expect Some(d) = datum
-    // validation logic
-    True
-  }
-}
-
-TYPE DEFINITIONS:
-type Datum {
-  owner: VerificationKeyHash,
-  deadline: Int,
-  amount: Int,
-}
-
-type Redeemer {
-  Cancel
-  Claim { signature: ByteArray }
-  Swap { amount_in: Int, min_out: Int }
-}
-
-PATTERN MATCHING on redeemer:
-when redeemer is {
-  Cancel -> handle_cancel(datum, tx)
-  Claim { signature } -> verify_signature(datum.owner, signature)
-  Swap { amount_in, min_out } -> validate_swap(amount_in, min_out, tx)
-}
-
-COMMON PATTERNS:
-- Signature check: list.has(tx.extra_signatories, datum.owner)
-- Deadline check: tx.validity_range.lower_bound > datum.deadline
-- Output finding: list.find(tx.outputs, fn(o) { o.address == own_address })
-- Value check: value.lovelace_of(output.value) >= min_amount
-
-IMPORTS (include if used):
-use aiken/collection/list
-use aiken/crypto.{VerificationKeyHash}
-use cardano/transaction.{Transaction, OutputReference}
-</aiken_syntax_rules>
-
-<uplc_to_aiken_translation>
-When you see these UPLC patterns, translate to Aiken:
-- equalsInteger(a, b) → a == b
-- lessThanInteger(a, b) → a < b
-- addInteger(a, b) → a + b
-- multiplyInteger(a, b) → a * b
-- divideInteger(a, b) → a / b
-- ifThenElse(cond, t, f) → if cond { t } else { f }
-- unConstrData + fstPair check → when redeemer is { ... }
-- headList/tailList chains → pattern matching on constructor fields
-- verifyEd25519Signature → crypto.verify_signature()
-- sha2_256 → crypto.sha256()
-- equalsByteString → ==
-- appendByteString → bytearray.concat()
-- trace("msg") → trace @"msg"
-</uplc_to_aiken_translation>
-
-<mermaid_rules>
-- Use flowchart TD (top-down direction)
-- Show validation paths for each redeemer variant
-- Include decision nodes for checks (signatures, deadlines, amounts)
-- Maximum 15 nodes for readability
-- Escape special characters in labels
-</mermaid_rules>
-
-<important>
-- The output MUST compile with the Aiken compiler
-- Never output raw UPLC builtins like unConstrData, fstPair, equalsInteger
-- Always use proper Aiken operators and syntax
-- Include necessary imports at the top
-- Use descriptive variable names inferred from usage context
-- If logic is too complex, break into helper functions
-</important>`;
-
-const AIKEN_ONLY_PROMPT = `<role>Cardano/Aiken expert reverse-engineer</role>
-
-<task>Convert UPLC bytecode to valid, compilable Aiken code</task>
-
-<output_format>
-JSON only: {"aiken": "// valid aiken code"}
-</output_format>
-
-<rules>
-CRITICAL: Output MUST be valid Aiken syntax that compiles.
-
-CORRECT syntax:
+AIKEN SYNTAX REFERENCE:
 - Comparisons: == != < > <= >= (NOT equalsInteger, lessThanInteger)
 - Arithmetic: + - * / % (NOT addInteger, multiplyInteger)
-- Boolean: && || ! (NOT andBool, orBool)
-- Pattern matching: when x is { Variant -> ... }
+- Boolean: && || ! (NOT andBool, ifThenElse)
+- Pattern match: when x is { Variant1 -> ... Variant2 { field } -> ... }
 - Conditionals: if cond { ... } else { ... }
+- List ops: list.has(), list.any(), list.filter(), list.map(), list.foldl()
+- Expect: expect Some(x) = option_value
 
-TRANSLATE UPLC builtins:
-- equalsInteger(a,b) → a == b
-- lessThanInteger(a,b) → a < b  
-- addInteger(a,b) → a + b
-- multiplyInteger(a,b) → a * b
-- divideInteger(a,b) → a / b
-- ifThenElse → if/else
-- unConstrData pattern → when/is pattern matching
+UPLC PATTERN RECOGNITION:
+- (lam x (lam y (lam z body))) = validator with datum/redeemer/ctx
+- (force (builtin ifThenElse) cond t f) = if cond { t } else { f }
+- (builtin equalsInteger a b) = a == b
+- (builtin lessThanInteger a b) = a < b
+- (builtin addInteger a b) = a + b
+- (builtin multiplyInteger a b) = a * b
+- (builtin divideInteger a b) = a / b
+- (builtin appendByteString a b) = bytearray.concat(a, b)
+- (builtin equalsByteString a b) = a == b
+- (builtin sha2_256 x) = crypto.sha256(x)
+- (builtin verifyEd25519Signature pk msg sig) = crypto.verify_signature(pk, msg, sig)
+- unConstrData + fstPair/sndPair = pattern matching on constructor
+- headList/tailList chains = field access on constructor
 
-STRUCTURE:
-validator name {
+STRUCTURE YOUR OUTPUT:
+\`\`\`aiken
+use aiken/collection/list
+use cardano/transaction.{Transaction, OutputReference}
+// ... other imports as needed
+
+// Datum type (infer from how it's destructured)
+type Datum {
+  field1: Type,
+  field2: Type,
+}
+
+// Redeemer type (infer from constructor matching)
+type Redeemer {
+  Variant1
+  Variant2 { arg: Type }
+}
+
+validator contract_name {
   spend(datum: Option<Datum>, redeemer: Redeemer, _ref: OutputReference, tx: Transaction) {
     expect Some(d) = datum
     when redeemer is {
-      Variant1 -> ...
-      Variant2 { field } -> ...
+      Variant1 -> { ... }
+      Variant2 { arg } -> { ... }
     }
   }
 }
+\`\`\`
+
+DECOMPILATION STRATEGY:
+1. First, identify the validator entry point (outermost lambdas)
+2. Find redeemer pattern matching (unConstrData + fstPair checks)
+3. Count constructor cases to determine redeemer variants
+4. Trace each branch to understand the validation logic
+5. Identify datum field access patterns
+6. Name variables based on how they're used (e.g., if compared to tx.extra_signatories, call it "owner")
 
 FORBIDDEN:
-- Raw UPLC builtins (unConstrData, fstPair, headList, equalsInteger, etc.)
-- "// Implementation omitted" comments
-- Placeholder returns
-</rules>`;
+- Do NOT invent logic that isn't in the UPLC
+- Do NOT use raw UPLC builtins (equalsInteger, ifThenElse, etc.)
+- Do NOT write placeholder comments like "// implementation here"
+- Do NOT guess what the contract "probably does"
 
-const MERMAID_TYPES_PROMPT = `<role>Smart contract analyzer</role>
+OUTPUT FORMAT:
+Return JSON only: {"aiken": "// complete aiken source code", "mermaid": "flowchart TD\\n..."}
 
-<task>
-From this Aiken contract code, produce:
-1. Mermaid flowchart of validation logic
-2. Inferred Datum and Redeemer type definitions
-</task>
+The mermaid diagram should show the validation flow (max 12 nodes).`;
 
-<output_format>
-JSON only:
-{
-  "mermaid": "flowchart TD\\n  A[Start] --> B{Check}\\n  ...",
-  "types": {
-    "datum": "type Datum = { field: Type }",
-    "redeemer": "type Redeemer = Variant1 | Variant2"
-  }
-}
-</output_format>
-
-<mermaid_rules>
-- flowchart TD direction
-- Show validation decision paths
-- Max 15 nodes for readability
-- Escape special chars in labels
-</mermaid_rules>
-
-<type_inference>
-- Infer types from how fields are accessed and matched
-- Use descriptive names based on context
-- Identify enum variants from pattern matching
-</type_inference>`;
-
-// Standard call (for fallback/simpler tasks)
-async function callAnthropic(
-  apiKey: string,
-  systemPrompt: string,
-  userContent: string,
-  prefill: string = '{'
-): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
-      system: systemPrompt,
-      messages: [
-        { role: 'user', content: userContent },
-        { role: 'assistant', content: prefill }
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    if (response.status === 429 || response.status === 529) {
-      throw new Error('RATE_LIMIT');
-    }
-    throw new Error(`Anthropic API error: ${response.status}`);
-  }
-
-  const data = await response.json() as { content: Array<{ type: string; text?: string }> };
-  return prefill + data.content.filter(b => b.type === 'text').map(b => b.text).join('');
-}
-
-// Extended thinking call (for complex UPLC analysis)
 async function callAnthropicWithThinking(
   apiKey: string,
-  systemPrompt: string,
-  userContent: string,
-  thinkingBudget: number = 10000
+  prompt: string,
+  uplc: string,
+  thinkingBudget: number = 16000
 ): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -277,7 +128,10 @@ async function callAnthropicWithThinking(
         budget_tokens: thinkingBudget,
       },
       messages: [
-        { role: 'user', content: systemPrompt + '\n\n' + userContent }
+        { 
+          role: 'user', 
+          content: `${prompt}\n\n<uplc_bytecode>\n${uplc}\n</uplc_bytecode>\n\nDecompile this UPLC to valid Aiken. Trace the actual bytecode patterns - do not guess. Return JSON only.`
+        }
       ],
     }),
   });
@@ -287,40 +141,50 @@ async function callAnthropicWithThinking(
       throw new Error('RATE_LIMIT');
     }
     const errText = await response.text();
-    console.error('Anthropic thinking API error:', errText);
+    console.error('Anthropic API error:', errText);
     throw new Error(`Anthropic API error: ${response.status}`);
   }
 
-  const data = await response.json() as { content: Array<{ type: string; text?: string; thinking?: string }> };
-  // Extended thinking returns thinking blocks + text blocks - we only want the text
+  const data = await response.json() as { content: Array<{ type: string; text?: string }> };
   return data.content.filter(b => b.type === 'text').map(b => b.text).join('');
 }
 
 function parseJsonSafe<T>(text: string): T | null {
   try {
-    return JSON.parse(text);
+    // Try to find JSON in the response
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-function compactUplc(uplc: string, maxLen: number = 80000): string {
+function compactUplc(uplc: string, maxLen: number = 100000): string {
+  // More aggressive compaction
   const compact = uplc
-    .replace(/\n\s+/g, ' ')
+    .replace(/\n\s*/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/\( /g, '(')
+    .replace(/ \)/g, ')')
     .trim();
   
   if (compact.length <= maxLen) return compact;
-  return compact.slice(0, maxLen) + ' [TRUNCATED]';
+  
+  // If still too long, truncate with marker
+  return compact.slice(0, maxLen) + ' [TRUNCATED - contract continues]';
 }
 
 export const onRequestPost: PagesFunction<Env> = async (context) => {
   const { ANTHROPIC_API_KEY, UPLC_CACHE } = context.env;
+  const corsOrigin = getCorsOrigin(context.request);
   
   if (!ANTHROPIC_API_KEY) {
     return new Response(JSON.stringify({ error: 'API key not configured' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin },
     });
   }
 
@@ -330,99 +194,60 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!uplc || typeof uplc !== 'string') {
       return new Response(JSON.stringify({ error: 'Missing UPLC code' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin },
       });
     }
 
-    // Check cache
-    const cacheKey = scriptHash ? `analysis:${scriptHash}` : null;
+    // Check cache first
+    const cacheKey = scriptHash ? `v2:${scriptHash}` : null;
     if (cacheKey && UPLC_CACHE) {
       const cached = await UPLC_CACHE.get(cacheKey);
       if (cached) {
         const parsed = parseJsonSafe<AnalysisResult>(cached);
-        if (parsed && parsed.aiken && !parsed.aiken.includes('error')) {
+        if (parsed?.aiken && parsed.aiken.length > 100) {
           return new Response(JSON.stringify({ ...parsed, cached: true }), {
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin },
           });
         }
       }
     }
 
+    // Compact the UPLC for the prompt
     const compactedUplc = compactUplc(uplc);
-    let result: AnalysisResult;
+    
+    // Log size for debugging
+    console.log(`UPLC size: ${uplc.length} -> ${compactedUplc.length} (compacted)`);
 
-    // Strategy 1: Try combined request with extended thinking for better analysis
-    try {
-      const rawResponse = await callAnthropicWithThinking(
-        ANTHROPIC_API_KEY,
-        COMBINED_PROMPT,
-        `<uplc_bytecode>\n${compactedUplc}\n</uplc_bytecode>\n\nAnalyze this UPLC bytecode and respond with JSON only.`,
-        10000  // 10k thinking tokens for complex analysis
-      );
-      
-      // Extract JSON from response (may have text around it)
-      const jsonMatch = rawResponse.match(/\{[\s\S]*\}/);
-      const parsed = jsonMatch ? parseJsonSafe<{ aiken?: string; mermaid?: string; types?: { datum: string; redeemer: string } }>(jsonMatch[0]) : null;
-      
-      if (parsed?.aiken && parsed.aiken.length > 50) {
-        result = {
-          aiken: parsed.aiken,
-          mermaid: parsed.mermaid,
-          types: parsed.types,
-        };
-      } else {
-        throw new Error('Combined request returned insufficient data');
-      }
-    } catch (combinedError) {
-      // If rate limited, throw immediately
-      if (combinedError instanceof Error && combinedError.message === 'RATE_LIMIT') {
-        throw combinedError;
-      }
-      console.log('Combined request failed, trying split strategy:', combinedError);
-      
-      // Strategy 2: Split - Aiken first
-      const aikenResponse = await callAnthropic(
-        ANTHROPIC_API_KEY,
-        AIKEN_ONLY_PROMPT,
-        `Decompile this UPLC:\n\n${compactedUplc}`
-      );
-      
-      const aikenParsed = parseJsonSafe<{ aiken?: string }>(aikenResponse);
-      if (!aikenParsed?.aiken) {
-        return new Response(JSON.stringify({ error: 'Failed to decompile UPLC' }), {
-          status: 500,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
-        });
-      }
-      
-      result = { aiken: aikenParsed.aiken };
-      
-      // Try to get mermaid + types (non-blocking, best effort)
-      try {
-        const mermaidResponse = await callAnthropic(
-          ANTHROPIC_API_KEY,
-          MERMAID_TYPES_PROMPT,
-          `Analyze this Aiken contract:\n\n${aikenParsed.aiken.slice(0, 30000)}`
-        );
-        
-        const mermaidParsed = parseJsonSafe<{ mermaid?: string; types?: { datum: string; redeemer: string } }>(mermaidResponse);
-        if (mermaidParsed) {
-          result.mermaid = mermaidParsed.mermaid;
-          result.types = mermaidParsed.types;
-        }
-      } catch (mermaidError) {
-        console.log('Mermaid/types generation failed:', mermaidError);
-        // Continue without mermaid/types
-      }
+    // Call Claude with extended thinking
+    const rawResponse = await callAnthropicWithThinking(
+      ANTHROPIC_API_KEY,
+      DECOMPILE_PROMPT,
+      compactedUplc,
+      16000  // 16k thinking tokens
+    );
+    
+    const parsed = parseJsonSafe<{ aiken?: string; mermaid?: string }>(rawResponse);
+    
+    if (!parsed?.aiken || parsed.aiken.length < 50) {
+      console.error('Failed to parse response:', rawResponse.slice(0, 500));
+      return new Response(JSON.stringify({ error: 'Decompilation failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin },
+      });
     }
 
+    const result: AnalysisResult = {
+      aiken: parsed.aiken,
+      mermaid: parsed.mermaid,
+    };
+
     // Cache successful result
-    if (cacheKey && UPLC_CACHE && result.aiken) {
+    if (cacheKey && UPLC_CACHE) {
       context.waitUntil(UPLC_CACHE.put(cacheKey, JSON.stringify(result)));
     }
 
     return new Response(JSON.stringify(result), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin },
     });
   } catch (err) {
     console.error('Analyze error:', err);
@@ -431,7 +256,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       error: isRateLimit ? 'BUDGET_EXHAUSTED' : 'Analysis failed'
     }), {
       status: isRateLimit ? 429 : 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': corsOrigin },
     });
   }
 };
