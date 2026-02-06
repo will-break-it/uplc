@@ -1,34 +1,50 @@
-# UPLC Analyzer
+# UPLC.WTF
 
-Decode Cardano Plutus smart contracts from their on-chain bytecode.
+Reverse-engineer Cardano smart contracts from on-chain bytecode.
 
-**Live:** https://uplc.pages.dev
+**Live:** https://uplc.wtf
 
-## What it does
+## Features
 
-- Fetches script CBOR from Koios API
-- Extracts human-readable error messages
-- Analyzes builtin function usage patterns
-- Classifies contract type (DEX, NFT, lending, etc.)
-- Generates architecture diagrams (Mermaid)
-- Reconstructs pseudo-Aiken source approximation
+- Decode UPLC bytecode from CBOR hex
+- Extract error messages and trace strings
+- Analyze builtin function usage patterns
+- Classify contract type (DEX, NFT, lending, etc.)
+- Generate architecture diagrams (Mermaid flowcharts)
+- Reconstruct pseudo-Aiken source approximation via AI
 
 ## Stack
 
-Astro + React, hosted on Cloudflare Pages. Uses Cloudflare Functions as CORS proxy for Koios.
+- **Frontend:** Astro + React + TypeScript
+- **Hosting:** Cloudflare Pages
+- **APIs:** Koios (script info), Anthropic Claude (decompilation)
+- **UPLC Decoding:** @harmoniclabs/uplc (pure TypeScript, runs in browser)
 
-## Dev
+## Development
 
 ```bash
 npm install
 npm run dev     # localhost:4321
-npm run build
+npm run build   # production build
 ```
 
-## Deploy
+## Deployment
 
-Auto-deploys on push to `main`, or manually:
+Deployed via Cloudflare Pages. Requires `ANTHROPIC_API_KEY` in Pages environment.
 
 ```bash
-wrangler pages deploy dist --project-name uplc
+npm run build
+npx wrangler pages deploy dist --project-name=uplc
 ```
+
+## Security
+
+This project uses API keys for AI decompilation. To prevent key abuse:
+
+- **Branch protection:** Only `main` branch deploys to production
+- **No direct pushes:** All changes require PR review
+- **API keys:** Stored in Cloudflare Pages environment (not in repo)
+
+## License
+
+MIT
