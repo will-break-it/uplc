@@ -266,6 +266,7 @@ export default function ScriptAnalyzer() {
   const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
   const [aikenSubView, setAikenSubView] = useState<'validator' | 'datum' | 'redeemer'>('validator');
+  const [budget, setBudget] = useState<{ pct_mem: number; pct_cpu: number; samples: number } | null>(null);
   const carouselRef = useRef<HTMLDivElement>(null);
   const carouselDirectionRef = useRef<1 | -1>(1);
   const carouselPausedRef = useRef(false);
@@ -409,6 +410,7 @@ export default function ScriptAnalyzer() {
     setError(null);
     setResult(null);
     setAiAnalysis(null);
+    setBudget(null);
     setScriptHash(targetHash);
     setContractView('aiken');
 
@@ -421,6 +423,12 @@ export default function ScriptAnalyzer() {
       
       // Background: AI analysis
       fetchAiAnalysis(coreResult.uplcPreview, targetHash);
+      
+      // Background: Budget data (non-blocking)
+      fetch(`/api/budget?hash=${targetHash}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => data && !data.error ? setBudget(data) : null)
+        .catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
       setLoading(false);
@@ -668,6 +676,42 @@ export default function ScriptAnalyzer() {
                       <div className="value small">{result.version}</div>
                     </div>
                   </div>
+
+                  {/* Budget stats */}
+                  {budget && (
+                    <div className="budget-section">
+                      <div className="budget-header">
+                        <span className="label">Execution Budget</span>
+                        <span className="info-tooltip" data-tooltip={`Based on ${budget.samples} recent transaction${budget.samples > 1 ? 's' : ''}. Actual usage varies by inputs.`}>
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 16v-4"/>
+                            <path d="M12 8h.01"/>
+                          </svg>
+                        </span>
+                      </div>
+                      <div className="budget-bars">
+                        <div className="budget-bar">
+                          <div className="budget-label">
+                            <span>CPU</span>
+                            <span className="budget-pct">{budget.pct_cpu}%</span>
+                          </div>
+                          <div className="budget-track">
+                            <div className="budget-fill cpu" style={{ width: `${Math.min(budget.pct_cpu, 100)}%` }} />
+                          </div>
+                        </div>
+                        <div className="budget-bar">
+                          <div className="budget-label">
+                            <span>Memory</span>
+                            <span className="budget-pct">{budget.pct_mem}%</span>
+                          </div>
+                          <div className="budget-track">
+                            <div className="budget-fill mem" style={{ width: `${Math.min(budget.pct_mem, 100)}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </section>
               )}
 
