@@ -32,13 +32,48 @@ function CodeBlock({ code, language = 'haskell' }: { code: string; language?: st
 
 // Top contracts
 const TOP_CONTRACTS = [
-  { hash: 'e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec13309', label: 'Minswap', category: 'DEX', color: '#8b5cf6' },
+  // DEX - Major
+  { hash: 'e1317b152faac13426e6a83e06ff88a4d62cce3c1634ab0a5ec13309', label: 'Minswap Pool', category: 'DEX', color: '#8b5cf6' },
+  { hash: 'a65ca58a4e9c755fa830173d2a5caed458ac0c73f97db7faae2e7e3b', label: 'Minswap Order', category: 'DEX', color: '#8b5cf6' },
   { hash: 'ba158766c1bae60e2117ee8987621441fac66a5e0fb9c7aca58cf20a', label: 'SundaeSwap V1', category: 'DEX', color: '#06b6d4' },
-  { hash: '4a59ebd93ea53d1bbf7f82232c7b012700a0cf4bb78d879dabb1a20a', label: 'JPG Store', category: 'NFT', color: '#f59e0b' },
-  { hash: 'ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b', label: 'SundaeSwap V3', category: 'DEX', color: '#06b6d4' },
+  { hash: 'e0302560ced2fdcbfcb2602697df970cd0d6a38f94b32703f51c312b', label: 'SundaeSwap V3 Pool', category: 'DEX', color: '#06b6d4' },
+  { hash: 'fa6a58bbe2d0ff05534431c8e2f0ef2cbdc1602a8456e4b13c8f3077', label: 'SundaeSwap V3 Order', category: 'DEX', color: '#06b6d4' },
   { hash: '6b9c456aa650cb808a9ab54326e039d5235ed69f069c9664a8fe5b69', label: 'WingRiders', category: 'DEX', color: '#10b981' },
+  { hash: 'e9823c2d96ffc29ba6dd695fd85f784aa081bdcc01f92bb43242e752', label: 'WingRiders Factory', category: 'DEX', color: '#10b981' },
   { hash: '464eeee89f05aff787d40045af2a40a83fd96c513197d32fbc54ff02', label: 'Splash', category: 'DEX', color: '#3b82f6' },
+  { hash: 'ea184d0a7e640c4b5daa3f2cef851e75477729c2fd89f6ffbed7874c', label: 'MuesliSwap', category: 'DEX', color: '#f97316' },
+  { hash: 'e628bfd68c07a7a38fcd7d8df650812a9dfdbee54b1ed4c25c87ffbf', label: 'Spectrum AMM', category: 'DEX', color: '#14b8a6' },
+  { hash: '2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342de', label: 'Spectrum Swap', category: 'DEX', color: '#14b8a6' },
+  { hash: 'ed97e0a1394724bb7cb94f20acf627abc253694c92b88bf8fb4b7f6f', label: 'CSWAP Pool', category: 'DEX', color: '#a855f7' },
+  { hash: '1af84a9e697e1e7b042a0a06f061e88182feb9e9ada950b36a916bd5', label: 'Saturn Swap', category: 'DEX', color: '#eab308' },
+  { hash: '6ec4acc3fbbd570ada625f24902777cec5d7a349fa0f3c7ba87b0cff', label: 'DexHunter Stop Loss', category: 'DEX', color: '#ef4444' },
+  
+  // NFT Marketplaces
+  { hash: '4a59ebd93ea53d1bbf7f82232c7b012700a0cf4bb78d879dabb1a20a', label: 'JPG Store', category: 'NFT', color: '#f59e0b' },
+  { hash: '9068a7a3f008803edac87af1619860f2cdcde40c26987325ace138ad', label: 'JPG Store V2', category: 'NFT', color: '#f59e0b' },
+  { hash: 'c727443d77df6cff95dca383994f4c3024d03ff56b02ecc22b0f3f65', label: 'JPG Store Ask', category: 'NFT', color: '#f59e0b' },
+  
+  // Lending & Synthetics
   { hash: 'f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c', label: 'Indigo', category: 'Synthetics', color: '#6366f1' },
+  { hash: 'fc7fa1cfd7b5b4db904bd2ab95df8ba8050b8fb7c7fc776cd214ec8f', label: 'Cerra Lending', category: 'Lending', color: '#0ea5e9' },
+  { hash: 'e8191d57b95140cbdbf06ff9035b22551c1fa7374908aa4b5ed0667e', label: 'VyFinance Vault', category: 'DeFi', color: '#22c55e' },
+  
+  // Staking & DAO
+  { hash: '61b3802ce748ed1fdaad2d6c744b19f104285f7d318172a5d4f06a4e', label: 'Coinecta Stake', category: 'Staking', color: '#ec4899' },
+  { hash: 'eaeeb6716f41383b1fb53ec0c91d4fbb55aba4f23061b73cdf5d0b62', label: 'Coinecta Proxy', category: 'Staking', color: '#ec4899' },
+  { hash: '1632c998d2e7d662303e9d0f6a090b7bc8a2289e44198a86bdf9098f', label: 'STEAK Stakechain', category: 'Oracle', color: '#64748b' },
+  
+  // Infrastructure & Tools
+  { hash: '94bca9c099e84ffd90d150316bb44c31a78702239076a0a80ea4a469', label: 'Seedelf Wallet', category: 'Tools', color: '#84cc16' },
+  { hash: '1fa8c9199601924c312fb4f206ff632ca575b27f4f97dd02d9a9ae56', label: 'Iagon Storage', category: 'Storage', color: '#f43f5e' },
+  { hash: 'ac35ee89c26b1e582771ed05af54b67fd7717bbaebd7f722fbf430d6', label: 'Iagon Node', category: 'Storage', color: '#f43f5e' },
+  
+  // Smart Contracts / Marlowe
+  { hash: '2ed2631dbb277c84334453c5c437b86325d371f0835a28b910a91a6e', label: 'Marlowe', category: 'Smart Contracts', color: '#a78bfa' },
+  
+  // More DEX contracts for variety
+  { hash: '99b82cb994dc2af44c12cb5daf5ad274211622800467af5bd8c32352', label: 'Splash Weighted', category: 'DEX', color: '#3b82f6' },
+  { hash: 'da5b47aed3955c9132ee087796fa3b58a1ba6173fa31a7bc29e56d4e', label: 'CSWAP Order', category: 'DEX', color: '#a855f7' },
 ];
 
 // Icons
