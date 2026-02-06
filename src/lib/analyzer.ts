@@ -319,17 +319,9 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         if (val === undefined || val === null) return `${pad}(con unit ())`;
 
         // Handle Plutus Data constants (lists, pairs, etc.)
+        // These are complex objects that we can't properly represent in UPLC text format
         if (typeof val === 'object' && val !== null) {
-          // Check if it's a Data type from Harmonic Labs
-          if ('toData' in val || 'toCbor' in val) {
-            return `${pad}(con data <complex>)`;
-          }
-          // Check if it's a list-like structure
-          if (Array.isArray(val)) {
-            return `${pad}(con list [...])`;
-          }
-          // Unknown object type
-          console.warn('Unknown constant type:', val);
+          console.warn('Unknown constant type:', typeof val, val);
           return `${pad}(error)`;
         }
 
