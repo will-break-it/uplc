@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult } from '../lib/analyzer';
 import { analyzeScriptCore } from '../lib/analyzer';
+import { decompileUplc, type DecompilerResult } from '../lib/decompiler';
 
 // Syntax-highlighted code block
 function CodeBlock({ code, language = 'haskell' }: { code: string; language?: string }) {
@@ -327,6 +328,7 @@ export default function ScriptAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [decompiled, setDecompiled] = useState<DecompilerResult | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
   const [uplcViewMode, setUplcViewMode] = useState<'pretty' | 'compact'>('pretty');
@@ -441,14 +443,21 @@ export default function ScriptAnalyzer() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setDecompiled(null);
     setScriptHash(targetHash);
-    setContractView('uplc');
+    setContractView('aiken');
 
     updateUrl(targetHash, activeTab);
 
     try {
       const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
+      
+      // Decompile UPLC to Aiken-style code
+      if (coreResult.uplcPreview) {
+        const decompiledResult = decompileUplc(coreResult.uplcPreview);
+        setDecompiled(decompiledResult);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
     } finally {
@@ -759,9 +768,9 @@ export default function ScriptAnalyzer() {
                         <button 
                           className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
                           onClick={() => setContractView('aiken')}
-                          title="Coming soon - deterministic decompiler"
+                          title="Decompiled Aiken-style pseudocode"
                         >
-                          Aiken <span style={{ fontSize: '0.7em', opacity: 0.7 }}>soon</span>
+                          Aiken
                         </button>
                       </div>
                       <button 
@@ -774,6 +783,8 @@ export default function ScriptAnalyzer() {
                             text = uplcViewMode === 'compact' 
                               ? result.uplcPreview.replace(/\s+/g, ' ').trim()
                               : result.uplcPreview;
+                          } else if (contractView === 'aiken' && decompiled) {
+                            text = decompiled.aikenCode;
                           }
                           copyToClipboard(text, 'copy-code');
                         }}
@@ -813,17 +824,41 @@ export default function ScriptAnalyzer() {
                         )
                       )}
                       {contractView === 'aiken' && (
-                        <div className="coming-soon-section" style={{ padding: '2rem' }}>
-                          <div className="coming-soon-icon">🔧</div>
-                          <h3>Aiken Decompiler Coming Soon</h3>
-                          <p>
-                            We're building a deterministic UPLC→Aiken decompiler that will 
-                            accurately reconstruct contract code from bytecode.
-                          </p>
-                          <p style={{ marginTop: '1rem', color: 'var(--text-muted)' }}>
-                            For now, view the raw UPLC in the UPLC tab above.
-                          </p>
-                        </div>
+                        decompiled ? (
+                          <div>
+                            <div style={{ 
+                              display: 'flex', 
+                              gap: '1rem', 
+                              marginBottom: '1rem',
+                              flexWrap: 'wrap',
+                              fontSize: '0.85rem',
+                              color: 'var(--text-muted)'
+                            }}>
+                              <span><strong>Purpose:</strong> {decompiled.scriptPurpose}</span>
+                              {decompiled.redeemerVariants > 0 && (
+                                <span><strong>Variants:</strong> {decompiled.redeemerVariants}</span>
+                              )}
+                              {decompiled.validationChecks > 0 && (
+                                <span><strong>Checks:</strong> {decompiled.validationChecks}</span>
+                              )}
+                            </div>
+                            <CodeBlock code={decompiled.aikenCode} language="rust" />
+                            {decompiled.error && (
+                              <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
+                                ⚠️ Partial decompilation: {decompiled.error}
+                              </div>
+                            )}
+                            <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              <em>Note: This is auto-generated pseudocode. Variable names are derived from UPLC structure.</em>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="coming-soon-section" style={{ padding: '2rem' }}>
+                            <div className="coming-soon-icon">⏳</div>
+                            <h3>Decompiling...</h3>
+                            <p>Processing UPLC bytecode...</p>
+                          </div>
+                        )
                       )}
                     </div>
                   </div>
