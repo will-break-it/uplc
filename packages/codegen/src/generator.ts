@@ -164,11 +164,17 @@ function generateParams(structure: ContractStructure, opts: GeneratorOptions): P
   }
 }
 
+// Global context for utility bindings during code generation
+let currentUtilityBindings: Record<string, string> = {};
+
 /**
  * Generate the handler body
  */
 function generateHandlerBody(structure: ContractStructure, opts: GeneratorOptions): CodeBlock {
-  const { redeemer, checks, rawBody, params } = structure;
+  const { redeemer, checks, rawBody, params, utilityBindings } = structure;
+  
+  // Set utility bindings for substitution
+  currentUtilityBindings = utilityBindings || {};
   
   // If we have multiple redeemer variants, generate a when expression
   if (redeemer.variants.length > 1) {
@@ -209,6 +215,10 @@ function termToExpression(term: any, params: string[], depth: number): string {
       return constToExpression(term);
       
     case 'var':
+      // Check if this variable is a utility binding (substitute with builtin)
+      if (currentUtilityBindings[term.name]) {
+        return `builtin::${currentUtilityBindings[term.name]}`;
+      }
       return term.name;
       
     case 'builtin':
@@ -287,6 +297,12 @@ function appToExpression(term: any, params: string[], depth: number): string {
   // Check if it's a builtin call
   if (parts[0]?.tag === 'builtin') {
     return builtinCallToExpression(parts[0].name, parts.slice(1), params, depth);
+  }
+  
+  // Check if it's a utility binding being called (e.g., c(x) where c = headList)
+  if (parts[0]?.tag === 'var' && currentUtilityBindings[parts[0].name]) {
+    const builtinName = currentUtilityBindings[parts[0].name];
+    return builtinCallToExpression(builtinName, parts.slice(1), params, depth);
   }
   
   // Regular function call

@@ -28,6 +28,7 @@ export interface ValidatorInfo {
   params: string[];
   body: UplcTerm;
   utilities?: UplcTerm;  // The constr with utility functions if detected
+  utilityBindings?: Record<string, string>;  // Map param names to builtin names
 }
 
 /**
@@ -50,7 +51,7 @@ function detectV3Pattern(ast: UplcTerm): ValidatorInfo | null {
   // Must start with a lambda
   if (ast.tag !== 'lam') return null;
   
-  const outerParam = ast.param;
+  const outerParam = ast.param;  // This is the ScriptContext in V3
   const caseExpr = ast.body;
   
   // Body must be a case expression
@@ -65,25 +66,66 @@ function detectV3Pattern(ast: UplcTerm): ValidatorInfo | null {
   
   const validatorBranch = caseExpr.branches[0];
   
-  // Extract params from the branch
-  const params: string[] = [];
+  // Extract params from the branch (these bind to the constr args)
+  const branchParams: string[] = [];
   let current: UplcTerm = validatorBranch;
   
   while (current.tag === 'lam') {
-    params.push(current.param);
+    branchParams.push(current.param);
     current = current.body;
   }
   
-  // Detect purpose based on parameter count
-  // Plutus V3 uses ScriptContext which has the purpose embedded
+  // Build utility bindings map: param name -> builtin name
+  const utilityBindings: Record<string, string> = {};
+  const utilityArgs = scrutinee.tag === 'constr' ? scrutinee.args || [] : [];
+  const realParams: string[] = [];
+  
+  for (let i = 0; i < branchParams.length; i++) {
+    const paramName = branchParams[i];
+    
+    if (i < utilityArgs.length) {
+      const arg = utilityArgs[i];
+      const builtinName = extractBuiltinName(arg);
+      if (builtinName) {
+        utilityBindings[paramName] = builtinName;
+      } else {
+        // Not a builtin - might be a value passed through constr
+        realParams.push(paramName);
+      }
+    } else {
+      // Beyond utility count - these are real params
+      realParams.push(paramName);
+    }
+  }
+  
+  // In Plutus V3, the outer lambda param is the ScriptContext
+  // The real "params" are: [scriptContext, ...any non-utility branch params]
+  const params = [outerParam, ...realParams];
+  
+  // Detect purpose - in V3, we need to analyze what the script does with the context
+  // For now, default to 'spend' for V3 scripts
   const purpose = inferPurposeFromParams(params, current);
   
   return {
     type: purpose,
     params,
     body: current,
-    utilities: scrutinee
+    utilities: scrutinee,
+    utilityBindings
   };
+}
+
+/**
+ * Extract builtin name from a term (possibly wrapped in force)
+ */
+function extractBuiltinName(term: UplcTerm): string | null {
+  if (term.tag === 'builtin') {
+    return term.name;
+  }
+  if (term.tag === 'force') {
+    return extractBuiltinName(term.term);
+  }
+  return null;
 }
 
 /**

@@ -76,6 +76,7 @@ export function analyzeContract(ast: UplcTerm): ContractStructure {
     redeemer,
     checks,
     rawBody: validator.body,
-    utilities: validator.utilities
+    utilities: validator.utilities,
+    utilityBindings: validator.utilityBindings
   };
 }

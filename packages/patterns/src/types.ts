@@ -25,6 +25,7 @@ export interface ContractStructure {
   checks: ValidationCheck[];
   rawBody: UplcTerm;
   utilities?: UplcTerm;       // Utility functions from V3 wrapper
+  utilityBindings?: Record<string, string>;  // Map param names to builtin names (V3)
 }
 
 /**
