@@ -1,6 +1,10 @@
 // Cloudflare Pages Function to fetch recent redeemer execution units from Koios
 
-interface Env {}
+interface Env {
+  UPLC_CACHE: KVNamespace;
+}
+
+const CACHE_TTL = 60 * 60 * 24; // 24 hours in seconds
 
 interface RedeemerInfo {
   script_hash: string;
@@ -48,6 +52,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
+    const { UPLC_CACHE } = context.env;
+    const cacheKey = `budget:${scriptHash}`;
+
+    // Check cache first
+    if (UPLC_CACHE) {
+      const cached = await UPLC_CACHE.get(cacheKey);
+      if (cached) {
+        return new Response(cached, {
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        });
+      }
+    }
+
     // Fetch last 5 redeemers for this script
     const response = await fetch('https://api.koios.rest/api/v1/script_redeemers', {
       method: 'POST',
@@ -93,7 +110,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       pct_cpu: Math.round((avg_cpu / MAX_CPU) * 1000) / 10,
     };
 
-    return new Response(JSON.stringify(result), {
+    const resultJson = JSON.stringify(result);
+
+    // Cache for 24 hours
+    if (UPLC_CACHE) {
+      context.waitUntil(UPLC_CACHE.put(cacheKey, resultJson, { expirationTtl: CACHE_TTL }));
+    }
+
+    return new Response(resultJson, {
       headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
     });
   } catch (error) {
