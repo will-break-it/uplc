@@ -1041,6 +1041,30 @@ header > .header-inner {
   padding: 0 0.5rem;
 }
 
+.mermaid-fullscreen-btn {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  box-shadow: var(--shadow-sm);
+}
+
+.mermaid-fullscreen-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
 .mermaid-loading {
   display: flex;
   flex-direction: column;
