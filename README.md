@@ -58,4 +58,4 @@ MIT
 
 ---
 
-<sub>Find this useful? [Support the project](https://github.com/sponsors/will-break-it)</sub>
+<sub>Free to use. AI features cost money to run — [sponsors help keep it available](https://github.com/sponsors/will-break-it).</sub>

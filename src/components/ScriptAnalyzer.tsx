@@ -858,7 +858,7 @@ export default function ScriptAnalyzer() {
 
       <footer>
         <p>
-          Find this useful? <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener">Support the project</a>
+          AI decompilation isn't free — if this helped, consider <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener">supporting</a>
         </p>
       </footer>
     </div>
