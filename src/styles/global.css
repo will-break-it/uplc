@@ -742,6 +742,7 @@ header > .header-inner {
 }
 
 .code-tab.loading {
+  flex-direction: row;
   gap: 0.375rem;
 }
 
