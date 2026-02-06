@@ -956,7 +956,7 @@ export default function ScriptAnalyzer() {
                         )}
                         {contractView === 'aiken' && (
                           aiLoading && !aiAnalysis ? (
-                            <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
+                            <pre style={{ color: '#6b7280' }}>Decompiling to Aiken...</pre>
                           ) : aiError === 'BUDGET_EXHAUSTED' ? (
                             <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
                               <p style={{ marginBottom: '1rem' }}>AI budget exhausted for this month.</p>
