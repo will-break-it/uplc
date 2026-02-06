@@ -664,8 +664,8 @@ export default function ScriptAnalyzer() {
 
                   {aiLoading && (
                     <div className="mermaid-loading">
-                      <span>Analyzing contract structure...</span>
                       <div className="spinner" />
+                      <span>Analyzing contract structure...</span>
                     </div>
                   )}
 
