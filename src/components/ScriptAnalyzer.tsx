@@ -703,24 +703,16 @@ export default function ScriptAnalyzer() {
                         How value flows through this validator during a transaction.
                       </p>
                       <MermaidDiagram chart={`flowchart LR
-  subgraph inputs[" Inputs"]
-    utxo1["UTxO\\n+ Datum"]
-  end
-  
-  subgraph validation[" Validation"]
-    redeemer["Redeemer\\n(action)"]
-    validator["Validator\\n(this script)"]
-    ctx["Script\\nContext"]
-  end
-  
-  subgraph outputs[" Outputs"]
-    utxo2["New UTxO(s)"]
-  end
+  utxo1[Input UTxO + Datum]
+  redeemer[Redeemer]
+  validator{Validator}
+  ctx[Script Context]
+  utxo2[Output UTxOs]
   
   utxo1 --> validator
   redeemer --> validator
   ctx --> validator
-  validator -->|"✓ valid"| utxo2
+  validator --> utxo2
   
   style utxo1 fill:#e0f2fe,stroke:#0284c7
   style redeemer fill:#fef3c7,stroke:#d97706

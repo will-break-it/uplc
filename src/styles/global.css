@@ -760,42 +760,31 @@ header > .header-inner {
 
 .aiken-subtabs {
   display: flex;
-  gap: 0;
+  gap: 0.25rem;
   padding: 0.5rem 1rem;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
 }
 
 .aiken-subtab {
-  padding: 0.375rem 0.875rem;
+  padding: 0.375rem 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--border);
-  border-right: none;
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.aiken-subtab:first-child {
-  border-radius: 4px 0 0 4px;
-}
-
-.aiken-subtab:last-child {
-  border-radius: 0 4px 4px 0;
-  border-right: 1px solid var(--border);
+  transition: all 0.1s;
 }
 
 .aiken-subtab:hover:not(:disabled) {
-  background: var(--bg-primary);
   color: var(--text);
 }
 
 .aiken-subtab.active {
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
 }
 
 .aiken-subtab:disabled {
