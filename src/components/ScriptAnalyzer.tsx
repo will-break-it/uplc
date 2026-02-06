@@ -696,9 +696,43 @@ export default function ScriptAnalyzer() {
                     </>
                   )}
 
+                  {!aiLoading && !aiError && (
+                    <>
+                      <h3>UTxO Flow</h3>
+                      <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                        How value flows through this validator during a transaction.
+                      </p>
+                      <MermaidDiagram chart={`flowchart LR
+  subgraph inputs[" Inputs"]
+    utxo1["UTxO\\n+ Datum"]
+  end
+  
+  subgraph validation[" Validation"]
+    redeemer["Redeemer\\n(action)"]
+    validator["Validator\\n(this script)"]
+    ctx["Script\\nContext"]
+  end
+  
+  subgraph outputs[" Outputs"]
+    utxo2["New UTxO(s)"]
+  end
+  
+  utxo1 --> validator
+  redeemer --> validator
+  ctx --> validator
+  validator -->|"✓ valid"| utxo2
+  
+  style utxo1 fill:#e0f2fe,stroke:#0284c7
+  style redeemer fill:#fef3c7,stroke:#d97706
+  style validator fill:#f3e8ff,stroke:#9333ea
+  style ctx fill:#f1f5f9,stroke:#64748b
+  style utxo2 fill:#dcfce7,stroke:#16a34a`} />
+                    </>
+                  )}
+
                   {!aiLoading && !aiAnalysis?.mermaid && !aiError && (
                     <div className="empty-state">
-                      <p>Architecture analysis not available for this contract.</p>
+                      <p>Validation flow diagram not available for this contract.</p>
                     </div>
                   )}
                 </section>
