@@ -2,6 +2,9 @@
   "name": "uplc-analyzer",
   "type": "module",
   "version": "0.0.1",
+  "workspaces": [
+    "packages/*"
+  ],
   "description": "Decode and analyze Cardano Plutus smart contracts",
   "scripts": {
     "dev": "astro dev",
@@ -13,11 +16,18 @@
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.12",
     "@astrojs/react": "^4.4.2",
-    "@harmoniclabs/uplc": "^1.4.1",
+    "@uplc/codegen": "workspace:*",
+    "@uplc/parser": "workspace:*",
+    "@uplc/patterns": "workspace:*",
     "astro": "^5.17.1",
     "mermaid": "^11.6.0",
     "prism-react-renderer": "^2.4.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
+  },
+  "devDependencies": {
+    "@blaze-cardano/uplc": "^0.4.3",
+    "@harmoniclabs/uplc": "^1.4.1",
+    "vitest": "^4.0.18"
   }
 }

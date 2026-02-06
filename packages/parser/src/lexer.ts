@@ -2,7 +2,8 @@
  * UPLC Lexer - Tokenizes UPLC source text
  */
 
-import { SourceLocation, ParseError } from './ast.js';
+import type { SourceLocation } from './ast.js';
+import { ParseError } from './ast.js';
 
 export type TokenType =
   | 'LPAREN'      // (
@@ -18,6 +19,8 @@ export type TokenType =
   | 'FORCE'       // force
   | 'DELAY'       // delay
   | 'ERROR'       // error
+  | 'CASE'        // case (Plutus V3)
+  | 'CONSTR'      // constr (Plutus V3)
   | 'IDENT'       // identifier/name
   | 'INTEGER'     // numeric literal
   | 'BYTESTRING'  // #hex or 0xhex
@@ -42,6 +45,8 @@ const KEYWORDS: Record<string, TokenType> = {
   'force': 'FORCE',
   'delay': 'DELAY',
   'error': 'ERROR',
+  'case': 'CASE',
+  'constr': 'CONSTR',
   'True': 'BOOL_TRUE',
   'False': 'BOOL_FALSE',
 };

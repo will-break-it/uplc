@@ -36,7 +36,10 @@ export type UplcTerm =
   | { tag: 'builtin'; name: string }
   | { tag: 'force'; term: UplcTerm }
   | { tag: 'delay'; term: UplcTerm }
-  | { tag: 'error' };
+  | { tag: 'error' }
+  // Plutus V3 constructs
+  | { tag: 'case'; scrutinee: UplcTerm; branches: UplcTerm[] }
+  | { tag: 'constr'; index: number; args: UplcTerm[] };
 
 /**
  * Source location for error reporting

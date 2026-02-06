@@ -24,3 +24,5 @@ pnpm-debug.log*
 .idea/
 .wrangler/
 .vscode/
+test/fixtures/build/
+test/fixtures/docs/

@@ -2,8 +2,10 @@
  * UPLC Parser - Converts tokens to AST
  */
 
-import { Token, TokenType, tokenize } from './lexer.js';
-import { UplcTerm, UplcValue, PlutusData, ParseError, SourceLocation } from './ast.js';
+import type { Token, TokenType } from './lexer.js';
+import { tokenize } from './lexer.js';
+import type { UplcTerm, UplcValue, PlutusData, SourceLocation } from './ast.js';
+import { ParseError } from './ast.js';
 
 export class Parser {
   private tokens: Token[] = [];
@@ -76,6 +78,12 @@ export class Parser {
     // Parenthesized term
     if (token.type === 'LPAREN') {
       return this.parseParenTerm();
+    }
+
+    // Bare identifier = variable reference (harmoniclabs output style)
+    if (token.type === 'IDENT') {
+      this.advance();
+      return { tag: 'var', name: token.value };
     }
 
     throw new ParseError(
@@ -171,6 +179,31 @@ export class Parser {
         return { tag: 'error' };
       }
 
+      case 'CASE': {
+        // (case scrutinee (branch1) (branch2) ...)
+        this.advance();
+        const scrutinee = this.parseTerm();
+        const branches: UplcTerm[] = [];
+        while (this.current().type !== 'RPAREN' && this.current().type !== 'EOF') {
+          branches.push(this.parseTerm());
+        }
+        this.expect('RPAREN', 'case');
+        return { tag: 'case', scrutinee, branches };
+      }
+
+      case 'CONSTR': {
+        // (constr index term1 term2 ...) or (constr index [term1 term2 ...])
+        this.advance();
+        const indexToken = this.expect('INTEGER', 'constr index');
+        const index = parseInt(indexToken.value, 10);
+        const args: UplcTerm[] = [];
+        while (this.current().type !== 'RPAREN' && this.current().type !== 'EOF') {
+          args.push(this.parseTerm());
+        }
+        this.expect('RPAREN', 'constr');
+        return { tag: 'constr', index, args };
+      }
+
       default:
         throw new ParseError(
           `Expected term keyword, got ${token.type}`,
@@ -250,7 +283,8 @@ export class Parser {
         throw new ParseError(`Expected string, got ${token.type}`, token.location);
       }
 
-      case 'bool': {
+      case 'bool':
+      case 'boolean': {
         if (token.type === 'BOOL_TRUE') {
           this.advance();
           return { tag: 'bool', value: true };
