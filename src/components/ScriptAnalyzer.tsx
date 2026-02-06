@@ -474,6 +474,22 @@ export default function ScriptAnalyzer() {
       
       setAiAnalysis(data);
       
+      // Fetch mermaid diagram separately (don't block)
+      if (data.aiken && !data.mermaid) {
+        fetch('/api/mermaid', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ aiken: data.aiken }),
+        })
+          .then(res => res.json())
+          .then(mermaidData => {
+            if (mermaidData?.mermaid) {
+              setAiAnalysis(prev => prev ? { ...prev, mermaid: mermaidData.mermaid } : prev);
+            }
+          })
+          .catch(err => console.log('Mermaid generation failed:', err));
+      }
+      
       // Validate Aiken syntax in background
       if (data.aiken) {
         setAikenValidating(true);

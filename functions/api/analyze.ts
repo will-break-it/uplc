@@ -23,7 +23,6 @@ function getCorsOrigin(request: Request): string {
 
 interface AnalysisResult {
   aiken: string;
-  mermaid?: string;
   cached?: boolean;
 }
 
@@ -103,9 +102,9 @@ FORBIDDEN:
 - Do NOT guess what the contract "probably does"
 
 OUTPUT FORMAT:
-Return JSON only: {"aiken": "// complete aiken source code", "mermaid": "flowchart TD\\n..."}
+Return JSON only: {"aiken": "// complete aiken source code"}
 
-The mermaid diagram should show the validation flow (max 12 nodes).`;
+Focus entirely on accurate decompilation - diagram generation is handled separately.`;
 
 async function callAnthropic(
   apiKey: string,
@@ -225,7 +224,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       compactedUplc
     );
     
-    const parsed = parseJsonSafe<{ aiken?: string; mermaid?: string }>(rawResponse);
+    const parsed = parseJsonSafe<{ aiken?: string }>(rawResponse);
     
     if (!parsed?.aiken || parsed.aiken.length < 50) {
       console.error('Failed to parse response:', rawResponse.slice(0, 500));
@@ -237,7 +236,6 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
 
     const result: AnalysisResult = {
       aiken: parsed.aiken,
-      mermaid: parsed.mermaid,
     };
 
     // Cache successful result
