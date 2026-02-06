@@ -894,10 +894,18 @@ header > .header-inner {
 }
 
 /* Builtin table */
+.builtin-table-wrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem;
+}
+
 .builtin-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  min-width: 400px;
 }
 
 .builtin-table th {

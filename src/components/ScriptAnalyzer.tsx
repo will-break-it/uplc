@@ -915,26 +915,28 @@ export default function ScriptAnalyzer() {
                   <p>Plutus builtins extracted from the UPLC AST. Higher counts indicate core logic patterns.</p>
 
                   {Object.keys(result.builtins).length > 0 ? (
-                    <table className="builtin-table">
-                      <thead>
-                        <tr>
-                          <th>Function</th>
-                          <th>Count</th>
-                          <th>Category</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(result.builtins)
-                          .sort((a, b) => (b[1] as number) - (a[1] as number))
-                          .map(([name, count]) => (
-                            <tr key={name}>
-                              <td><code>{name}</code></td>
-                              <td className="count">{count as number}</td>
-                              <td className="category">{getBuiltinCategory(name)}</td>
-                            </tr>
-                          ))}
-                      </tbody>
-                    </table>
+                    <div className="builtin-table-wrapper">
+                      <table className="builtin-table">
+                        <thead>
+                          <tr>
+                            <th>Function</th>
+                            <th>Count</th>
+                            <th>Category</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(result.builtins)
+                            .sort((a, b) => (b[1] as number) - (a[1] as number))
+                            .map(([name, count]) => (
+                              <tr key={name}>
+                                <td><code>{name}</code></td>
+                                <td className="count">{count as number}</td>
+                                <td className="category">{getBuiltinCategory(name)}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
                   ) : (
                     <div className="empty-state">
                       <p>No builtins detected (minimal script)</p>
