@@ -632,6 +632,21 @@ header > .header-inner {
   height: 14px;
 }
 
+.copy-hash-btn.copied {
+  color: var(--success, #22c55e);
+  opacity: 1;
+}
+
+.copy-hash-btn.copied svg {
+  animation: pulse-success 0.3s ease;
+}
+
+@keyframes pulse-success {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
 /* Stats grid - 3 columns */
 .stats-row {
   display: grid;
@@ -867,6 +882,11 @@ header > .header-inner {
 
 .copy-btn:hover {
   background: var(--accent);
+  color: white;
+}
+
+.copy-btn.copied {
+  background: var(--success, #22c55e);
   color: white;
 }
 

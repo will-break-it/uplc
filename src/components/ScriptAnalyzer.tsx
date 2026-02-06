@@ -499,13 +499,28 @@ export default function ScriptAnalyzer() {
     }
   };
 
-  const copyToClipboard = (text: string, btnId: string) => {
-    navigator.clipboard.writeText(text);
-    const btn = document.getElementById(btnId);
-    if (btn) {
-      const original = btn.textContent;
-      btn.textContent = 'Copied!';
-      setTimeout(() => { btn.textContent = original; }, 1500);
+  const copyToClipboard = async (text: string, btnId: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      const btn = document.getElementById(btnId);
+      if (btn) {
+        btn.classList.add('copied');
+        btn.setAttribute('title', 'Copied!');
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.setAttribute('title', 'Copy');
+        }, 1500);
+      }
+    } catch (err) {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
     }
   };
 
