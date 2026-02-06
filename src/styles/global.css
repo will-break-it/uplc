@@ -735,6 +735,7 @@ header > .header-inner {
   padding: 0.75rem 1rem;
   background: rgba(255,255,255,0.05);
   border-bottom: 1px solid rgba(255,255,255,0.1);
+  max-height: 52px;
 }
 
 .code-tabs {
@@ -753,10 +754,12 @@ header > .header-inner {
   font-weight: 500;
   transition: all 0.1s;
   height: 28px;
+  max-height: 28px;
   display: inline-flex;
   align-items: center;
   flex-direction: row;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .code-tab:hover {
@@ -781,12 +784,15 @@ header > .header-inner {
   outline: none;
 }
 
-.code-tab .spinner-sm {
+.code-tab .spinner-sm,
+.spinner.spinner-sm {
   width: 12px;
   height: 12px;
   border-width: 2px;
   margin: 0;
+  margin-bottom: 0;
   flex-shrink: 0;
+  display: inline-block;
 }
 
 .code-meta {
