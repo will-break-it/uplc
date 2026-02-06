@@ -944,52 +944,86 @@ export default function ScriptAnalyzer() {
                       </>
                     )}
 
-                    <div className="code-block">
-                      {contractView === 'cbor' && (
-                        <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
-                      )}
-                      {contractView === 'uplc' && (
-                        uplcViewMode === 'pretty' ? (
-                          <CodeBlock code={result.uplcPreview} language="haskell" />
-                        ) : (
-                          <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
-                            {result.uplcPreview.replace(/\s+/g, ' ').trim()}
-                          </pre>
-                        )
-                      )}
-                      {contractView === 'aiken' && (
-                        aiLoading && !aiAnalysis ? (
-                          <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
-                        ) : aiError === 'BUDGET_EXHAUSTED' ? (
-                          <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
-                            <p style={{ marginBottom: '1rem' }}>AI budget exhausted for this month.</p>
-                            <p>Raw UPLC is still available in the UPLC tab.</p>
-                            <p style={{ marginTop: '1rem' }}>
-                              <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
-                                Help keep AI features running
-                              </a>
-                            </p>
-                          </div>
-                        ) : aikenSubView === 'validator' ? (
-                          aiAnalysis?.aiken ? (
-                            <CodeBlock code={aiAnalysis.aiken} language="rust" />
+                    <div className="validation-badge-container">
+                      <div className="code-block">
+                        {contractView === 'cbor' && (
+                          <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
+                        )}
+                        {contractView === 'uplc' && (
+                          uplcViewMode === 'pretty' ? (
+                            <CodeBlock code={result.uplcPreview} language="haskell" />
                           ) : (
-                            <pre style={{ color: '#6b7280' }}>
-                              {aiError || 'Failed to generate Aiken code. Switch to UPLC view.'}
+                            <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
+                              {result.uplcPreview.replace(/\s+/g, ' ').trim()}
                             </pre>
                           )
-                        ) : aikenSubView === 'datum' ? (
-                          aiAnalysis?.types?.datum ? (
-                            <CodeBlock code={aiAnalysis.types.datum} language="rust" />
-                          ) : (
-                            <pre style={{ color: '#6b7280' }}>Datum type not available.</pre>
-                          )
-                        ) : aikenSubView === 'redeemer' ? (
-                          aiAnalysis?.types?.redeemer ? (
-                            <CodeBlock code={aiAnalysis.types.redeemer} language="rust" />
-                          ) : (
-                            <pre style={{ color: '#6b7280' }}>Redeemer type not available.</pre>
-                          )
+                        )}
+                        {contractView === 'aiken' && (
+                          aiLoading && !aiAnalysis ? (
+                            <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
+                          ) : aiError === 'BUDGET_EXHAUSTED' ? (
+                            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+                              <p style={{ marginBottom: '1rem' }}>AI budget exhausted for this month.</p>
+                              <p>Raw UPLC is still available in the UPLC tab.</p>
+                              <p style={{ marginTop: '1rem' }}>
+                                <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
+                                  Help keep AI features running
+                                </a>
+                              </p>
+                            </div>
+                          ) : aikenSubView === 'validator' ? (
+                            aiAnalysis?.aiken ? (
+                              <CodeBlock code={aiAnalysis.aiken} language="rust" />
+                            ) : (
+                              <pre style={{ color: '#6b7280' }}>
+                                {aiError || 'Failed to generate Aiken code. Switch to UPLC view.'}
+                              </pre>
+                            )
+                          ) : aikenSubView === 'datum' ? (
+                            aiAnalysis?.types?.datum ? (
+                              <CodeBlock code={aiAnalysis.types.datum} language="rust" />
+                            ) : (
+                              <pre style={{ color: '#6b7280' }}>Datum type not available.</pre>
+                            )
+                          ) : aikenSubView === 'redeemer' ? (
+                            aiAnalysis?.types?.redeemer ? (
+                              <CodeBlock code={aiAnalysis.types.redeemer} language="rust" />
+                            ) : (
+                              <pre style={{ color: '#6b7280' }}>Redeemer type not available.</pre>
+                            )
+                          ) : null
+                        )}
+                      </div>
+                      
+                      {/* Floating validation badge - only for Aiken > Validator */}
+                      {contractView === 'aiken' && aikenSubView === 'validator' && aiAnalysis?.aiken && (
+                        aikenValidating ? (
+                          <div className="validation-badge validating" title="Validating syntax...">
+                            <span className="badge-icon">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07l-2.83 2.83M8.76 15.24l-2.83 2.83m11.31 0l-2.83-2.83M8.76 8.76L5.93 5.93"/>
+                              </svg>
+                            </span>
+                            <span className="badge-text">Checking...</span>
+                          </div>
+                        ) : aikenValid === true ? (
+                          <div className="validation-badge valid" title="Syntax validated successfully">
+                            <span className="badge-icon">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                                <polyline points="20 6 9 17 4 12"/>
+                              </svg>
+                            </span>
+                            <span className="badge-text">Syntax Valid</span>
+                          </div>
+                        ) : aikenValid === false ? (
+                          <div className="validation-badge invalid" title="Syntax errors detected">
+                            <span className="badge-icon">
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                <path d="M12 9v4m0 4h.01M12 2L2 22h20L12 2z"/>
+                              </svg>
+                            </span>
+                            <span className="badge-text">Syntax Error</span>
+                          </div>
                         ) : null
                       )}
                     </div>
