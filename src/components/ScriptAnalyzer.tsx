@@ -401,6 +401,7 @@ export default function ScriptAnalyzer() {
   const [aiError, setAiError] = useState<string | null>(null);
   const [aikenValid, setAikenValid] = useState<boolean | null>(null);
   const [aikenValidating, setAikenValidating] = useState(false);
+  const [aikenErrors, setAikenErrors] = useState<string[]>([]);
 
   // Initialize theme
   useEffect(() => {
@@ -477,9 +478,11 @@ export default function ScriptAnalyzer() {
       // Validate Aiken syntax in background
       if (data.aiken) {
         setAikenValidating(true);
+        setAikenErrors([]);
         try {
           const validationResult = await checkAikenSyntax(data.aiken);
           setAikenValid(validationResult.valid);
+          setAikenErrors(validationResult.errors || []);
           
           // If invalid and this is the first attempt, retry once
           if (!validationResult.valid && !isRetry && !data.cached) {
@@ -490,6 +493,7 @@ export default function ScriptAnalyzer() {
         } catch (validationErr) {
           console.error('Aiken validation failed:', validationErr);
           setAikenValid(null); // Unknown state
+          setAikenErrors([validationErr instanceof Error ? validationErr.message : 'Unknown error']);
         } finally {
           setAikenValidating(false);
         }
@@ -518,6 +522,7 @@ export default function ScriptAnalyzer() {
     setAiAnalysis(null);
     setAikenValid(null);
     setAikenValidating(false);
+    setAikenErrors([]);
     setScriptHash(targetHash);
     setContractView('aiken');
 
@@ -858,15 +863,6 @@ export default function ScriptAnalyzer() {
                           onClick={() => setContractView('aiken')}
                         >
                           Aiken{aiLoading && !aiAnalysis && '...'}
-                          {aiAnalysis?.aiken && !aikenValidating && aikenValid === true && (
-                            <span className="aiken-badge valid" title="Syntax validated">✓</span>
-                          )}
-                          {aiAnalysis?.aiken && !aikenValidating && aikenValid === false && (
-                            <span className="aiken-badge invalid" title="Syntax errors detected">⚠</span>
-                          )}
-                          {aikenValidating && (
-                            <span className="aiken-badge validating" title="Validating...">•</span>
-                          )}
                         </button>
                       </div>
                       <button 
@@ -1016,13 +1012,17 @@ export default function ScriptAnalyzer() {
                             <span className="badge-text">Syntax Valid</span>
                           </div>
                         ) : aikenValid === false ? (
-                          <div className="validation-badge invalid" title="Syntax errors detected">
+                          <div 
+                            className="validation-badge invalid" 
+                            title={aikenErrors.length > 0 ? aikenErrors.join('\n') : 'Syntax errors detected'}
+                          >
                             <span className="badge-icon">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M12 9v4m0 4h.01M12 2L2 22h20L12 2z"/>
+                              {/* GitHub-style note/warning icon */}
+                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                                <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
                               </svg>
                             </span>
-                            <span className="badge-text">Syntax Error</span>
+                            <span className="badge-text">Syntax Issue</span>
                           </div>
                         ) : null
                       )}

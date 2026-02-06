@@ -906,14 +906,14 @@ header > .header-inner {
 }
 
 .validation-badge.invalid {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  background: rgba(234, 179, 8, 0.15);
+  border: 1px solid rgba(234, 179, 8, 0.3);
+  color: #facc15;
 }
 
 .validation-badge.invalid:hover {
-  background: rgba(239, 68, 68, 0.25);
-  box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+  background: rgba(234, 179, 8, 0.25);
+  box-shadow: 0 0 20px rgba(234, 179, 8, 0.2);
 }
 
 .validation-badge.validating {
