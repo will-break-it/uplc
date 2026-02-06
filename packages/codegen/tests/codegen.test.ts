@@ -42,9 +42,9 @@ describe('@uplc/codegen', () => {
       const code = generate(structure);
       
       expect(code).toContain('type Action {');
-      expect(code).toContain('Variant0');
-      expect(code).toContain('Variant1');
-      expect(code).toContain('Variant2');
+      expect(code).toContain('Cancel');
+      expect(code).toContain('Update');
+      expect(code).toContain('Claim');
       expect(code).toContain('when redeemer is {');
     });
 

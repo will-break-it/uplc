@@ -53,8 +53,13 @@ export function generateValidator(
   
   const types: TypeDefinition[] = [];
   
+  // Generate datum type if used with fields
+  if (structure.datum?.isUsed && structure.datum.fields.length > 0) {
+    types.push(generateDatumType(structure.datum.fields));
+  }
+  
   // Generate redeemer type if we have variants
-  if (structure.redeemer.variants.length > 1) {
+  if (structure.redeemer?.variants?.length > 0) {
     types.push(generateRedeemerType(structure.redeemer.variants, opts));
   }
   
@@ -84,6 +89,16 @@ export function generateValidator(
   return { validator, types, imports };
 }
 
+// Common variant names for redeemer types
+const VARIANT_NAMES = ['Cancel', 'Update', 'Claim', 'Execute', 'Withdraw', 'Deposit'];
+
+/**
+ * Get variant name for a given index
+ */
+function getVariantName(index: number): string {
+  return index < VARIANT_NAMES.length ? VARIANT_NAMES[index] : `Variant${index}`;
+}
+
 /**
  * Generate redeemer type definition
  */
@@ -92,15 +107,62 @@ function generateRedeemerType(variants: RedeemerVariant[], opts: GeneratorOption
     name: 'Action',
     kind: 'enum',
     variants: variants.map((v, i) => ({
-      name: opts.namingStyle === 'descriptive' 
-        ? `Action${i}` 
-        : `Variant${i}`,
+      name: getVariantName(i),
       fields: v.fields.map((f, j) => ({
-        name: `field_${j}`,
-        type: f.inferredType
+        name: inferFieldName(j, f.inferredType),
+        type: mapToAikenType(f.inferredType)
       }))
     }))
   };
+}
+
+/**
+ * Generate datum type definition from field info
+ */
+function generateDatumType(fields: import('@uplc/patterns').FieldInfo[]): TypeDefinition {
+  // Common datum field names based on position
+  const fieldNameHints = ['owner', 'beneficiary', 'deadline', 'amount', 'token', 'data'];
+  
+  return {
+    name: 'Datum',
+    kind: 'struct',
+    fields: fields.map((f, i) => ({
+      name: i < fieldNameHints.length ? fieldNameHints[i] : `field_${i}`,
+      type: mapToAikenType(f.inferredType)
+    }))
+  };
+}
+
+/**
+ * Infer a field name based on index and type
+ */
+function inferFieldName(index: number, inferredType: string): string {
+  const hints: Record<string, string[]> = {
+    'ByteArray': ['owner', 'beneficiary', 'token_name', 'signature'],
+    'Int': ['amount', 'deadline', 'index', 'count'],
+    'unknown': ['value', 'data', 'param', 'arg']
+  };
+  
+  const typeHints = hints[inferredType] || hints['unknown'];
+  return index < typeHints.length ? typeHints[index] : `field_${index}`;
+}
+
+/**
+ * Map inferred types to Aiken types
+ */
+function mapToAikenType(inferredType: string): string {
+  switch (inferredType) {
+    case 'integer': return 'Int';
+    case 'bytestring': return 'ByteArray';
+    case 'string': return 'String';
+    case 'bool': return 'Bool';
+    case 'list': return 'List<Data>';
+    case 'unit': return 'Void';
+    case 'unknown':
+    case 'custom':
+    default:
+      return 'Data';  // Escape hatch for unknown types
+  }
 }
 
 /**
@@ -116,12 +178,13 @@ function generateRedeemerType(variants: RedeemerVariant[], opts: GeneratorOption
  */
 function generateParams(structure: ContractStructure, opts: GeneratorOptions): ParameterInfo[] {
   const params = structure.params;
-  const redeemerType = structure.redeemer.variants.length > 1 ? 'Action' : 'Data';
+  const redeemerType = structure.redeemer?.variants?.length > 0 ? 'Action' : 'Data';
+  const datumType = structure.datum?.isUsed && structure.datum.fields.length > 0 ? 'Datum' : 'Data';
   
   switch (structure.type) {
     case 'spend':
       return [
-        { name: params[0] || 'datum', type: 'Option<Data>', isOptional: true },
+        { name: params[0] || 'datum', type: `Option<${datumType}>`, isOptional: true },
         { name: params[1] || 'redeemer', type: redeemerType },
         { name: params[2] || 'own_ref', type: 'OutputReference' },
         { name: params[3] || 'tx', type: 'Transaction' }
@@ -387,9 +450,7 @@ function generateWhenBlock(variants: RedeemerVariant[], opts: GeneratorOptions):
     kind: 'when',
     content: 'redeemer',
     branches: variants.map((v, i) => ({
-      pattern: opts.namingStyle === 'descriptive' 
-        ? `Action${i}` 
-        : `Variant${i}`,
+      pattern: getVariantName(i),
       body: {
         kind: 'expression',
         content: termToExpression(v.body, [], 0)
