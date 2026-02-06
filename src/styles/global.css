@@ -540,6 +540,7 @@ header > .header-inner {
 
 /* Script hash card - full width */
 .script-hash-card {
+  position: relative;
   background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -555,17 +556,10 @@ header > .header-inner {
   margin-bottom: 0.375rem;
 }
 
-.script-hash-card .hash-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
 .script-hash-card .hash {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.875rem;
   color: var(--text);
-  flex: 1;
   word-break: break-all;
 }
 
@@ -616,18 +610,26 @@ header > .header-inner {
 }
 
 .copy-hash-btn {
-  padding: 0.375rem;
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  padding: 0;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: none;
   cursor: pointer;
   color: var(--text-muted);
-  transition: all 0.15s;
+  opacity: 0.6;
+  transition: opacity 0.15s;
 }
 
 .copy-hash-btn:hover {
-  border-color: var(--accent);
+  opacity: 1;
   color: var(--accent);
+}
+
+.copy-hash-btn svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Stats grid - 3 columns */
@@ -812,8 +814,8 @@ header > .header-inner {
   transition: all 0.1s;
 }
 
-.aiken-subtab:hover:not(:disabled) {
-  color: var(--text);
+.aiken-subtab:hover:not(:disabled):not(.active) {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 .aiken-subtab.active {

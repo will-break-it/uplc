@@ -633,12 +633,10 @@ export default function ScriptAnalyzer() {
                   {/* Script hash card */}
                   <div className="script-hash-card">
                     <div className="label">Script Hash</div>
-                    <div className="hash-row">
-                      <span className="hash">{result.scriptInfo.scriptHash}</span>
-                      <button className="copy-hash-btn" onClick={() => copyToClipboard(result.scriptInfo.scriptHash, 'copy-hash')} id="copy-hash" title="Copy hash">
-                        {Icons.copy}
-                      </button>
-                    </div>
+                    <span className="hash">{result.scriptInfo.scriptHash}</span>
+                    <button className="copy-hash-btn" onClick={() => copyToClipboard(result.scriptInfo.scriptHash, 'copy-hash')} id="copy-hash" title="Copy hash">
+                      {Icons.copy}
+                    </button>
                   </div>
 
                   {getKnownContract(result.scriptInfo.scriptHash) && (
