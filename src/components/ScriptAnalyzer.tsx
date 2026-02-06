@@ -730,12 +730,10 @@ export default function ScriptAnalyzer() {
                           UPLC
                         </button>
                         <button 
-                          className={`code-tab ${contractView === 'aiken' ? 'active' : ''} ${aiLoading ? 'loading' : ''}`} 
+                          className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
                           onClick={() => setContractView('aiken')}
-                          disabled={aiLoading && !aiAnalysis}
                         >
-                          {aiLoading && !aiAnalysis && <div className="spinner spinner-sm" />}
-                          Aiken
+                          Aiken{aiLoading && !aiAnalysis && '...'}
                         </button>
                       </div>
                       <button 
