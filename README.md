@@ -40,6 +40,10 @@ On-chain script bytes
 - **UPLC:** Decoded lambda calculus (parsed from flat encoding via [@harmoniclabs/uplc](https://github.com/harmoniclabs/uplc))
 - **Aiken:** AI-decompiled pseudocode with inferred variable names and types
 
+<p align="center">
+  <img src="public/preview.gif" alt="UPLC.WTF demo - switching between CBOR, UPLC, and Aiken views" width="100%" />
+</p>
+
 ## Development
 
 ```bash
