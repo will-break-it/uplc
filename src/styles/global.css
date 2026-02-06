@@ -1601,3 +1601,51 @@ footer a:hover {
     display: none;
   }
 }
+
+/* Coming soon sections */
+.coming-soon-section {
+  text-align: center;
+  padding: 3rem 2rem;
+  color: var(--text-secondary);
+}
+
+.coming-soon-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.coming-soon-section h3 {
+  color: var(--text);
+  margin-bottom: 1rem;
+  font-size: 1.25rem;
+}
+
+.coming-soon-section p {
+  max-width: 400px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.coming-soon-features {
+  margin-top: 1.5rem;
+  text-align: left;
+  display: inline-block;
+}
+
+.coming-soon-link {
+  display: inline-block;
+  margin-top: 1.5rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.coming-soon-link:hover {
+  text-decoration: underline;
+}
+
+.badge-small.coming-soon {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: 0.6rem;
+}

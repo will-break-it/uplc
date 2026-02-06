@@ -2,15 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult } from '../lib/analyzer';
 import { analyzeScriptCore } from '../lib/analyzer';
-import { checkAikenSyntax, preloadAikenWasm } from '../lib/aikenCheck';
-
-// Types
-interface AIAnalysis {
-  aiken: string;
-  mermaid?: string;
-  types?: { datum: string; redeemer: string };
-  cached?: boolean;
-}
 
 // Syntax-highlighted code block
 function CodeBlock({ code, language = 'haskell' }: { code: string; language?: string }) {
@@ -393,14 +384,6 @@ export default function ScriptAnalyzer() {
   
   // Theme
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  
-  // AI Analysis state
-  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aikenValid, setAikenValid] = useState<boolean | null>(null);
-  const [aikenValidating, setAikenValidating] = useState(false);
-  const [aikenErrors, setAikenErrors] = useState<string[]>([]);
 
   // Initialize theme
   useEffect(() => {
@@ -409,9 +392,6 @@ export default function ScriptAnalyzer() {
     const initialTheme = stored || (prefersDark ? 'dark' : 'light');
     setTheme(initialTheme as 'light' | 'dark');
     document.documentElement.setAttribute('data-theme', initialTheme);
-    
-    // Preload Aiken WASM in background
-    preloadAikenWasm();
   }, []);
 
   const toggleTheme = () => {
@@ -449,79 +429,6 @@ export default function ScriptAnalyzer() {
     }
   };
 
-  // Fetch AI analysis with Aiken validation and retry
-  const fetchAiAnalysis = async (uplc: string, hash: string, isRetry = false) => {
-    setAiLoading(true);
-    setAiError(null);
-    setAikenValid(null);
-    setAikenValidating(false);
-    
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          uplc, 
-          scriptHash: hash,
-          retryHint: isRetry ? 'Previous Aiken output had syntax errors. Please fix.' : undefined
-        }),
-      });
-      
-      const data = await response.json();
-      if (!response.ok || data.error) {
-        throw new Error(data.error || 'Analysis failed');
-      }
-      
-      setAiAnalysis(data);
-      
-      // Fetch mermaid diagram separately (don't block)
-      if (data.aiken && !data.mermaid) {
-        fetch('/api/mermaid', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ aiken: data.aiken }),
-        })
-          .then(res => res.json())
-          .then(mermaidData => {
-            if (mermaidData?.mermaid) {
-              setAiAnalysis(prev => prev ? { ...prev, mermaid: mermaidData.mermaid } : prev);
-            }
-          })
-          .catch(err => console.log('Mermaid generation failed:', err));
-      }
-      
-      // Validate Aiken syntax in background
-      if (data.aiken) {
-        setAikenValidating(true);
-        setAikenErrors([]);
-        try {
-          const validationResult = await checkAikenSyntax(data.aiken);
-          setAikenValid(validationResult.valid);
-          setAikenErrors(validationResult.errors || []);
-          
-          // If invalid and this is the first attempt, retry once
-          if (!validationResult.valid && !isRetry && !data.cached) {
-            console.log('Aiken syntax invalid, retrying...');
-            setAikenValidating(false);
-            return fetchAiAnalysis(uplc, hash, true);
-          }
-        } catch (validationErr) {
-          console.error('Aiken validation failed:', validationErr);
-          setAikenValid(null); // Unknown state
-          setAikenErrors([validationErr instanceof Error ? validationErr.message : 'Unknown error']);
-        } finally {
-          setAikenValidating(false);
-        }
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Analysis failed';
-      setAiError(msg === 'BUDGET_EXHAUSTED' ? 'BUDGET_EXHAUSTED' : msg);
-      setContractView('uplc');
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
   const analyze = async (hash?: string) => {
     const targetHash = hash || scriptHash.trim();
     if (!targetHash) return;
@@ -534,24 +441,17 @@ export default function ScriptAnalyzer() {
     setLoading(true);
     setError(null);
     setResult(null);
-    setAiAnalysis(null);
-    setAikenValid(null);
-    setAikenValidating(false);
-    setAikenErrors([]);
     setScriptHash(targetHash);
-    setContractView('aiken');
+    setContractView('uplc');
 
     updateUrl(targetHash, activeTab);
 
     try {
       const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
-      setLoading(false);
-      
-      // Background: AI analysis
-      fetchAiAnalysis(coreResult.uplcPreview, targetHash);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
+    } finally {
       setLoading(false);
     }
   };
@@ -727,12 +627,12 @@ export default function ScriptAnalyzer() {
                 <a href="#architecture" className={activeTab === 'architecture' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('architecture'); }}>
                   {Icons.architecture}
                   <span>Architecture</span>
-                  {aiLoading && <span className="tab-spinner" />}
+                  <span className="badge-small coming-soon">Soon</span>
                 </a>
                 <a href="#contract" className={activeTab === 'contract' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('contract'); }}>
                   {Icons.contract}
                   <span>Contract</span>
-                  {aiLoading && <span className="tab-spinner" />}
+                  <span className="badge-small coming-soon">Soon</span>
                 </a>
                 <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('builtins'); }}>
                   {Icons.builtins}
@@ -817,53 +717,28 @@ export default function ScriptAnalyzer() {
               {activeTab === 'architecture' && (
                 <section className="docs-section">
                   <h2>{Icons.architecture} Architecture</h2>
-
-                  {aiLoading && (
-                    <div className="mermaid-loading">
-                      <div className="spinner" />
-                      <span>Analyzing contract structure...</span>
-                    </div>
-                  )}
-
-                  {aiError && (
-                    <div className="error-message">
-                      {aiError === 'BUDGET_EXHAUSTED' ? (
-                        <>
-                          AI budget exhausted for this month. Raw UPLC still works!{' '}
-                          <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
-                            Help keep AI features running
-                          </a>
-                        </>
-                      ) : (
-                        <>
-                          {aiError}
-                          <button 
-                            className="retry-btn"
-                            onClick={() => fetchAiAnalysis(result.uplcPreview, scriptHash)}
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M1 4v6h6M23 20v-6h-6"/>
-                              <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/>
-                            </svg>
-                            Retry
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  )}
-
-                  {!aiLoading && aiAnalysis?.mermaid && (
-                    <>
-                      <h3>Validation Flow</h3>
-                      <MermaidDiagram chart={aiAnalysis.mermaid} />
-                    </>
-                  )}
-
-                  {!aiLoading && !aiAnalysis?.mermaid && !aiError && (
-                    <div className="empty-state">
-                      <p>Validation flow diagram not available for this contract.</p>
-                    </div>
-                  )}
+                  <div className="coming-soon-section">
+                    <div className="coming-soon-icon">🔧</div>
+                    <h3>Deterministic Decompiler Coming Soon</h3>
+                    <p>
+                      We're building a proper UPLC parser that will generate accurate architecture diagrams 
+                      by analyzing the actual bytecode structure — no AI hallucinations.
+                    </p>
+                    <p className="coming-soon-features">
+                      <strong>What's coming:</strong><br />
+                      • Redeemer variant detection<br />
+                      • Validation flow visualization<br />
+                      • Datum/Redeemer type inference
+                    </p>
+                    <a 
+                      href="https://github.com/will-break-it/uplc" 
+                      target="_blank" 
+                      rel="noopener"
+                      className="coming-soon-link"
+                    >
+                      Follow progress on GitHub →
+                    </a>
+                  </div>
                 </section>
               )}
 
@@ -884,8 +759,9 @@ export default function ScriptAnalyzer() {
                         <button 
                           className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
                           onClick={() => setContractView('aiken')}
+                          title="Coming soon - deterministic decompiler"
                         >
-                          Aiken{aiLoading && !aiAnalysis && '...'}
+                          Aiken <span style={{ fontSize: '0.7em', opacity: 0.7 }}>soon</span>
                         </button>
                       </div>
                       <button 
@@ -898,9 +774,6 @@ export default function ScriptAnalyzer() {
                             text = uplcViewMode === 'compact' 
                               ? result.uplcPreview.replace(/\s+/g, ' ').trim()
                               : result.uplcPreview;
-                          }
-                          else if (contractView === 'aiken') {
-                            text = aiAnalysis?.aiken || '';
                           }
                           copyToClipboard(text, 'copy-code');
                         }}
@@ -926,88 +799,31 @@ export default function ScriptAnalyzer() {
                       </div>
                     )}
 
-                    {contractView === 'aiken' && (
-                      <>
-                        <div className="decompile-notice">
-                          <svg viewBox="0 0 16 16" fill="currentColor">
-                            <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
-                          </svg>
-                          AI-decompiled from UPLC bytecode. Types and variable names are inferred.
+                    <div className="code-block">
+                      {contractView === 'cbor' && (
+                        <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
+                      )}
+                      {contractView === 'uplc' && (
+                        uplcViewMode === 'pretty' ? (
+                          <CodeBlock code={result.uplcPreview} language="haskell" />
+                        ) : (
+                          <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
+                            {result.uplcPreview.replace(/\s+/g, ' ').trim()}
+                          </pre>
+                        )
+                      )}
+                      {contractView === 'aiken' && (
+                        <div className="coming-soon-section" style={{ padding: '2rem' }}>
+                          <div className="coming-soon-icon">🔧</div>
+                          <h3>Aiken Decompiler Coming Soon</h3>
+                          <p>
+                            We're building a deterministic UPLC→Aiken decompiler that will 
+                            accurately reconstruct contract code from bytecode.
+                          </p>
+                          <p style={{ marginTop: '1rem', color: 'var(--text-muted)' }}>
+                            For now, view the raw UPLC in the UPLC tab above.
+                          </p>
                         </div>
-                      </>
-                    )}
-
-                    <div className="validation-badge-container">
-                      <div className="code-block">
-                        {contractView === 'cbor' && (
-                          <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
-                        )}
-                        {contractView === 'uplc' && (
-                          uplcViewMode === 'pretty' ? (
-                            <CodeBlock code={result.uplcPreview} language="haskell" />
-                          ) : (
-                            <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
-                              {result.uplcPreview.replace(/\s+/g, ' ').trim()}
-                            </pre>
-                          )
-                        )}
-                        {contractView === 'aiken' && (
-                          aiLoading && !aiAnalysis ? (
-                            <pre style={{ color: '#6b7280' }}>Decompiling to Aiken...</pre>
-                          ) : aiError === 'BUDGET_EXHAUSTED' ? (
-                            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
-                              <p style={{ marginBottom: '1rem' }}>AI budget exhausted for this month.</p>
-                              <p>Raw UPLC is still available in the UPLC tab.</p>
-                              <p style={{ marginTop: '1rem' }}>
-                                <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>
-                                  Help keep AI features running
-                                </a>
-                              </p>
-                            </div>
-                          ) : aiAnalysis?.aiken ? (
-                            <CodeBlock code={aiAnalysis.aiken} language="rust" />
-                          ) : (
-                            <pre style={{ color: '#6b7280' }}>
-                              {aiError || 'Failed to decompile. Switch to UPLC view.'}
-                            </pre>
-                          )
-                        )}
-                      </div>
-                      
-                      {/* Floating validation badge */}
-                      {contractView === 'aiken' && aiAnalysis?.aiken && (
-                        aikenValidating ? (
-                          <div className="validation-badge validating" title="Validating syntax...">
-                            <span className="badge-icon">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <path d="M12 2v4m0 12v4m10-10h-4M6 12H2m15.07-5.07l-2.83 2.83M8.76 15.24l-2.83 2.83m11.31 0l-2.83-2.83M8.76 8.76L5.93 5.93"/>
-                              </svg>
-                            </span>
-                            <span className="badge-text">Checking...</span>
-                          </div>
-                        ) : aikenValid === true ? (
-                          <div className="validation-badge valid" title="Syntax validated successfully">
-                            <span className="badge-icon">
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
-                                <polyline points="20 6 9 17 4 12"/>
-                              </svg>
-                            </span>
-                            <span className="badge-text">Syntax Valid</span>
-                          </div>
-                        ) : aikenValid === false ? (
-                          <div 
-                            className="validation-badge invalid" 
-                            title={aikenErrors.length > 0 ? aikenErrors.join('\n') : 'Syntax errors detected'}
-                          >
-                            <span className="badge-icon">
-                              {/* GitHub-style note/warning icon */}
-                              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                                <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
-                              </svg>
-                            </span>
-                            <span className="badge-text">Syntax Issue</span>
-                          </div>
-                        ) : null
                       )}
                     </div>
                   </div>
