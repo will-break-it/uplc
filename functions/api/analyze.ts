@@ -43,6 +43,20 @@ Respond with valid JSON only (no markdown, no code fences):
 - Trace data flow through datum/redeemer/ctx destructuring
 - Preserve validation conditions and their relationships
 - Use Aiken syntax: validator, let, if/else, when/is
+
+CRITICAL - DO NOT:
+- Write "// Implementation omitted" or similar
+- Use placeholder "True" or "False" returns
+- Write "// ... rest of logic" comments
+- Create stub functions with fake bodies
+- Summarize what code "would do"
+
+INSTEAD:
+- Decompile the ACTUAL builtin calls you see
+- Show the REAL comparisons, arithmetic, list operations
+- If you see equalsByteString, show the exact comparison
+- If you see ifThenElse, show both branches fully
+- Every function body must contain real decompiled logic
 </decompilation_rules>
 
 <mermaid_rules>
@@ -98,9 +112,10 @@ type Redeemer {
 </type_inference_patterns>
 
 <important>
-- If UPLC is truncated, provide best-effort analysis
-- Focus on type inference - this is the primary value
-- Types should have descriptive field/variant names based on usage
+- If UPLC is truncated, provide best-effort analysis of what's visible
+- Every line of code must be REAL decompiled logic - no stubs or placeholders
+- Prefer showing raw builtin operations over making up "clean" helper functions
+- If unsure about a section, show the raw UPLC pattern rather than inventing code
 </important>`;
 
 const AIKEN_ONLY_PROMPT = `<role>Cardano/Plutus decompiler</role>
@@ -115,7 +130,18 @@ JSON only: {"aiken": "// decompiled code"}
 - Decompile actual logic, not descriptions
 - Follow every lambda, application, builtin
 - Use Aiken syntax: validator, let, if/else, when/is
-- No placeholders like "validation logic here"
+
+FORBIDDEN - never output:
+- "// Implementation omitted"
+- "// ... rest of logic"  
+- Placeholder "True" or "False" returns
+- Stub functions with fake bodies
+- Comments describing what code "would do"
+
+REQUIRED:
+- Show REAL builtin operations (equalsByteString, addInteger, etc.)
+- Show ACTUAL comparisons and arithmetic
+- If uncertain, show raw pattern not invented code
 </rules>`;
 
 const MERMAID_TYPES_PROMPT = `<role>Smart contract analyzer</role>
