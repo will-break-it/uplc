@@ -1,5 +1,7 @@
 # UPLC.WTF
 
+[![Sponsor](https://img.shields.io/github/sponsors/will-break-it?style=flat&logo=github&label=Sponsor)](https://github.com/sponsors/will-break-it)
+
 Reverse-engineer Cardano smart contracts from on-chain bytecode.
 
 **Live:** [uplc.wtf](https://uplc.wtf)

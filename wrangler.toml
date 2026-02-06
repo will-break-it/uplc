@@ -1,5 +1,6 @@
 # Cloudflare Pages configuration
 name = "uplc"
+pages_build_output_dir = "dist"
 compatibility_date = "2024-01-01"
 
 # KV namespace for caching prettified results
