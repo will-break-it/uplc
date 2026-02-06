@@ -21,6 +21,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - run: pnpm --filter "@uplc/*" run build
+      
       - run: pnpm run build
 
       - uses: cloudflare/wrangler-action@v3
