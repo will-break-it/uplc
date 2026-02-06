@@ -107,11 +107,10 @@ Return JSON only: {"aiken": "// complete aiken source code", "mermaid": "flowcha
 
 The mermaid diagram should show the validation flow (max 12 nodes).`;
 
-async function callAnthropicWithThinking(
+async function callAnthropic(
   apiKey: string,
   prompt: string,
-  uplc: string,
-  thinkingBudget: number = 16000
+  uplc: string
 ): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -122,15 +121,16 @@ async function callAnthropicWithThinking(
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 16000,
-      thinking: {
-        type: 'enabled',
-        budget_tokens: thinkingBudget,
-      },
+      max_tokens: 8192,
+      system: prompt,
       messages: [
         { 
           role: 'user', 
-          content: `${prompt}\n\n<uplc_bytecode>\n${uplc}\n</uplc_bytecode>\n\nDecompile this UPLC to valid Aiken. Trace the actual bytecode patterns - do not guess. Return JSON only.`
+          content: `<uplc_bytecode>\n${uplc}\n</uplc_bytecode>\n\nDecompile this UPLC to valid Aiken. Trace the actual bytecode patterns - do not guess. Return JSON only.`
+        },
+        {
+          role: 'assistant',
+          content: '{'
         }
       ],
     }),
@@ -146,7 +146,7 @@ async function callAnthropicWithThinking(
   }
 
   const data = await response.json() as { content: Array<{ type: string; text?: string }> };
-  return data.content.filter(b => b.type === 'text').map(b => b.text).join('');
+  return '{' + data.content.filter(b => b.type === 'text').map(b => b.text).join('');
 }
 
 function parseJsonSafe<T>(text: string): T | null {
@@ -218,12 +218,11 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     // Log size for debugging
     console.log(`UPLC size: ${uplc.length} -> ${compactedUplc.length} (compacted)`);
 
-    // Call Claude with extended thinking
-    const rawResponse = await callAnthropicWithThinking(
+    // Call Claude
+    const rawResponse = await callAnthropic(
       ANTHROPIC_API_KEY,
       DECOMPILE_PROMPT,
-      compactedUplc,
-      16000  // 16k thinking tokens
+      compactedUplc
     );
     
     const parsed = parseJsonSafe<{ aiken?: string; mermaid?: string }>(rawResponse);
