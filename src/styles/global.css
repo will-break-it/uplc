@@ -810,6 +810,13 @@ header > .header-inner {
   word-break: break-word;
 }
 
+/* CBOR hex: horizontal scroll, no wrap */
+.code-block pre.cbor-hex {
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
+
 /* Builtin table */
 .builtin-table {
   width: 100%;

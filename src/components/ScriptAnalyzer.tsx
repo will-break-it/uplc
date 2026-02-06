@@ -775,7 +775,7 @@ export default function ScriptAnalyzer() {
 
                     <div className="code-block">
                       {contractView === 'cbor' && (
-                        <pre style={{ wordBreak: 'break-all', whiteSpace: 'pre-wrap' }}>{result.scriptInfo.bytes}</pre>
+                        <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
                       )}
                       {contractView === 'uplc' && (
                         <CodeBlock code={result.uplcPreview} language="haskell" />
