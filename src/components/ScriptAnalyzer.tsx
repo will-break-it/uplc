@@ -835,8 +835,11 @@ export default function ScriptAnalyzer() {
                               color: 'var(--text-muted)'
                             }}>
                               <span><strong>Purpose:</strong> {decompiled.scriptPurpose}</span>
+                              {decompiled.scriptPurpose === 'spend' && (
+                                <span><strong>Datum:</strong> {decompiled.datumUsed ? `used (${decompiled.datumFields} fields)` : 'unused'}</span>
+                              )}
                               {decompiled.redeemerVariants > 0 && (
-                                <span><strong>Variants:</strong> {decompiled.redeemerVariants}</span>
+                                <span><strong>Redeemer:</strong> {decompiled.redeemerVariants} variant{decompiled.redeemerVariants > 1 ? 's' : ''}</span>
                               )}
                               {decompiled.validationChecks > 0 && (
                                 <span><strong>Checks:</strong> {decompiled.validationChecks}</span>

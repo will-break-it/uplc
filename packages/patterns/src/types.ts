@@ -21,11 +21,26 @@ export type ScriptPurpose =
 export interface ContractStructure {
   type: ScriptPurpose;
   params: string[];           // Parameter names
+  datum: DatumInfo;           // Datum structure (spend validators only)
   redeemer: RedeemerInfo;
   checks: ValidationCheck[];
   rawBody: UplcTerm;
   utilities?: UplcTerm;       // Utility functions from V3 wrapper
   utilityBindings?: Record<string, string>;  // Map param names to builtin names (V3)
+}
+
+/**
+ * Datum structure analysis (spend validators)
+ */
+export interface DatumInfo {
+  /** Whether datum is used (vs ignored) */
+  isUsed: boolean;
+  /** Whether datum is optional (V3 inline datums) */
+  isOptional: boolean;
+  /** Detected fields accessed from datum */
+  fields: FieldInfo[];
+  /** Inferred type structure */
+  inferredType: 'unknown' | 'unit' | 'custom';
 }
 
 /**

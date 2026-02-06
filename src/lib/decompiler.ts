@@ -13,6 +13,8 @@ export interface DecompilerResult {
   aikenCode: string;
   scriptPurpose: string;
   params: string[];
+  datumUsed: boolean;
+  datumFields: number;
   redeemerVariants: number;
   validationChecks: number;
   error?: string;
@@ -36,6 +38,8 @@ export function decompileUplc(uplcText: string): DecompilerResult {
       aikenCode,
       scriptPurpose: structure.type,
       params: structure.params,
+      datumUsed: structure.datum.isUsed,
+      datumFields: structure.datum.fields.length,
       redeemerVariants: structure.redeemer.variants.length,
       validationChecks: structure.checks.length
     };
@@ -44,6 +48,8 @@ export function decompileUplc(uplcText: string): DecompilerResult {
       aikenCode: `// Decompilation failed: ${error.message}`,
       scriptPurpose: 'unknown',
       params: [],
+      datumUsed: false,
+      datumFields: 0,
       redeemerVariants: 0,
       validationChecks: 0,
       error: error.message
