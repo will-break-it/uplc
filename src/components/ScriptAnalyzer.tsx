@@ -974,6 +974,8 @@ export default function ScriptAnalyzer() {
       <footer>
         <p>
           AI decompilation isn't free — if this helped, consider <a href="https://github.com/sponsors/will-break-it" target="_blank" rel="noopener">supporting</a>
+          {' · '}
+          <a href="https://github.com/will-break-it/uplc/issues/new?labels=bug&template=bug_report.md" target="_blank" rel="noopener">Found a bug?</a>
         </p>
       </footer>
     </div>

@@ -1,0 +1,374 @@
+{
+  "metadata": {
+    "description": "Open-source Cardano smart contracts for major DeFi protocols",
+    "lastUpdated": "2026-02-06",
+    "notes": "Script hashes are from plutus.json or official documentation where available. Some protocols have open-source code but deployed hashes may vary based on parameters."
+  },
+  "contracts": [
+    {
+      "name": "SundaeSwap Pool",
+      "protocol": "SundaeSwap",
+      "type": "DEX",
+      "scriptHash": "e0fccbbfb75923bff6dac5f23805dcf6cecfaae8aa3a6d3e474ee670",
+      "github": "https://github.com/SundaeSwap-finance/sundae-contracts",
+      "filePath": "validators/pool.ak",
+      "version": "v3",
+      "language": "Aiken"
+    },
+    {
+      "name": "SundaeSwap Order",
+      "protocol": "SundaeSwap",
+      "type": "DEX",
+      "scriptHash": "fa6a58bbe2d0ff05534431c8e2f0ef2cbdc1602a8456e4b13c8f3077",
+      "github": "https://github.com/SundaeSwap-finance/sundae-contracts",
+      "filePath": "validators/order.ak",
+      "version": "v3",
+      "language": "Aiken"
+    },
+    {
+      "name": "SundaeSwap Oracle",
+      "protocol": "SundaeSwap",
+      "type": "DEX",
+      "scriptHash": "f50153654bd0e167563cd0bbbff1b73c40157e53408a0ef517e67a5d",
+      "github": "https://github.com/SundaeSwap-finance/sundae-contracts",
+      "filePath": "validators/oracle.ak",
+      "version": "v3",
+      "language": "Aiken"
+    },
+    {
+      "name": "SundaeSwap Settings",
+      "protocol": "SundaeSwap",
+      "type": "DEX",
+      "scriptHash": null,
+      "github": "https://github.com/SundaeSwap-finance/sundae-contracts",
+      "filePath": "validators/settings.ak",
+      "version": "v3",
+      "language": "Aiken"
+    },
+    {
+      "name": "Minswap Pool",
+      "protocol": "Minswap",
+      "type": "DEX",
+      "scriptHash": "ea07b733d932129c378af627436e7cbc2ef0bf96e0036bb51b3bde6b",
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "filePath": "validators/pool_validator.ak",
+      "version": "v2",
+      "language": "Aiken"
+    },
+    {
+      "name": "Minswap Order",
+      "protocol": "Minswap",
+      "type": "DEX",
+      "scriptHash": "c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c",
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "filePath": "validators/order_validator.ak",
+      "version": "v2",
+      "language": "Aiken"
+    },
+    {
+      "name": "Minswap Factory",
+      "protocol": "Minswap",
+      "type": "DEX",
+      "scriptHash": "7bc5fbd41a95f561be84369631e0e35895efb0b73e0a7480bb9ed730",
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "filePath": "validators/factory_validator.ak",
+      "version": "v2",
+      "language": "Aiken"
+    },
+    {
+      "name": "Minswap Authen Minting",
+      "protocol": "Minswap",
+      "type": "DEX",
+      "scriptHash": "f5808c2c990d86da54bfc97d89cee6efa20cd8461616359478d96b4c",
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "filePath": "validators/authen_minting_policy.ak",
+      "version": "v2",
+      "language": "Aiken"
+    },
+    {
+      "name": "JPG Store Ask",
+      "protocol": "JPG Store",
+      "type": "NFT Marketplace",
+      "scriptHash": "c727443d77df6cff95dca383994f4c3024d03ff56b02ecc22b0f3f65",
+      "github": "https://github.com/jpg-store/contracts-v3",
+      "filePath": "validators/ask.ak",
+      "version": "v3",
+      "language": "Aiken"
+    },
+    {
+      "name": "JPG Store Bid",
+      "protocol": "JPG Store",
+      "type": "NFT Marketplace",
+      "scriptHash": null,
+      "github": "https://github.com/jpg-store/contracts-v3",
+      "filePath": "validators/bid.ak",
+      "version": "v3",
+      "language": "Aiken",
+      "notes": "Bid contract - hash not in public plutus.json"
+    },
+    {
+      "name": "Indigo CDP",
+      "protocol": "Indigo",
+      "type": "Synthetics",
+      "scriptHash": null,
+      "github": "https://github.com/IndigoProtocol/indigo-smart-contracts",
+      "filePath": "src/Indigo/Contracts/CDP/",
+      "version": null,
+      "language": "Plutarch (Haskell)",
+      "notes": "BUSL-1.1 license. Script hashes not publicly documented."
+    },
+    {
+      "name": "Indigo Governance",
+      "protocol": "Indigo",
+      "type": "Synthetics",
+      "scriptHash": null,
+      "github": "https://github.com/IndigoProtocol/indigo-smart-contracts",
+      "filePath": "src/Indigo/Contracts/Governance/",
+      "version": null,
+      "language": "Plutarch (Haskell)"
+    },
+    {
+      "name": "Indigo Staking",
+      "protocol": "Indigo",
+      "type": "Synthetics",
+      "scriptHash": null,
+      "github": "https://github.com/IndigoProtocol/indigo-smart-contracts",
+      "filePath": "src/Indigo/Contracts/Staking/",
+      "version": null,
+      "language": "Plutarch (Haskell)"
+    },
+    {
+      "name": "Spectrum Pool",
+      "protocol": "Spectrum",
+      "type": "DEX",
+      "scriptHash": null,
+      "github": "https://github.com/spectrum-finance/cardano-dex-contracts",
+      "filePath": "cardano-dex-contracts-onchain/src/ErgoDex/Contracts/Pool.hs",
+      "version": null,
+      "language": "Plutus (Haskell)",
+      "notes": "Script hashes not publicly documented in repo"
+    },
+    {
+      "name": "Spectrum Swap Proxy",
+      "protocol": "Spectrum",
+      "type": "DEX",
+      "scriptHash": null,
+      "github": "https://github.com/spectrum-finance/cardano-dex-contracts",
+      "filePath": "cardano-dex-contracts-onchain/src/ErgoDex/Contracts/Proxy/",
+      "version": null,
+      "language": "Plutus (Haskell)"
+    },
+    {
+      "name": "WingRiders DEX",
+      "protocol": "WingRiders",
+      "type": "DEX",
+      "scriptHash": null,
+      "github": "https://github.com/WingRiders/dex-v2-contracts",
+      "filePath": "src/",
+      "version": "v2",
+      "language": "Plutarch (Haskell)",
+      "notes": "GPL-3.0 license. Script hashes not publicly documented."
+    },
+    {
+      "name": "Genius Yield DEX",
+      "protocol": "Genius Yield",
+      "type": "DEX Optimizer",
+      "scriptHash": null,
+      "github": "https://github.com/geniusyield/dex-contracts-api",
+      "filePath": "geniusyield-onchain/",
+      "version": null,
+      "language": "Plutarch (Haskell)",
+      "notes": "Apache-2.0 license. On-chain code available in geniusyield-onchain folder."
+    },
+    {
+      "name": "Lenfi Pool",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/pool.ak",
+      "version": null,
+      "language": "Aiken",
+      "notes": "Formerly AADA. Script hashes parameterized per deployment."
+    },
+    {
+      "name": "Lenfi Collateral",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/collateral.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Liquidity Token",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/liquidity_token.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Pool Config",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/pool_config.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Pool Stake",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/pool_stake.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Order Contract",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/order_contract.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Oracle",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/oracle_validator.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Leftovers",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/leftovers.ak",
+      "version": null,
+      "language": "Aiken"
+    },
+    {
+      "name": "Lenfi Delayed Merge",
+      "protocol": "Lenfi",
+      "type": "Lending",
+      "scriptHash": null,
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "filePath": "validators/delayed_merge.ak",
+      "version": null,
+      "language": "Aiken"
+    }
+  ],
+  "protocolSummary": {
+    "SundaeSwap": {
+      "github": "https://github.com/SundaeSwap-finance/sundae-contracts",
+      "type": "DEX",
+      "language": "Aiken",
+      "version": "v3",
+      "license": "Apache-2.0",
+      "contractCount": 4,
+      "hasScriptHashes": true
+    },
+    "Minswap": {
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "type": "DEX",
+      "language": "Aiken",
+      "version": "v2",
+      "license": "GPL-3.0",
+      "contractCount": 4,
+      "hasScriptHashes": true,
+      "mainnetDeployment": {
+        "poolAddress": "addr1z84q0denmyep98ph3tmzwsmw0j7zau9ljmsqx6a4rvaau66j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq777e2a"
+      }
+    },
+    "JPG Store": {
+      "github": "https://github.com/jpg-store/contracts-v3",
+      "type": "NFT Marketplace",
+      "language": "Aiken",
+      "version": "v3",
+      "license": "Apache-2.0",
+      "contractCount": 2,
+      "hasScriptHashes": true
+    },
+    "Indigo": {
+      "github": "https://github.com/IndigoProtocol/indigo-smart-contracts",
+      "type": "Synthetics",
+      "language": "Plutarch (Haskell)",
+      "version": null,
+      "license": "BUSL-1.1",
+      "contractCount": 3,
+      "hasScriptHashes": false,
+      "notes": "Business Source License - not fully open source"
+    },
+    "Spectrum": {
+      "github": "https://github.com/spectrum-finance/cardano-dex-contracts",
+      "type": "DEX",
+      "language": "Plutus (Haskell)",
+      "version": null,
+      "license": null,
+      "contractCount": 2,
+      "hasScriptHashes": false
+    },
+    "WingRiders": {
+      "github": "https://github.com/WingRiders/dex-v2-contracts",
+      "type": "DEX",
+      "language": "Plutarch (Haskell)",
+      "version": "v2",
+      "license": "GPL-3.0",
+      "contractCount": 1,
+      "hasScriptHashes": false
+    },
+    "Genius Yield": {
+      "github": "https://github.com/geniusyield/dex-contracts-api",
+      "type": "DEX Optimizer",
+      "language": "Plutarch (Haskell)",
+      "version": null,
+      "license": "Apache-2.0",
+      "contractCount": 1,
+      "hasScriptHashes": false
+    },
+    "Lenfi": {
+      "github": "https://github.com/lenfiLabs/lenfi-smart-contracts",
+      "type": "Lending",
+      "language": "Aiken",
+      "version": null,
+      "license": "GPL-3.0",
+      "contractCount": 9,
+      "hasScriptHashes": false,
+      "notes": "Formerly known as AADA"
+    },
+    "Liqwid": {
+      "github": "https://github.com/Liqwid-Labs/liqwid-libs",
+      "type": "Lending",
+      "language": "Plutarch (Haskell)",
+      "version": null,
+      "license": "Apache-2.0",
+      "contractCount": 0,
+      "hasScriptHashes": false,
+      "notes": "Only libraries are open source. Core protocol contracts are not publicly available."
+    },
+    "Levvy": {
+      "github": null,
+      "type": "NFT Lending",
+      "language": null,
+      "version": null,
+      "license": null,
+      "contractCount": 0,
+      "hasScriptHashes": false,
+      "notes": "No public GitHub repository found. Contracts not open source."
+    }
+  }
+}
