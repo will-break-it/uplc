@@ -409,7 +409,6 @@ export default function ScriptAnalyzer() {
     setError(null);
     setResult(null);
     setAiAnalysis(null);
-    setBudget(null);
     setScriptHash(targetHash);
     setContractView('aiken');
 
