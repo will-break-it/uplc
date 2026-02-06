@@ -63,17 +63,6 @@ Three npm packages for programmatic use:
 | `@uplc/patterns` | AST → Contract structure (purpose, datum, redeemer, checks) |
 | `@uplc/codegen` | Structure → Aiken code with proper imports and types |
 
-### Supported Script Purposes (Plutus V3)
-
-| Purpose | Description |
-|---------|-------------|
-| `spend` | UTxO spending validator |
-| `mint` | Minting/burning policy |
-| `withdraw` | Staking reward withdrawal |
-| `publish` | Certificate publishing (DRep, stake pool) |
-| `vote` | Governance voting (CIP-1694) |
-| `propose` | Governance proposals (CIP-1694) |
-
 ## Development
 
 ```bash
