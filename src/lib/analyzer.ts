@@ -239,7 +239,7 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
     switch (termType) {
       case 'UPLCVar': {
         const idx = Number(term.deBruijn);
-        return idx < varStack.length ? varStack[idx] : `?_${idx}`;
+        return idx < varStack.length ? varStack[idx] : `unbound_${idx}`;
       }
       case 'Builtin':
         return `(builtin ${builtinTagToString(term._tag)})`;
@@ -299,7 +299,7 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         return `${pad}(force\n${pp(term.termToForce, depth + 1, varStack)}\n${pad})`;
       case 'UPLCVar': {
         const idx = Number(term.deBruijn);
-        return `${pad}${idx < varStack.length ? varStack[idx] : `?_${idx}`}`;
+        return `${pad}${idx < varStack.length ? varStack[idx] : `unbound_${idx}`}`;
       }
       case 'Builtin':
         return `${pad}(builtin ${builtinTagToString(term._tag)})`;
@@ -327,7 +327,7 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         return `${pad}(case\n${scrutinee}\n${branches}\n${pad})`;
       }
       default:
-        return `${pad}(? ${termType})`;
+        return `${pad}(error)`;
     }
   }
   
