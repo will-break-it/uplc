@@ -7,8 +7,6 @@ const ALLOWED_ORIGINS = [
   'https://uplc.wtf',
   'https://www.uplc.wtf',
   'https://uplc.pages.dev',
-  'http://localhost:4321',
-  'http://localhost:3000',
 ];
 
 function getCorsOrigin(request: Request): string {
