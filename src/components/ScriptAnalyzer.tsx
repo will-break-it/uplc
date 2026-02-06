@@ -265,6 +265,7 @@ export default function ScriptAnalyzer() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
+  const [aikenSubView, setAikenSubView] = useState<'validator' | 'datum' | 'redeemer'>('validator');
   const carouselRef = useRef<HTMLDivElement>(null);
   const carouselDirectionRef = useRef<1 | -1>(1);
   const carouselPausedRef = useRef(false);
@@ -690,50 +691,12 @@ export default function ScriptAnalyzer() {
 
                   {!aiLoading && aiAnalysis?.mermaid && (
                     <>
-                      <h3>Flow Diagram</h3>
+                      <h3>Validation Flow</h3>
                       <MermaidDiagram chart={aiAnalysis.mermaid} />
                     </>
                   )}
 
-                  {!aiLoading && aiAnalysis?.types && (
-                    <>
-                      <h3>Inferred Types</h3>
-                      <div className="types-container">
-                        <div className="type-card">
-                          <div className="type-header">
-                            <div className="label">Datum</div>
-                            <span className="info-tooltip" data-tooltip="On-chain state locked at the script address. The validator reads this data when the UTxO is spent.">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <circle cx="12" cy="12" r="10"/>
-                                <path d="M12 16v-4"/>
-                                <path d="M12 8h.01"/>
-                              </svg>
-                            </span>
-                          </div>
-                          <div className="code-block">
-                            <CodeBlock code={aiAnalysis.types.datum || '// Unknown'} language="rust" />
-                          </div>
-                        </div>
-                        <div className="type-card">
-                          <div className="type-header">
-                            <div className="label">Redeemer</div>
-                            <span className="info-tooltip" data-tooltip="Input provided when spending a UTxO. Represents the action or proof to unlock the funds.">
-                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <circle cx="12" cy="12" r="10"/>
-                                <path d="M12 16v-4"/>
-                                <path d="M12 8h.01"/>
-                              </svg>
-                            </span>
-                          </div>
-                          <div className="code-block">
-                            <CodeBlock code={aiAnalysis.types.redeemer || '// Unknown'} language="rust" />
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {!aiLoading && !aiAnalysis?.mermaid && !aiAnalysis?.types && !aiError && (
+                  {!aiLoading && !aiAnalysis?.mermaid && !aiError && (
                     <div className="empty-state">
                       <p>Architecture analysis not available for this contract.</p>
                     </div>
@@ -768,7 +731,14 @@ export default function ScriptAnalyzer() {
                         className="copy-btn" 
                         id="copy-code"
                         onClick={() => {
-                          const text = contractView === 'cbor' ? result.scriptInfo.bytes : contractView === 'aiken' && aiAnalysis?.aiken ? aiAnalysis.aiken : result.uplcPreview;
+                          let text = '';
+                          if (contractView === 'cbor') text = result.scriptInfo.bytes;
+                          else if (contractView === 'uplc') text = result.uplcPreview;
+                          else if (contractView === 'aiken') {
+                            if (aikenSubView === 'validator') text = aiAnalysis?.aiken || '';
+                            else if (aikenSubView === 'datum') text = aiAnalysis?.types?.datum || '';
+                            else if (aikenSubView === 'redeemer') text = aiAnalysis?.types?.redeemer || '';
+                          }
                           copyToClipboard(text, 'copy-code');
                         }}
                       >
@@ -777,12 +747,38 @@ export default function ScriptAnalyzer() {
                     </div>
                     
                     {contractView === 'aiken' && (
-                      <div className="decompile-notice">
-                        <svg viewBox="0 0 16 16" fill="currentColor">
-                          <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
-                        </svg>
-                        Reconstructed from UPLC bytecode. Variable names and types are inferred — may differ from original source.
-                      </div>
+                      <>
+                        <div className="aiken-subtabs">
+                          <button 
+                            className={`aiken-subtab ${aikenSubView === 'validator' ? 'active' : ''}`} 
+                            onClick={() => setAikenSubView('validator')}
+                          >
+                            Validator
+                          </button>
+                          <button 
+                            className={`aiken-subtab ${aikenSubView === 'datum' ? 'active' : ''}`} 
+                            onClick={() => setAikenSubView('datum')}
+                            disabled={!aiAnalysis?.types?.datum}
+                          >
+                            Datum
+                          </button>
+                          <button 
+                            className={`aiken-subtab ${aikenSubView === 'redeemer' ? 'active' : ''}`} 
+                            onClick={() => setAikenSubView('redeemer')}
+                            disabled={!aiAnalysis?.types?.redeemer}
+                          >
+                            Redeemer
+                          </button>
+                        </div>
+                        <div className="decompile-notice">
+                          <svg viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/>
+                          </svg>
+                          {aikenSubView === 'validator' && 'Reconstructed from UPLC bytecode. Variable names and types are inferred.'}
+                          {aikenSubView === 'datum' && 'Inferred from how the validator destructures on-chain state.'}
+                          {aikenSubView === 'redeemer' && 'Inferred from pattern matching on transaction inputs.'}
+                        </div>
+                      </>
                     )}
 
                     <div className="code-block">
@@ -795,8 +791,6 @@ export default function ScriptAnalyzer() {
                       {contractView === 'aiken' && (
                         aiLoading && !aiAnalysis ? (
                           <pre style={{ color: '#6b7280' }}>Converting to Aiken-style pseudocode...</pre>
-                        ) : aiAnalysis?.aiken ? (
-                          <CodeBlock code={aiAnalysis.aiken} language="rust" />
                         ) : aiError === 'BUDGET_EXHAUSTED' ? (
                           <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
                             <p style={{ marginBottom: '1rem' }}>AI budget exhausted for this month.</p>
@@ -807,11 +801,27 @@ export default function ScriptAnalyzer() {
                               </a>
                             </p>
                           </div>
-                        ) : (
-                          <pre style={{ color: '#6b7280' }}>
-                            {aiError || 'Failed to generate Aiken code. Switch to UPLC view.'}
-                          </pre>
-                        )
+                        ) : aikenSubView === 'validator' ? (
+                          aiAnalysis?.aiken ? (
+                            <CodeBlock code={aiAnalysis.aiken} language="rust" />
+                          ) : (
+                            <pre style={{ color: '#6b7280' }}>
+                              {aiError || 'Failed to generate Aiken code. Switch to UPLC view.'}
+                            </pre>
+                          )
+                        ) : aikenSubView === 'datum' ? (
+                          aiAnalysis?.types?.datum ? (
+                            <CodeBlock code={aiAnalysis.types.datum} language="rust" />
+                          ) : (
+                            <pre style={{ color: '#6b7280' }}>Datum type not available.</pre>
+                          )
+                        ) : aikenSubView === 'redeemer' ? (
+                          aiAnalysis?.types?.redeemer ? (
+                            <CodeBlock code={aiAnalysis.types.redeemer} language="rust" />
+                          ) : (
+                            <pre style={{ color: '#6b7280' }}>Redeemer type not available.</pre>
+                          )
+                        ) : null
                       )}
                     </div>
                   </div>
