@@ -40,6 +40,7 @@ export { analyzeDatum } from './datum.js';
 export { analyzeRedeemer } from './redeemer.js';
 export { findValidationChecks } from './checks.js';
 export * from './traversal.js';
+export * from './dataflow.js';
 
 /**
  * Analyze a UPLC AST to extract contract structure
