@@ -2,23 +2,47 @@
 
 Reverse-engineer Cardano smart contracts from on-chain bytecode.
 
-**Live:** https://uplc.wtf
+**Live:** [uplc.wtf](https://uplc.wtf)
 
-## Features
+## Architecture
 
-- Decode UPLC bytecode from CBOR hex
-- Extract error messages and trace strings
-- Analyze builtin function usage patterns
-- Classify contract type (DEX, NFT, lending, etc.)
-- Generate architecture diagrams (Mermaid flowcharts)
-- Reconstruct pseudo-Aiken source approximation via AI
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Browser                              │
+├─────────────────────────────────────────────────────────────┤
+│  Script Hash                                                │
+│      │                                                      │
+│      ▼                                                      │
+│  ┌────────┐    CBOR    ┌──────────────────┐                │
+│  │ Koios  │ ────────── │ @harmoniclabs/   │                │
+│  │  API   │            │     uplc         │                │
+│  └────────┘            │  (TypeScript)    │                │
+│                        └────────┬─────────┘                │
+│                                 │                          │
+│              ┌──────────────────┼──────────────────┐       │
+│              ▼                  ▼                  ▼       │
+│         Builtins          Trace Strings      UPLC AST      │
+└─────────────────────────────────┬───────────────────────────┘
+                                  │
+                                  ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Cloudflare Worker                        │
+├─────────────────────────────────────────────────────────────┤
+│  ┌─────────────┐                                            │
+│  │ Claude API  │ ──▶ Aiken pseudocode + Mermaid diagram    │
+│  └─────────────┘                                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key:** UPLC decoding runs client-side. AI decompilation runs server-side (API key protected).
 
 ## Stack
 
 - **Frontend:** Astro + React + TypeScript
 - **Hosting:** Cloudflare Pages
-- **APIs:** Koios (script info), Anthropic Claude (decompilation)
-- **UPLC Decoding:** @harmoniclabs/uplc (pure TypeScript, runs in browser)
+- **UPLC Decoding:** [@harmoniclabs/uplc](https://github.com/harmoniclabs/uplc) (browser)
+- **AI Decompilation:** Anthropic Claude (server)
+- **Chain Data:** Koios API
 
 ## Development
 
@@ -27,23 +51,6 @@ npm install
 npm run dev     # localhost:4321
 npm run build   # production build
 ```
-
-## Deployment
-
-Deployed via Cloudflare Pages. Requires `ANTHROPIC_API_KEY` in Pages environment.
-
-```bash
-npm run build
-npx wrangler pages deploy dist --project-name=uplc
-```
-
-## Security
-
-This project uses API keys for AI decompilation. To prevent key abuse:
-
-- **Branch protection:** Only `main` branch deploys to production
-- **No direct pushes:** All changes require PR review
-- **API keys:** Stored in Cloudflare Pages environment (not in repo)
 
 ## License
 
