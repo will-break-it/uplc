@@ -57,6 +57,10 @@ export class Parser {
   }
 
   parse(): UplcTerm {
+    // Handle (program VERSION TERM) wrapper if present
+    if (this.current().type === 'LPAREN' && this.peek(1).value === 'program') {
+      return this.parseProgram();
+    }
     const term = this.parseTerm();
     if (this.current().type !== 'EOF') {
       throw new ParseError(
@@ -64,6 +68,29 @@ export class Parser {
         this.current().location
       );
     }
+    return term;
+  }
+
+  /**
+   * Parse (program VERSION TERM) wrapper
+   * VERSION is like "1.0.0" or "1.1.0"
+   */
+  private parseProgram(): UplcTerm {
+    this.expect('LPAREN');
+    this.advance(); // skip 'program'
+    
+    // Skip version (e.g., "1.0.0" or "1.1.0")
+    // Version can be: NUMBER.NUMBER.NUMBER or just tokens
+    while (this.current().type !== 'LPAREN' && 
+           this.current().type !== 'LBRACKET' && 
+           this.current().type !== 'EOF') {
+      this.advance();
+    }
+    
+    // Parse the actual term
+    const term = this.parseTerm();
+    
+    this.expect('RPAREN');
     return term;
   }
 

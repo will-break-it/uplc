@@ -21,6 +21,8 @@ export type TokenType =
   | 'ERROR'       // error
   | 'CASE'        // case (Plutus V3)
   | 'CONSTR'      // constr (Plutus V3)
+  | 'PROGRAM'     // program (wrapper)
+  | 'VERSION'     // version like 1.0.0
   | 'IDENT'       // identifier/name
   | 'INTEGER'     // numeric literal
   | 'BYTESTRING'  // #hex or 0xhex
@@ -47,6 +49,7 @@ const KEYWORDS: Record<string, TokenType> = {
   'error': 'ERROR',
   'case': 'CASE',
   'constr': 'CONSTR',
+  'program': 'PROGRAM',
   'True': 'BOOL_TRUE',
   'False': 'BOOL_FALSE',
 };
@@ -154,6 +157,15 @@ export class Lexer {
     return value;
   }
 
+  private readVersion(): string {
+    // Read version like "1.0.0" or "1.1.0"
+    let value = '';
+    while (this.pos < this.source.length && /[0-9.]/.test(this.peek())) {
+      value += this.advance();
+    }
+    return value;
+  }
+
   private readIdentifier(): string {
     let value = '';
     while (this.pos < this.source.length) {
@@ -235,10 +247,23 @@ export class Lexer {
         continue;
       }
 
-      // Number (integer)
+      // Number (integer) or version (e.g., 1.0.0)
       if (/[0-9]/.test(ch) || (ch === '-' && /[0-9]/.test(this.peek(1)))) {
+        // Check if this looks like a version (number followed by dot)
+        const startPos = this.pos;
         const value = this.readNumber();
-        tokens.push({ type: 'INTEGER', value, location: loc });
+        
+        // If followed by a dot, it's a version number
+        if (this.peek() === '.') {
+          // Read the rest as version (e.g., ".0.0")
+          let version = value;
+          while (this.peek() === '.' || /[0-9]/.test(this.peek())) {
+            version += this.advance();
+          }
+          tokens.push({ type: 'VERSION', value: version, location: loc });
+        } else {
+          tokens.push({ type: 'INTEGER', value, location: loc });
+        }
         continue;
       }
 
