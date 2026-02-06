@@ -103,8 +103,6 @@ cd packages/codegen && pnpm test
 2. **Analyze** — Detect purpose, extract datum/redeemer structure, find checks
 3. **Generate** — Emit valid Aiken with types, imports, and idiomatic syntax
 
-The decompilation is **deterministic** — no AI hallucination, just static analysis.
-
 ## License
 
 MIT
