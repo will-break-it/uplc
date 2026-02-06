@@ -204,6 +204,26 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
   const handleMouseUp = () => setIsDragging(false);
 
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const rect = container.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const clickY = e.clientY - rect.top;
+    
+    // Zoom factor (1.5x on double-click)
+    const zoomFactor = 1.5;
+    const newScale = Math.min(transform.scale * zoomFactor, 4);
+    
+    // Adjust position to zoom toward click point
+    const scaleChange = newScale / transform.scale;
+    const newX = clickX - (clickX - transform.x) * scaleChange;
+    const newY = clickY - (clickY - transform.y) * scaleChange;
+    
+    setTransform({ scale: newScale, x: newX, y: newY });
+  };
+
   const resetView = () => setTransform({ scale: 1, x: 0, y: 0 });
 
   if (error) {
@@ -219,6 +239,7 @@ function MermaidDiagram({ chart }: { chart: string }) {
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
+      onDoubleClick={handleDoubleClick}
     >
       <div 
         ref={svgRef}
