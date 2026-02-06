@@ -2,11 +2,30 @@
 
 interface Env {}
 
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://uplc.wtf',
+  'https://www.uplc.wtf',
+  'https://uplc.pages.dev',
+  'http://localhost:4321',
+  'http://localhost:3000',
+];
+
+function getCorsOrigin(request: Request): string {
+  const origin = request.headers.get('Origin') || '';
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    return origin;
+  }
+  return 'https://uplc.wtf';
+}
+
 export const onRequest: PagesFunction<Env> = async (context) => {
+  const corsOrigin = getCorsOrigin(context.request);
+  
   if (context.request.method === 'OPTIONS') {
     return new Response(null, {
       headers: {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': corsOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
       },
@@ -30,7 +49,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         status: 400,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': corsOrigin,
         },
       });
     }
@@ -46,7 +65,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         status: response.status,
         headers: {
           'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Origin': corsOrigin,
         },
       });
     }
@@ -56,7 +75,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify(data), {
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': corsOrigin,
       },
     });
   } catch (error) {
@@ -65,7 +84,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       status: 500,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': corsOrigin,
       },
     });
   }

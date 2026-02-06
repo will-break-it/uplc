@@ -6,6 +6,25 @@ interface Env {
   UPLC_CACHE: KVNamespace;
 }
 
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://uplc.wtf',
+  'https://www.uplc.wtf',
+  'https://uplc.pages.dev',
+  'http://localhost:4321',
+  'http://localhost:3000',
+];
+
+function getCorsOrigin(request: Request): string {
+  const origin = request.headers.get('Origin') || '';
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    return origin;
+  }
+  // Reject unknown origins by returning the primary domain
+  // (browser will block the response due to CORS mismatch)
+  return 'https://uplc.wtf';
+}
+
 interface AnalysisResult {
   aiken: string;
   mermaid?: string;
@@ -277,7 +296,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
   if (!ANTHROPIC_API_KEY) {
     return new Response(JSON.stringify({ error: 'API key not configured' }), {
       status: 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
     });
   }
 
@@ -287,7 +306,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     if (!uplc || typeof uplc !== 'string') {
       return new Response(JSON.stringify({ error: 'Missing UPLC code' }), {
         status: 400,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
       });
     }
 
@@ -299,7 +318,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
         const parsed = parseJsonSafe<AnalysisResult>(cached);
         if (parsed && parsed.aiken && !parsed.aiken.includes('error')) {
           return new Response(JSON.stringify({ ...parsed, cached: true }), {
-            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
           });
         }
       }
@@ -348,7 +367,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       if (!aikenParsed?.aiken) {
         return new Response(JSON.stringify({ error: 'Failed to decompile UPLC' }), {
           status: 500,
-          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+          headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
         });
       }
       
@@ -379,7 +398,7 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
     }
 
     return new Response(JSON.stringify(result), {
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
     });
   } catch (err) {
     console.error('Analyze error:', err);
@@ -388,15 +407,15 @@ export const onRequestPost: PagesFunction<Env> = async (context) => {
       error: isRateLimit ? 'BUDGET_EXHAUSTED' : 'Analysis failed'
     }), {
       status: isRateLimit ? 429 : 500,
-      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+      headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': getCorsOrigin(context.request) },
     });
   }
 };
 
-export const onRequestOptions: PagesFunction = async () => {
+export const onRequestOptions: PagesFunction<Env> = async (context) => {
   return new Response(null, {
     headers: {
-      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Origin': getCorsOrigin(context.request),
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     },
