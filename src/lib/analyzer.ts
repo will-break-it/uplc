@@ -349,9 +349,9 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
           return `${pad}(con list)  ; ${val.length} elements`;
         }
 
-        // Unknown object type
+        // Handle other complex types (Pair, BLS types, etc.)
+        // These are represented as (con unknown) in UPLC text format
         if (typeof val === 'object' && val !== null) {
-          console.warn('Unknown constant type:', val.constructor?.name || typeof val);
           return `${pad}(con unknown)`;
         }
 
