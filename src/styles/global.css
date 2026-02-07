@@ -1649,3 +1649,63 @@ footer a:hover {
   color: var(--accent);
   font-size: 0.6rem;
 }
+
+/* AI Enhancement Controls */
+.enhancement-controls {
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.enhancement-controls input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.enhancement-controls input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.enhancement-controls button {
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.enhancement-controls button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.enhancement-controls button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* CSS Variables for enhancement colors */
+:root {
+  --primary: #0891b2;
+  --error-bg: #fef2f2;
+  --error: #ef4444;
+  --text-success: #10b981;
+  --text-warning: #f59e0b;
+}
+
+[data-theme="dark"] {
+  --primary: #22d3ee;
+  --error-bg: #450a0a;
+  --error: #f87171;
+  --text-success: #34d399;
+  --text-warning: #fbbf24;
+}

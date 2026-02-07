@@ -323,6 +323,14 @@ function MermaidDiagram({ chart }: { chart: string }) {
   );
 }
 
+// Enhancement result interface
+interface EnhancementResult {
+  naming?: Record<string, string>;
+  annotations?: string[];
+  diagram?: string;
+  cached?: boolean;
+}
+
 export default function ScriptAnalyzer() {
   const [scriptHash, setScriptHash] = useState('');
   const [loading, setLoading] = useState(false);
@@ -335,6 +343,17 @@ export default function ScriptAnalyzer() {
   const carouselRef = useRef<HTMLDivElement>(null);
   const carouselDirectionRef = useRef<1 | -1>(1);
   const carouselPausedRef = useRef(false);
+
+  // AI Enhancement state
+  const [enhancementOptions, setEnhancementOptions] = useState({
+    naming: false,
+    annotations: false,
+    diagram: false,
+  });
+  const [enhancing, setEnhancing] = useState(false);
+  const [enhancement, setEnhancement] = useState<EnhancementResult | null>(null);
+  const [showEnhanced, setShowEnhanced] = useState(true);
+  const [enhancementError, setEnhancementError] = useState<string | null>(null);
   
   // Auto-scroll carousel
   useEffect(() => {
@@ -444,6 +463,8 @@ export default function ScriptAnalyzer() {
     setError(null);
     setResult(null);
     setDecompiled(null);
+    setEnhancement(null);
+    setEnhancementError(null);
     setScriptHash(targetHash);
     setContractView('aiken');
 
@@ -452,7 +473,7 @@ export default function ScriptAnalyzer() {
     try {
       const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
-      
+
       // Decompile UPLC to Aiken code
       if (coreResult.uplcPreview) {
         const decompiledResult = decompileUplc(coreResult.uplcPreview);
@@ -463,6 +484,92 @@ export default function ScriptAnalyzer() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // AI Enhancement function
+  const enhanceCode = async () => {
+    if (!result || !decompiled) return;
+
+    const selectedEnhancements = Object.entries(enhancementOptions)
+      .filter(([_, enabled]) => enabled)
+      .map(([key]) => key) as ('naming' | 'annotations' | 'diagram')[];
+
+    if (selectedEnhancements.length === 0) {
+      setEnhancementError('Please select at least one enhancement option');
+      return;
+    }
+
+    setEnhancing(true);
+    setEnhancementError(null);
+
+    try {
+      const response = await fetch('/api/enhance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          scriptHash: result.scriptInfo.scriptHash,
+          aikenCode: decompiled.aikenCode,
+          uplcPreview: result.uplcPreview,
+          purpose: decompiled.scriptPurpose,
+          builtins: result.builtins,
+          enhance: selectedEnhancements,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Enhancement failed: ${response.status}`);
+      }
+
+      const data = await response.json() as EnhancementResult;
+      setEnhancement(data);
+      setShowEnhanced(true);
+    } catch (err) {
+      setEnhancementError(err instanceof Error ? err.message : 'Failed to enhance code');
+    } finally {
+      setEnhancing(false);
+    }
+  };
+
+  // Apply enhancements to code
+  const getDisplayCode = () => {
+    if (!decompiled) return '';
+    if (!showEnhanced || !enhancement) return decompiled.aikenCode;
+
+    let code = decompiled.aikenCode;
+
+    // Apply variable renaming
+    if (enhancement.naming) {
+      Object.entries(enhancement.naming).forEach(([oldName, newName]) => {
+        // Use word boundaries to avoid partial replacements
+        const regex = new RegExp(`\\b${oldName}\\b`, 'g');
+        code = code.replace(regex, newName);
+      });
+    }
+
+    // Apply annotations (insert comments above validation checks)
+    if (enhancement.annotations && enhancement.annotations.length > 0) {
+      const lines = code.split('\n');
+      const annotatedLines: string[] = [];
+      let annotationIndex = 0;
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // Insert annotation before lines that look like validation checks
+        if (annotationIndex < enhancement.annotations.length &&
+            (line.includes('when ') || line.includes('expect ') || line.includes('if '))) {
+          const indent = line.match(/^\s*/)?.[0] || '';
+          annotatedLines.push(`${indent}${enhancement.annotations[annotationIndex]}`);
+          annotationIndex++;
+        }
+        annotatedLines.push(line);
+      }
+
+      code = annotatedLines.join('\n');
+    }
+
+    return code;
   };
 
   const copyToClipboard = async (text: string, btnId: string) => {
@@ -756,6 +863,101 @@ export default function ScriptAnalyzer() {
                   <h2>{Icons.contract} Contract Code</h2>
                   <p>View the smart contract in different formats.</p>
 
+                  {/* AI Enhancement Controls - Only show for Aiken view */}
+                  {contractView === 'aiken' && decompiled && !decompiled.error && (
+                    <div className="enhancement-controls" style={{
+                      background: 'var(--card-bg)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '0.5rem',
+                      padding: '1rem',
+                      marginBottom: '1rem',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
+                          <path d="M12 2 L2 7 L12 12 L22 7 Z" />
+                          <path d="M2 17 L12 22 L22 17" />
+                          <path d="M2 12 L12 17 L22 12" />
+                        </svg>
+                        <strong style={{ fontSize: '0.95rem' }}>AI Enhancement</strong>
+                      </div>
+
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.75rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={enhancementOptions.naming}
+                            onChange={(e) => setEnhancementOptions({ ...enhancementOptions, naming: e.target.checked })}
+                            disabled={enhancing}
+                          />
+                          <span style={{ fontSize: '0.9rem' }}>Enhance Variable Names</span>
+                        </label>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={enhancementOptions.annotations}
+                            onChange={(e) => setEnhancementOptions({ ...enhancementOptions, annotations: e.target.checked })}
+                            disabled={enhancing}
+                          />
+                          <span style={{ fontSize: '0.9rem' }}>Add Annotations</span>
+                        </label>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={enhancementOptions.diagram}
+                            onChange={(e) => setEnhancementOptions({ ...enhancementOptions, diagram: e.target.checked })}
+                            disabled={enhancing}
+                          />
+                          <span style={{ fontSize: '0.9rem' }}>Generate Diagram</span>
+                        </label>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                        <button
+                          onClick={enhanceCode}
+                          disabled={enhancing || !Object.values(enhancementOptions).some(v => v)}
+                          style={{
+                            padding: '0.5rem 1rem',
+                            background: 'var(--primary)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '0.375rem',
+                            cursor: enhancing ? 'not-allowed' : 'pointer',
+                            opacity: enhancing || !Object.values(enhancementOptions).some(v => v) ? 0.5 : 1,
+                            fontSize: '0.9rem',
+                            fontWeight: '500',
+                          }}
+                        >
+                          {enhancing ? 'Enhancing...' : 'Enhance'}
+                        </button>
+
+                        {enhancement && (
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={showEnhanced}
+                              onChange={(e) => setShowEnhanced(e.target.checked)}
+                            />
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Show Enhanced</span>
+                          </label>
+                        )}
+
+                        {enhancement?.cached && (
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
+                            (cached)
+                          </span>
+                        )}
+                      </div>
+
+                      {enhancementError && (
+                        <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'var(--error-bg)', color: 'var(--error)', borderRadius: '0.375rem', fontSize: '0.85rem' }}>
+                          {enhancementError}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   <div className="code-section">
                     <div className="code-header">
                       <div className="code-tabs">
@@ -773,18 +975,18 @@ export default function ScriptAnalyzer() {
                           Aiken
                         </button>
                       </div>
-                      <button 
-                        className="copy-btn" 
+                      <button
+                        className="copy-btn"
                         id="copy-code"
                         onClick={() => {
                           let text = '';
                           if (contractView === 'cbor') text = result.scriptInfo.bytes;
                           else if (contractView === 'uplc') {
-                            text = uplcViewMode === 'compact' 
+                            text = uplcViewMode === 'compact'
                               ? result.uplcPreview.replace(/\s+/g, ' ').trim()
                               : result.uplcPreview;
                           } else if (contractView === 'aiken' && decompiled) {
-                            text = decompiled.aikenCode;
+                            text = getDisplayCode();
                           }
                           copyToClipboard(text, 'copy-code');
                         }}
@@ -826,9 +1028,9 @@ export default function ScriptAnalyzer() {
                       {contractView === 'aiken' && (
                         decompiled ? (
                           <div>
-                            <div style={{ 
-                              display: 'flex', 
-                              gap: '1rem', 
+                            <div style={{
+                              display: 'flex',
+                              gap: '1rem',
                               marginBottom: '1rem',
                               flexWrap: 'wrap',
                               fontSize: '0.85rem',
@@ -845,15 +1047,30 @@ export default function ScriptAnalyzer() {
                                 <span><strong>Checks:</strong> {decompiled.validationChecks}</span>
                               )}
                             </div>
-                            <CodeBlock code={decompiled.aikenCode} language="rust" />
+                            <CodeBlock code={getDisplayCode()} language="rust" />
                             {decompiled.error && (
                               <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
                                 ⚠️ Partial decompilation: {decompiled.error}
                               </div>
                             )}
+                            {enhancement && showEnhanced && (
+                              <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-success)' }}>
+                                ✓ Enhanced with AI
+                                {enhancement.naming && ' • Variable naming'}
+                                {enhancement.annotations && ' • Annotations'}
+                              </div>
+                            )}
                             <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                               <em>Note: Auto-generated from UPLC. Variable names derived from bytecode structure.</em>
                             </div>
+
+                            {/* Architecture Diagram */}
+                            {enhancement?.diagram && showEnhanced && (
+                              <div style={{ marginTop: '2rem' }}>
+                                <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Architecture Diagram</h3>
+                                <MermaidDiagram chart={enhancement.diagram} />
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div className="coming-soon-section" style={{ padding: '2rem' }}>
