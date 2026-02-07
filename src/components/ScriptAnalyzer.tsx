@@ -1,43 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult } from '../lib/analyzer';
-import type { DecompilerResult } from '../lib/decompiler';
-
-// Unified API response
-interface UnifiedAnalysisResult {
-  cached: boolean;
-  version: '1.0';
-  result: {
-    version: '1.0';
-    scriptHash: string;
-    timestamp: number;
-    cbor: string;
-    uplcText: string;
-    plutusVersion: string;
-    scriptType: string;
-    scriptSize: number;
-    builtins: Record<string, number>;
-    errorMessages: string[];
-    constants: any;
-    classification: string;
-    stats: any;
-    decompiled: {
-      aikenCode: string;
-      scriptPurpose: string;
-      params: string[];
-      datumUsed: boolean;
-      datumFields: number;
-      redeemerVariants: number;
-      validationChecks: number;
-      error?: string;
-    };
-    enhancements: {
-      naming: Record<string, string>;
-      annotations: string[];
-      diagram: string;
-    } | null;
-  };
-}
+import { analyzeScriptCore } from '../lib/analyzer';
+import { decompileUplc, type DecompilerResult } from '../lib/decompiler';
 
 // Syntax-highlighted code block
 function CodeBlock({ code, language = 'haskell' }: { code: string; language?: string }) {
@@ -498,64 +463,53 @@ export default function ScriptAnalyzer() {
     updateUrl(targetHash, activeTab);
 
     try {
-      // Call unified analyze API
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ scriptHash: targetHash }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Analysis failed: ${response.status}`);
-      }
-
-      const data = await response.json() as UnifiedAnalysisResult;
-
-      // Convert unified result to existing format for compatibility
-      const scriptInfo = {
-        scriptHash: data.result.scriptHash,
-        bytes: data.result.cbor,
-        type: data.result.scriptType,
-        size: data.result.scriptSize,
-      };
-
-      const coreResult: AnalysisResult = {
-        scriptInfo,
-        builtins: data.result.builtins,
-        errorMessages: data.result.errorMessages,
-        constants: data.result.constants,
-        classification: data.result.classification,
-        version: data.result.plutusVersion,
-        stats: data.result.stats,
-        uplcPreview: data.result.uplcText,
-      };
-
+      // Analyze and decompile
+      const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
 
-      // Set decompiled result
-      const decompiledResult: DecompilerResult = {
-        aikenCode: data.result.decompiled.aikenCode,
-        scriptPurpose: data.result.decompiled.scriptPurpose,
-        params: data.result.decompiled.params,
-        datumUsed: data.result.decompiled.datumUsed,
-        datumFields: data.result.decompiled.datumFields,
-        redeemerVariants: data.result.decompiled.redeemerVariants,
-        validationChecks: data.result.decompiled.validationChecks,
-        error: data.result.decompiled.error,
-      };
+      // Decompile UPLC to Aiken code
+      if (coreResult.uplcPreview) {
+        const decompiledResult = decompileUplc(coreResult.uplcPreview);
+        setDecompiled(decompiledResult);
 
-      setDecompiled(decompiledResult);
-
-      // Set AI enhancements (if available)
-      if (data.result.enhancements) {
-        setEnhancement(data.result.enhancements);
+        // Automatically call AI enhancement (async, don't block UI)
+        if (!decompiledResult.error && decompiledResult.aikenCode) {
+          enhanceCodeAuto(coreResult, decompiledResult);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Automatic AI enhancement (called after successful decompilation)
+  const enhanceCodeAuto = async (result: AnalysisResult, decompiled: DecompilerResult) => {
+    try {
+      const response = await fetch('/api/enhance', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          scriptHash: result.scriptInfo.scriptHash,
+          aikenCode: decompiled.aikenCode,
+          uplcPreview: result.uplcPreview,
+          purpose: decompiled.scriptPurpose,
+          builtins: result.builtins,
+          enhance: ['naming', 'annotations', 'diagram'], // All enhancements
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json() as EnhancementResult;
+        setEnhancement(data);
+      }
+      // Silently fail - enhancements are optional
+    } catch (err) {
+      // Silently fail - enhancements are optional
+      console.warn('AI enhancement failed:', err);
     }
   };
 
