@@ -1005,9 +1005,9 @@ export default function ScriptAnalyzer() {
                           </div>
                         ) : (
                           <div className="coming-soon-section" style={{ padding: '2rem' }}>
-                            <div className="coming-soon-icon">⏳</div>
-                            <h3>Decompiling...</h3>
-                            <p>Processing UPLC bytecode...</p>
+                            <div className="spinner" style={{ width: '32px', height: '32px', margin: '0 auto 1rem' }} />
+                            <h3 style={{ color: 'var(--text)' }}>Decompiling...</h3>
+                            <p style={{ color: 'var(--text)' }}>Processing UPLC bytecode...</p>
                           </div>
                         )
                       )}
