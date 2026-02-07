@@ -334,6 +334,7 @@ interface EnhancementResult {
 export default function ScriptAnalyzer() {
   const [scriptHash, setScriptHash] = useState('');
   const [loading, setLoading] = useState(false);
+  const [decompiling, setDecompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [decompiled, setDecompiled] = useState<DecompilerResult | null>(null);
@@ -463,23 +464,43 @@ export default function ScriptAnalyzer() {
     updateUrl(targetHash, activeTab);
 
     try {
-      // Analyze and decompile
+      // Analyze script (fetch + decode UPLC)
       const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
+      setLoading(false);
 
-      // Decompile UPLC to Aiken code
+      // Decompile UPLC to Aiken code (async to not block UI)
       if (coreResult.uplcPreview) {
-        const decompiledResult = decompileUplc(coreResult.uplcPreview);
-        setDecompiled(decompiledResult);
+        setDecompiling(true);
 
-        // Automatically call AI enhancement (async, don't block UI)
-        if (!decompiledResult.error && decompiledResult.aikenCode) {
-          enhanceCodeAuto(coreResult, decompiledResult);
-        }
+        // Use setTimeout to let React render the loading state first
+        setTimeout(() => {
+          try {
+            const decompiledResult = decompileUplc(coreResult.uplcPreview);
+            setDecompiled(decompiledResult);
+
+            // Automatically call AI enhancement (async, don't block UI)
+            if (!decompiledResult.error && decompiledResult.aikenCode) {
+              enhanceCodeAuto(coreResult, decompiledResult);
+            }
+          } catch (err) {
+            setDecompiled({
+              aikenCode: `// Decompilation failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+              scriptPurpose: 'unknown',
+              params: [],
+              datumUsed: false,
+              datumFields: 0,
+              redeemerVariants: 0,
+              validationChecks: 0,
+              error: err instanceof Error ? err.message : 'Unknown error'
+            });
+          } finally {
+            setDecompiling(false);
+          }
+        }, 50);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
-    } finally {
       setLoading(false);
     }
   };
@@ -1003,11 +1024,17 @@ export default function ScriptAnalyzer() {
                               </div>
                             )}
                           </div>
-                        ) : (
+                        ) : decompiling ? (
                           <div className="coming-soon-section" style={{ padding: '2rem' }}>
                             <div className="spinner" style={{ width: '32px', height: '32px', margin: '0 auto 1rem' }} />
                             <h3 style={{ color: 'var(--text)' }}>Decompiling...</h3>
-                            <p style={{ color: 'var(--text)' }}>Processing UPLC bytecode...</p>
+                            <p style={{ color: 'var(--text)' }}>Parsing UPLC and generating Aiken code...</p>
+                          </div>
+                        ) : (
+                          <div className="coming-soon-section" style={{ padding: '2rem' }}>
+                            <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>⚠️</div>
+                            <h3>No decompilation available</h3>
+                            <p>UPLC preview not available for this script</p>
                           </div>
                         )
                       )}
