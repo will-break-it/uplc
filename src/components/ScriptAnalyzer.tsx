@@ -487,6 +487,13 @@ export default function ScriptAnalyzer() {
   // Automatic AI enhancement (called after successful decompilation)
   const enhanceCodeAuto = async (result: AnalysisResult, decompiled: DecompilerResult) => {
     try {
+      // Diagram generation requires fully successful decompilation (no errors)
+      // Naming and annotations can work with partial code, but diagram needs complete structure
+      const enhancements: ('naming' | 'annotations' | 'diagram')[] = ['naming', 'annotations'];
+      if (!decompiled.error) {
+        enhancements.push('diagram');
+      }
+
       const response = await fetch('/api/enhance', {
         method: 'POST',
         headers: {
@@ -498,7 +505,7 @@ export default function ScriptAnalyzer() {
           uplcPreview: result.uplcPreview,
           purpose: decompiled.scriptPurpose,
           builtins: result.builtins,
-          enhance: ['naming', 'annotations', 'diagram'], // All enhancements
+          enhance: enhancements,
         }),
       });
 
