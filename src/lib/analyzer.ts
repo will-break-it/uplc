@@ -323,25 +323,22 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         if (val === undefined || val === null) return `${pad}(con unit ())`;
 
         // Handle Plutus Data constants
+        // Note: Full Data representation is complex, so we simplify for readability
         if (isData(val)) {
           if (val instanceof DataConstr) {
-            const fieldsStr = val.fields.length > 0
-              ? ` fields:${val.fields.length}`
-              : '';
-            return `${pad}(con data (Constr ${val.constr}${fieldsStr}))`;
+            return `${pad}(con data)  ; Constr ${val.constr} with ${val.fields.length} fields`;
           }
           if (val instanceof DataList) {
-            return `${pad}(con data (List length:${val.list.length}))`;
+            return `${pad}(con data)  ; List with ${val.list.length} elements`;
           }
           if (val instanceof DataI) {
-            return `${pad}(con data (I ${val.int}))`;
+            return `${pad}(con data)  ; Integer ${val.int}`;
           }
           if (val instanceof DataB) {
             const bytes = val.bytes.toBuffer ? val.bytes.toBuffer() : val.bytes;
             const hex = bufferToHex(bytes);
-            return hex.length <= 32
-              ? `${pad}(con data (B #${hex}))`
-              : `${pad}(con data (B #${hex.slice(0, 28)}...))`;
+            const hexPreview = hex.length <= 32 ? hex : hex.slice(0, 28) + '...';
+            return `${pad}(con data)  ; Bytestring #${hexPreview}`;
           }
           // DataMap or other Data type
           return `${pad}(con data)`;
@@ -349,7 +346,7 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
 
         // Handle lists
         if (Array.isArray(val)) {
-          return `${pad}(con list length:${val.length})`;
+          return `${pad}(con list)  ; ${val.length} elements`;
         }
 
         // Unknown object type
