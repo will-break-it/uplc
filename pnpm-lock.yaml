@@ -14,6 +14,12 @@ importers:
       '@astrojs/react':
         specifier: ^4.4.2
         version: 4.4.2(@types/react-dom@19.2.3(@types/react@19.2.13))(@types/react@19.2.13)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      '@harmoniclabs/plutus-data':
+        specifier: ^1.2.6
+        version: 1.2.6(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6)
+      '@harmoniclabs/uplc':
+        specifier: ^1.4.1
+        version: 1.4.1(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6)(@harmoniclabs/crypto@0.3.0)(@harmoniclabs/pair@1.0.0)(@harmoniclabs/plutus-data@1.2.6(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6))
       '@uplc/codegen':
         specifier: workspace:*
         version: link:packages/codegen
@@ -42,9 +48,6 @@ importers:
       '@blaze-cardano/uplc':
         specifier: ^0.4.3
         version: 0.4.3
-      '@harmoniclabs/uplc':
-        specifier: ^1.4.1
-        version: 1.4.1(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6)(@harmoniclabs/crypto@0.3.0)(@harmoniclabs/pair@1.0.0)(@harmoniclabs/plutus-data@1.2.6(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6))
       vitest:
         specifier: ^4.0.18
         version: 4.0.18
