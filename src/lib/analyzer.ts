@@ -1,8 +1,6 @@
 // UPLC Analyzer - Real UPLC decoding using @harmoniclabs/uplc
 
-import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
-import type { Data } from '@harmoniclabs/plutus-data';
-import { isData, DataConstr, DataList, DataI, DataB } from '@harmoniclabs/plutus-data';
+import { UPLCDecoder, builtinTagToString, showUPLC } from '@harmoniclabs/uplc';
 
 export interface ScriptInfo {
   scriptHash: string;
@@ -184,10 +182,10 @@ export function decodeUPLC(bytes: string): {
   }
   
   traverse(program._body);
-  
-  // Generate pretty print in aiken style
-  const prettyPrint = prettyPrintUPLC(program._body, 0, Infinity, version);
-  
+
+  // Generate pretty print using harmoniclabs implementation
+  const prettyPrint = showUPLC(program);
+
   return {
     program,
     version,
@@ -213,166 +211,6 @@ function bufferToHex(buffer: Uint8Array): string {
   return Array.from(buffer)
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-}
-
-// Detect UPLC term type by properties (survives minification)
-function getTermType(term: any): string {
-  if (!term) return 'null';
-  if ('funcTerm' in term && 'argTerm' in term) return 'Application';
-  if ('body' in term && !('scrutinee' in term) && !('terms' in term)) return 'Lambda';
-  if ('delayedTerm' in term) return 'Delay';
-  if ('termToForce' in term) return 'Force';
-  if ('deBruijn' in term) return 'UPLCVar';
-  if ('_tag' in term && !('value' in term)) return 'Builtin';
-  if ('value' in term) return 'UPLCConst';
-  if ('index' in term && 'terms' in term) return 'Constr';
-  if ('scrutinee' in term && 'branches' in term) return 'Case';
-  return 'unknown';
-}
-
-// Pretty print UPLC in aiken-style format
-function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: string): string {
-  let varCounter = 0;
-  
-  // Get inline representation if simple enough (returns null if too complex)
-  function inline(term: any, varStack: string[], maxLen: number): string | null {
-    const termType = getTermType(term);
-    
-    switch (termType) {
-      case 'UPLCVar': {
-        const idx = Number(term.deBruijn);
-        return idx < varStack.length ? varStack[idx] : `unbound_${idx}`;
-      }
-      case 'Builtin':
-        return `(builtin ${builtinTagToString(term._tag)})`;
-      case 'UPLCConst': {
-        const val = term.value;
-        if (typeof val === 'bigint') return `(con integer ${val})`;
-        if (typeof val === 'boolean') return `(con bool ${val ? 'True' : 'False'})`;
-        if (val === undefined || val === null) return `(con unit ())`;
-        if (typeof val === 'string' && val.length <= 20) return `(con string "${val}")`;
-        if (val instanceof Uint8Array && val.length <= 16) return `(con bytestring #${bufferToHex(val)})`;
-        // For complex constants (Plutus Data, lists, etc.), don't inline
-        if (isData(val)) return null; // Too complex to inline
-        if (Array.isArray(val)) return null; // Lists don't inline
-        if (typeof val === 'object' && val !== null) return null;
-        return null; // Too long or unknown
-      }
-      case 'Force': {
-        const inner = inline(term.termToForce, varStack, maxLen - 8);
-        return inner && inner.length < maxLen - 8 ? `(force ${inner})` : null;
-      }
-      case 'Delay': {
-        const inner = inline(term.delayedTerm, varStack, maxLen - 8);
-        return inner && inner.length < maxLen - 8 ? `(delay ${inner})` : null;
-      }
-      case 'Application': {
-        const func = inline(term.funcTerm, varStack, maxLen - 4);
-        const arg = inline(term.argTerm, varStack, maxLen - 4);
-        if (func && arg && func.length + arg.length < maxLen - 4) {
-          return `[${func} ${arg}]`;
-        }
-        return null;
-      }
-      default:
-        return null;
-    }
-  }
-  
-  // Build output with smart line breaking
-  function pp(term: any, depth: number, varStack: string[]): string {
-    const pad = '  '.repeat(depth);
-    const termType = getTermType(term);
-    
-    // Try inline first for short expressions
-    const inlined = inline(term, varStack, 60);
-    if (inlined) return `${pad}${inlined}`;
-    
-    switch (termType) {
-      case 'Application': {
-        const func = pp(term.funcTerm, depth + 1, varStack);
-        const arg = pp(term.argTerm, depth + 1, varStack);
-        return `${pad}[\n${func}\n${arg}\n${pad}]`;
-      }
-      case 'Lambda': {
-        const varName = `i_${varCounter++}`;
-        const body = pp(term.body, depth + 1, [varName, ...varStack]);
-        return `${pad}(lam ${varName}\n${body}\n${pad})`;
-      }
-      case 'Delay':
-        return `${pad}(delay\n${pp(term.delayedTerm, depth + 1, varStack)}\n${pad})`;
-      case 'Force':
-        return `${pad}(force\n${pp(term.termToForce, depth + 1, varStack)}\n${pad})`;
-      case 'UPLCVar': {
-        const idx = Number(term.deBruijn);
-        return `${pad}${idx < varStack.length ? varStack[idx] : `unbound_${idx}`}`;
-      }
-      case 'Builtin':
-        return `${pad}(builtin ${builtinTagToString(term._tag)})`;
-      case 'UPLCConst': {
-        const val = term.value;
-        if (typeof val === 'bigint') return `${pad}(con integer ${val})`;
-        if (typeof val === 'boolean') return `${pad}(con bool ${val ? 'True' : 'False'})`;
-        if (typeof val === 'string') return `${pad}(con string "${val.slice(0, 80)}")`;
-        if (val instanceof Uint8Array) {
-          const hex = bufferToHex(val);
-          return hex.length <= 64
-            ? `${pad}(con bytestring #${hex})`
-            : `${pad}(con bytestring #${hex.slice(0, 60)}...)`;
-        }
-        if (val === undefined || val === null) return `${pad}(con unit ())`;
-
-        // Handle Plutus Data constants
-        // Note: Full Data representation is complex, so we simplify for readability
-        if (isData(val)) {
-          if (val instanceof DataConstr) {
-            return `${pad}(con data)  ; Constr ${val.constr} with ${val.fields.length} fields`;
-          }
-          if (val instanceof DataList) {
-            return `${pad}(con data)  ; List with ${val.list.length} elements`;
-          }
-          if (val instanceof DataI) {
-            return `${pad}(con data)  ; Integer ${val.int}`;
-          }
-          if (val instanceof DataB) {
-            const bytes = val.bytes.toBuffer ? val.bytes.toBuffer() : val.bytes;
-            const hex = bufferToHex(bytes);
-            const hexPreview = hex.length <= 32 ? hex : hex.slice(0, 28) + '...';
-            return `${pad}(con data)  ; Bytestring #${hexPreview}`;
-          }
-          // DataMap or other Data type
-          return `${pad}(con data)`;
-        }
-
-        // Handle lists
-        if (Array.isArray(val)) {
-          return `${pad}(con list)  ; ${val.length} elements`;
-        }
-
-        // Handle other complex types (Pair, BLS types, etc.)
-        // These are represented as (con unknown) in UPLC text format
-        if (typeof val === 'object' && val !== null) {
-          return `${pad}(con unknown)`;
-        }
-
-        return `${pad}(con unknown)`;
-      }
-      case 'Constr': {
-        const terms = term.terms?.map((t: any) => pp(t, depth + 1, varStack)).join('\n') || '';
-        return terms ? `${pad}(constr ${term.index}\n${terms}\n${pad})` : `${pad}(constr ${term.index})`;
-      }
-      case 'Case': {
-        const scrutinee = pp(term.scrutinee, depth + 1, varStack);
-        const branches = term.branches?.map((b: any) => pp(b, depth + 1, varStack)).join('\n') || '';
-        return `${pad}(case\n${scrutinee}\n${branches}\n${pad})`;
-      }
-      default:
-        return `${pad}(error)`;
-    }
-  }
-  
-  const body = pp(term, 1, []);
-  return `(program\n  ${version}\n${body}\n)`;
 }
 
 export function extractErrorMessages(bytes: string): string[] {

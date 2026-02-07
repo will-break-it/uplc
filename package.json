@@ -16,7 +16,6 @@
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.12",
     "@astrojs/react": "^4.4.2",
-    "@harmoniclabs/plutus-data": "^1.2.6",
     "@harmoniclabs/uplc": "^1.4.1",
     "@uplc/codegen": "workspace:*",
     "@uplc/parser": "workspace:*",
