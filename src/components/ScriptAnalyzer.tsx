@@ -816,8 +816,20 @@ export default function ScriptAnalyzer() {
                   {enhancement?.diagram ? (
                     <>
                       <p>AI-generated architecture diagram showing validator logic flow.</p>
-                      <MermaidDiagram diagram={enhancement.diagram} />
+                      <MermaidDiagram chart={enhancement.diagram} />
                     </>
+                  ) : decompiled && !enhancement ? (
+                    <div style={{
+                      padding: '2rem',
+                      textAlign: 'center',
+                      color: 'var(--text-muted)',
+                      background: 'var(--card-bg)',
+                      borderRadius: '0.5rem',
+                      border: '1px solid var(--border)',
+                    }}>
+                      <div className="spinner" style={{ width: '32px', height: '32px', margin: '0 auto 1rem' }} />
+                      <p>Generating architecture diagram with AI...</p>
+                    </div>
                   ) : (
                     <div style={{
                       padding: '2rem',
@@ -828,6 +840,7 @@ export default function ScriptAnalyzer() {
                       border: '1px solid var(--border)',
                     }}>
                       <p>Architecture diagram unavailable for this contract.</p>
+                      <p style={{ fontSize: '0.85rem', marginTop: '0.5rem' }}>AI enhancement may have failed or is still loading.</p>
                     </div>
                   )}
                 </section>
@@ -964,7 +977,7 @@ export default function ScriptAnalyzer() {
                                 ⚠️ Partial decompilation: {decompiled.error}
                               </div>
                             )}
-                            {enhancement && showEnhanced && (
+                            {enhancement && !showOriginal && (
                               <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-success)' }}>
                                 ✓ Enhanced with AI
                                 {enhancement.naming && ' • Variable naming'}
@@ -975,8 +988,8 @@ export default function ScriptAnalyzer() {
                               <em>Note: Auto-generated from UPLC. Variable names derived from bytecode structure.</em>
                             </div>
 
-                            {/* Architecture Diagram */}
-                            {enhancement?.diagram && showEnhanced && (
+                            {/* Architecture Diagram (inline in Contract tab when enhanced) */}
+                            {enhancement?.diagram && !showOriginal && (
                               <div style={{ marginTop: '2rem' }}>
                                 <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Architecture Diagram</h3>
                                 <MermaidDiagram chart={enhancement.diagram} />
