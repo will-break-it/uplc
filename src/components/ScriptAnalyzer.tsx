@@ -1,8 +1,43 @@
 import { useState, useEffect, useRef } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult } from '../lib/analyzer';
-import { analyzeScriptCore } from '../lib/analyzer';
-import { decompileUplc, type DecompilerResult } from '../lib/decompiler';
+import type { DecompilerResult } from '../lib/decompiler';
+
+// Unified API response
+interface UnifiedAnalysisResult {
+  cached: boolean;
+  version: '1.0';
+  result: {
+    version: '1.0';
+    scriptHash: string;
+    timestamp: number;
+    cbor: string;
+    uplcText: string;
+    plutusVersion: string;
+    scriptType: string;
+    scriptSize: number;
+    builtins: Record<string, number>;
+    errorMessages: string[];
+    constants: any;
+    classification: string;
+    stats: any;
+    decompiled: {
+      aikenCode: string;
+      scriptPurpose: string;
+      params: string[];
+      datumUsed: boolean;
+      datumFields: number;
+      redeemerVariants: number;
+      validationChecks: number;
+      error?: string;
+    };
+    enhancements: {
+      naming: Record<string, string>;
+      annotations: string[];
+      diagram: string;
+    } | null;
+  };
+}
 
 // Syntax-highlighted code block
 function CodeBlock({ code, language = 'haskell' }: { code: string; language?: string }) {
@@ -344,16 +379,9 @@ export default function ScriptAnalyzer() {
   const carouselDirectionRef = useRef<1 | -1>(1);
   const carouselPausedRef = useRef(false);
 
-  // AI Enhancement state
-  const [enhancementOptions, setEnhancementOptions] = useState({
-    naming: false,
-    annotations: false,
-    diagram: false,
-  });
-  const [enhancing, setEnhancing] = useState(false);
+  // AI Enhancement state (now from unified API)
   const [enhancement, setEnhancement] = useState<EnhancementResult | null>(null);
-  const [showEnhanced, setShowEnhanced] = useState(true);
-  const [enhancementError, setEnhancementError] = useState<string | null>(null);
+  const [showOriginal, setShowOriginal] = useState(false);
   
   // Auto-scroll carousel
   useEffect(() => {
@@ -464,20 +492,65 @@ export default function ScriptAnalyzer() {
     setResult(null);
     setDecompiled(null);
     setEnhancement(null);
-    setEnhancementError(null);
     setScriptHash(targetHash);
     setContractView('aiken');
 
     updateUrl(targetHash, activeTab);
 
     try {
-      const coreResult = await analyzeScriptCore(targetHash);
+      // Call unified analyze API
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ scriptHash: targetHash }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Analysis failed: ${response.status}`);
+      }
+
+      const data = await response.json() as UnifiedAnalysisResult;
+
+      // Convert unified result to existing format for compatibility
+      const scriptInfo = {
+        scriptHash: data.result.scriptHash,
+        bytes: data.result.cbor,
+        type: data.result.scriptType,
+        size: data.result.scriptSize,
+      };
+
+      const coreResult: AnalysisResult = {
+        scriptInfo,
+        builtins: data.result.builtins,
+        errorMessages: data.result.errorMessages,
+        constants: data.result.constants,
+        classification: data.result.classification,
+        version: data.result.plutusVersion,
+        stats: data.result.stats,
+        uplcPreview: data.result.uplcText,
+      };
+
       setResult(coreResult);
 
-      // Decompile UPLC to Aiken code
-      if (coreResult.uplcPreview) {
-        const decompiledResult = decompileUplc(coreResult.uplcPreview);
-        setDecompiled(decompiledResult);
+      // Set decompiled result
+      const decompiledResult: DecompilerResult = {
+        aikenCode: data.result.decompiled.aikenCode,
+        scriptPurpose: data.result.decompiled.scriptPurpose,
+        params: data.result.decompiled.params,
+        datumUsed: data.result.decompiled.datumUsed,
+        datumFields: data.result.decompiled.datumFields,
+        redeemerVariants: data.result.decompiled.redeemerVariants,
+        validationChecks: data.result.decompiled.validationChecks,
+        error: data.result.decompiled.error,
+      };
+
+      setDecompiled(decompiledResult);
+
+      // Set AI enhancements (if available)
+      if (data.result.enhancements) {
+        setEnhancement(data.result.enhancements);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to analyze script');
@@ -486,56 +559,11 @@ export default function ScriptAnalyzer() {
     }
   };
 
-  // AI Enhancement function
-  const enhanceCode = async () => {
-    if (!result || !decompiled) return;
-
-    const selectedEnhancements = Object.entries(enhancementOptions)
-      .filter(([_, enabled]) => enabled)
-      .map(([key]) => key) as ('naming' | 'annotations' | 'diagram')[];
-
-    if (selectedEnhancements.length === 0) {
-      setEnhancementError('Please select at least one enhancement option');
-      return;
-    }
-
-    setEnhancing(true);
-    setEnhancementError(null);
-
-    try {
-      const response = await fetch('/api/enhance', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          scriptHash: result.scriptInfo.scriptHash,
-          aikenCode: decompiled.aikenCode,
-          uplcPreview: result.uplcPreview,
-          purpose: decompiled.scriptPurpose,
-          builtins: result.builtins,
-          enhance: selectedEnhancements,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Enhancement failed: ${response.status}`);
-      }
-
-      const data = await response.json() as EnhancementResult;
-      setEnhancement(data);
-      setShowEnhanced(true);
-    } catch (err) {
-      setEnhancementError(err instanceof Error ? err.message : 'Failed to enhance code');
-    } finally {
-      setEnhancing(false);
-    }
-  };
 
   // Apply enhancements to code
   const getDisplayCode = () => {
     if (!decompiled) return '';
-    if (!showEnhanced || !enhancement) return decompiled.aikenCode;
+    if (showOriginal || !enhancement) return decompiled.aikenCode;
 
     let code = decompiled.aikenCode;
 
@@ -743,12 +771,10 @@ export default function ScriptAnalyzer() {
                 <a href="#architecture" className={activeTab === 'architecture' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('architecture'); }}>
                   {Icons.architecture}
                   <span>Architecture</span>
-                  <span className="badge-small coming-soon">Soon</span>
                 </a>
                 <a href="#contract" className={activeTab === 'contract' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('contract'); }}>
                   {Icons.contract}
                   <span>Contract</span>
-                  <span className="badge-small coming-soon">Soon</span>
                 </a>
                 <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('builtins'); }}>
                   {Icons.builtins}
@@ -833,28 +859,23 @@ export default function ScriptAnalyzer() {
               {activeTab === 'architecture' && (
                 <section className="docs-section">
                   <h2>{Icons.architecture} Architecture</h2>
-                  <div className="coming-soon-section">
-                    <div className="coming-soon-icon">🔧</div>
-                    <h3>Deterministic Decompiler Coming Soon</h3>
-                    <p>
-                      We're building a proper UPLC parser that will generate accurate architecture diagrams 
-                      by analyzing the actual bytecode structure — no AI hallucinations.
-                    </p>
-                    <p className="coming-soon-features">
-                      <strong>What's coming:</strong><br />
-                      • Redeemer variant detection<br />
-                      • Validation flow visualization<br />
-                      • Datum/Redeemer type inference
-                    </p>
-                    <a 
-                      href="https://github.com/will-break-it/uplc" 
-                      target="_blank" 
-                      rel="noopener"
-                      className="coming-soon-link"
-                    >
-                      Follow progress on GitHub →
-                    </a>
-                  </div>
+                  {enhancement?.diagram ? (
+                    <>
+                      <p>AI-generated architecture diagram showing validator logic flow.</p>
+                      <MermaidDiagram diagram={enhancement.diagram} />
+                    </>
+                  ) : (
+                    <div style={{
+                      padding: '2rem',
+                      textAlign: 'center',
+                      color: 'var(--text-muted)',
+                      background: 'var(--card-bg)',
+                      borderRadius: '0.5rem',
+                      border: '1px solid var(--border)',
+                    }}>
+                      <p>Architecture diagram unavailable for this contract.</p>
+                    </div>
+                  )}
                 </section>
               )}
 
@@ -863,98 +884,34 @@ export default function ScriptAnalyzer() {
                   <h2>{Icons.contract} Contract Code</h2>
                   <p>View the smart contract in different formats.</p>
 
-                  {/* AI Enhancement Controls - Only show for Aiken view */}
-                  {contractView === 'aiken' && decompiled && !decompiled.error && (
-                    <div className="enhancement-controls" style={{
+                  {/* AI Enhancement Badge */}
+                  {contractView === 'aiken' && enhancement && (
+                    <div style={{
                       background: 'var(--card-bg)',
                       border: '1px solid var(--border)',
                       borderRadius: '0.5rem',
-                      padding: '1rem',
+                      padding: '0.75rem 1rem',
                       marginBottom: '1rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
                     }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
                           <path d="M12 2 L2 7 L12 12 L22 7 Z" />
                           <path d="M2 17 L12 22 L22 17" />
                           <path d="M2 12 L12 17 L22 12" />
                         </svg>
-                        <strong style={{ fontSize: '0.95rem' }}>AI Enhancement</strong>
+                        <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>✨ AI Enhanced</span>
                       </div>
-
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem', marginBottom: '0.75rem' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={enhancementOptions.naming}
-                            onChange={(e) => setEnhancementOptions({ ...enhancementOptions, naming: e.target.checked })}
-                            disabled={enhancing}
-                          />
-                          <span style={{ fontSize: '0.9rem' }}>Enhance Variable Names</span>
-                        </label>
-
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={enhancementOptions.annotations}
-                            onChange={(e) => setEnhancementOptions({ ...enhancementOptions, annotations: e.target.checked })}
-                            disabled={enhancing}
-                          />
-                          <span style={{ fontSize: '0.9rem' }}>Add Annotations</span>
-                        </label>
-
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                          <input
-                            type="checkbox"
-                            checked={enhancementOptions.diagram}
-                            onChange={(e) => setEnhancementOptions({ ...enhancementOptions, diagram: e.target.checked })}
-                            disabled={enhancing}
-                          />
-                          <span style={{ fontSize: '0.9rem' }}>Generate Diagram</span>
-                        </label>
-                      </div>
-
-                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                        <button
-                          onClick={enhanceCode}
-                          disabled={enhancing || !Object.values(enhancementOptions).some(v => v)}
-                          style={{
-                            padding: '0.5rem 1rem',
-                            background: 'var(--primary)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '0.375rem',
-                            cursor: enhancing ? 'not-allowed' : 'pointer',
-                            opacity: enhancing || !Object.values(enhancementOptions).some(v => v) ? 0.5 : 1,
-                            fontSize: '0.9rem',
-                            fontWeight: '500',
-                          }}
-                        >
-                          {enhancing ? 'Enhancing...' : 'Enhance'}
-                        </button>
-
-                        {enhancement && (
-                          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={showEnhanced}
-                              onChange={(e) => setShowEnhanced(e.target.checked)}
-                            />
-                            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Show Enhanced</span>
-                          </label>
-                        )}
-
-                        {enhancement?.cached && (
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-                            (cached)
-                          </span>
-                        )}
-                      </div>
-
-                      {enhancementError && (
-                        <div style={{ marginTop: '0.75rem', padding: '0.5rem', background: 'var(--error-bg)', color: 'var(--error)', borderRadius: '0.375rem', fontSize: '0.85rem' }}>
-                          {enhancementError}
-                        </div>
-                      )}
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showOriginal}
+                          onChange={(e) => setShowOriginal(e.target.checked)}
+                        />
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>View Original</span>
+                      </label>
                     </div>
                   )}
 

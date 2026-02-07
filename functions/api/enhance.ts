@@ -7,12 +7,12 @@
  * 3. Architecture diagram generation (Mermaid)
  */
 
-interface Env {
+export interface Env {
   ANTHROPIC_API_KEY: string;
   UPLC_CACHE: KVNamespace;
 }
 
-interface EnhanceRequest {
+export interface EnhanceRequest {
   scriptHash: string;
   aikenCode: string;
   uplcPreview: string;
@@ -21,12 +21,18 @@ interface EnhanceRequest {
   enhance: ('naming' | 'annotations' | 'diagram')[];
 }
 
-interface EnhanceResponse {
+export interface EnhanceResponse {
   naming?: Record<string, string>;
   annotations?: string[];
   diagram?: string;
   cached?: boolean;
   error?: string;
+}
+
+export interface EnhancementInput {
+  aikenCode: string;
+  purpose: string;
+  builtins: Record<string, number>;
 }
 
 const ALLOWED_ORIGINS = [
@@ -98,15 +104,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Process enhancements
     for (const enhance of body.enhance) {
+      const input: EnhancementInput = {
+        aikenCode: body.aikenCode,
+        purpose: body.purpose,
+        builtins: body.builtins,
+      };
+
       switch (enhance) {
         case 'naming':
-          result.naming = await enhanceNaming(body, context.env);
+          result.naming = await enhanceNaming(input, context.env);
           break;
         case 'annotations':
-          result.annotations = await enhanceAnnotations(body, context.env);
+          result.annotations = await enhanceAnnotations(input, context.env);
           break;
         case 'diagram':
-          result.diagram = await generateDiagram(body, context.env);
+          result.diagram = await generateDiagram(input, context.env);
           break;
       }
     }
@@ -138,15 +150,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 /**
  * Enhance variable naming using Claude
  */
-async function enhanceNaming(body: EnhanceRequest, env: Env): Promise<Record<string, string>> {
+export async function enhanceNaming(input: EnhancementInput, env: Env): Promise<Record<string, string>> {
   const prompt = `You are analyzing a decompiled Cardano Plutus smart contract. The contract has been reverse-engineered from UPLC bytecode to Aiken-style code.
 
-Contract Purpose: ${body.purpose}
-Top Builtins: ${Object.entries(body.builtins).slice(0, 10).map(([k, v]) => `${k}: ${v}`).join(', ')}
+Contract Purpose: ${input.purpose}
+Top Builtins: ${Object.entries(input.builtins).slice(0, 10).map(([k, v]) => `${k}: ${v}`).join(', ')}
 
 Current Aiken Code:
 \`\`\`aiken
-${body.aikenCode}
+${input.aikenCode}
 \`\`\`
 
 Task: Suggest better semantic variable names for the generic names in the code (like i_0, i_1, datum_field, etc.).
@@ -177,14 +189,14 @@ Respond with a JSON object mapping old names to new names:
 /**
  * Generate code annotations using Claude
  */
-async function enhanceAnnotations(body: EnhanceRequest, env: Env): Promise<string[]> {
+export async function enhanceAnnotations(input: EnhancementInput, env: Env): Promise<string[]> {
   const prompt = `You are analyzing a decompiled Cardano Plutus smart contract.
 
-Contract Purpose: ${body.purpose}
+Contract Purpose: ${input.purpose}
 
 Aiken Code:
 \`\`\`aiken
-${body.aikenCode}
+${input.aikenCode}
 \`\`\`
 
 Task: Generate concise inline comments explaining what each validator check does.
@@ -215,15 +227,15 @@ Respond with a JSON array of comments:
 /**
  * Generate architecture diagram using Claude
  */
-async function generateDiagram(body: EnhanceRequest, env: Env): Promise<string> {
+export async function generateDiagram(input: EnhancementInput, env: Env): Promise<string> {
   const prompt = `You are generating a Mermaid architecture diagram for a decompiled Cardano Plutus smart contract.
 
-Contract Purpose: ${body.purpose}
-Top Builtins: ${Object.entries(body.builtins).slice(0, 15).map(([k, v]) => `${k}: ${v}`).join(', ')}
+Contract Purpose: ${input.purpose}
+Top Builtins: ${Object.entries(input.builtins).slice(0, 15).map(([k, v]) => `${k}: ${v}`).join(', ')}
 
 Aiken Code:
 \`\`\`aiken
-${body.aikenCode.slice(0, 2000)}${body.aikenCode.length > 2000 ? '...' : ''}
+${input.aikenCode.slice(0, 2000)}${input.aikenCode.length > 2000 ? '...' : ''}
 \`\`\`
 
 Task: Generate a Mermaid flowchart showing the validator's architecture:
@@ -260,7 +272,7 @@ Respond with ONLY the Mermaid code (no markdown fences):`;
 /**
  * Call Claude API
  */
-async function callClaude(prompt: string, env: Env): Promise<string> {
+export async function callClaude(prompt: string, env: Env): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {

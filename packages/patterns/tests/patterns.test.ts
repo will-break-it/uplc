@@ -153,7 +153,7 @@ describe('Validation Check Detection', () => {
     `;
     const ast = parseUplc(source);
     const result = analyzeContract(ast);
-    
+
     const equalityChecks = result.checks.filter(c => c.builtin === 'equalsInteger');
     expect(equalityChecks.length).toBeGreaterThan(0);
     expect(equalityChecks[0].type).toBe('equality');

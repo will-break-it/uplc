@@ -1,0 +1,56 @@
+/**
+ * Shared decompiler utilities for serverless functions
+ * This mirrors the frontend decompiler.ts but can run in Cloudflare Workers
+ */
+
+import { parseUplc } from '@uplc/parser';
+import { analyzeContract } from '@uplc/patterns';
+import { generate } from '@uplc/codegen';
+
+export interface DecompilerResult {
+  aikenCode: string;
+  scriptPurpose: string;
+  params: string[];
+  datumUsed: boolean;
+  datumFields: number;
+  redeemerVariants: number;
+  validationChecks: number;
+  error?: string;
+}
+
+/**
+ * Decompile UPLC text to Aiken-style code
+ */
+export function decompileUplc(uplcText: string): DecompilerResult {
+  try {
+    // Parse UPLC text to AST
+    const ast = parseUplc(uplcText);
+
+    // Analyze contract structure
+    const structure = analyzeContract(ast);
+
+    // Generate Aiken-style code
+    const aikenCode = generate(structure);
+
+    return {
+      aikenCode,
+      scriptPurpose: structure.type,
+      params: structure.params,
+      datumUsed: structure.datum.isUsed,
+      datumFields: structure.datum.fields.length,
+      redeemerVariants: structure.redeemer.variants.length,
+      validationChecks: structure.checks.length
+    };
+  } catch (error: any) {
+    return {
+      aikenCode: `// Decompilation failed: ${error.message}`,
+      scriptPurpose: 'unknown',
+      params: [],
+      datumUsed: false,
+      datumFields: 0,
+      redeemerVariants: 0,
+      validationChecks: 0,
+      error: error.message
+    };
+  }
+}

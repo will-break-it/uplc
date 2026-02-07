@@ -16,13 +16,13 @@ import { findAll, getBuiltinName } from './traversal.js';
  */
 export function findValidationChecks(term: UplcTerm): ValidationCheck[] {
   const checks: ValidationCheck[] = [];
-  
+
   // Find all builtin applications
   const builtinApps = findAll(term, t => {
     if (t.tag !== 'app') return false;
     return getBuiltinName(t.func) !== undefined;
   });
-  
+
   for (const app of builtinApps) {
     const check = classifyCheck(app);
     if (check) {

@@ -17,29 +17,37 @@ export type ScriptPurpose =
 
 /**
  * Overall contract structure analysis
+ *
+ * This represents the analyzed structure of a Plutus validator.
+ * All fields are used by the codegen package to generate Aiken code.
  */
 export interface ContractStructure {
   type: ScriptPurpose;
-  params: string[];           // Parameter names
-  datum: DatumInfo;           // Datum structure (spend validators only)
-  redeemer: RedeemerInfo;
-  checks: ValidationCheck[];
-  rawBody: UplcTerm;
+  params: string[];           // Parameter names - used for validator signature
+  datum: DatumInfo;           // Datum structure - used for type generation
+  redeemer: RedeemerInfo;     // Redeemer structure - used for type generation
+  checks: ValidationCheck[];  // Validation checks - metadata for analysis
+  rawBody: UplcTerm;          // Original AST body - used for code generation
   utilities?: UplcTerm;       // Utility functions from V3 wrapper
   utilityBindings?: Record<string, string>;  // Map param names to builtin names (V3)
 }
 
 /**
  * Datum structure analysis (spend validators)
+ *
+ * Used by codegen to:
+ * - Decide whether to generate a Datum type (isUsed + fields.length > 0)
+ * - Handle optional datum parameters (isOptional for V3 inline datums)
+ * - Generate field accessors in validator body
  */
 export interface DatumInfo {
-  /** Whether datum is used (vs ignored) */
+  /** Whether datum is used (vs ignored) - affects type generation */
   isUsed: boolean;
-  /** Whether datum is optional (V3 inline datums) */
+  /** Whether datum is optional (V3 inline datums) - affects parameter signature */
   isOptional: boolean;
-  /** Detected fields accessed from datum */
+  /** Detected fields accessed from datum - used for type generation */
   fields: FieldInfo[];
-  /** Inferred type structure */
+  /** Inferred type structure - metadata for analysis */
   inferredType: 'unknown' | 'unit' | 'custom';
 }
 

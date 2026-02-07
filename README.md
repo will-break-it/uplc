@@ -56,13 +56,15 @@ flowchart LR
 
 ## Packages
 
-Three npm packages for programmatic use:
+Five npm packages for programmatic use:
 
 | Package | Description |
 |---------|-------------|
 | `@uplc/parser` | UPLC text → AST with Plutus V3 support (case/constr) |
+| `@uplc/ir` | AST → Intermediate representation for analysis |
 | `@uplc/patterns` | AST → Contract structure (purpose, datum, redeemer, checks) |
 | `@uplc/codegen` | Structure → Aiken code with proper imports and types |
+| `@uplc/cache` | LRU + Cloudflare KV caching layer for serverless functions |
 
 ## Development
 
@@ -78,11 +80,16 @@ pnpm test         # run all tests
 ```
 packages/
   parser/      # UPLC text parser
-  patterns/    # Contract pattern recognition  
+  ir/          # Intermediate representation
+  patterns/    # Contract pattern recognition
   codegen/     # Aiken code generation + stdlib mapping
+  cache/       # LRU + KV caching layer
 src/
   lib/         # Decompiler helper, frontend utils
   components/  # React components
+functions/
+  api/         # Cloudflare serverless functions (analyze, enhance)
+  lib/         # Shared utilities for serverless functions
 ```
 
 ### Testing
@@ -99,9 +106,11 @@ cd packages/codegen && pnpm test
 
 ## How It Works
 
-1. **Decode** — CBOR wrapper → Flat encoding → UPLC AST
-2. **Analyze** — Detect purpose, extract datum/redeemer structure, find checks
-3. **Generate** — Emit valid Aiken with types, imports, and idiomatic syntax
+1. **Fetch** — Retrieve script bytecode from Cardano blockchain (via Koios API)
+2. **Decode** — CBOR wrapper → Flat encoding → UPLC AST
+3. **Analyze** — Detect purpose, extract datum/redeemer structure, find checks
+4. **Generate** — Emit valid Aiken with types, imports, and idiomatic syntax
+5. **Enhance** — AI-powered variable naming, annotations, and architecture diagrams (automatic)
 
 ## License
 

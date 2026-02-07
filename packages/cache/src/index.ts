@@ -7,6 +7,48 @@
 import type { UplcTerm } from '@uplc/parser';
 import type { ContractStructure } from '@uplc/patterns';
 
+/**
+ * Unified cache entry combining all analysis results
+ */
+export interface UnifiedCacheEntry {
+  version: '1.0';
+  scriptHash: string;
+  timestamp: number;
+
+  // Raw data
+  cbor: string;
+  uplcText: string;
+  plutusVersion: string;
+  scriptType: string;
+  scriptSize: number;
+
+  // Analysis
+  builtins: Record<string, number>;
+  errorMessages: string[];
+  constants: any;
+  classification: string;
+  stats: any;
+
+  // Decompilation
+  decompiled: {
+    aikenCode: string;
+    scriptPurpose: string;
+    params: string[];
+    datumUsed: boolean;
+    datumFields: number;
+    redeemerVariants: number;
+    validationChecks: number;
+    error?: string;
+  };
+
+  // AI Enhancements (null if failed or unavailable)
+  enhancements: {
+    naming: Record<string, string>;
+    annotations: string[];
+    diagram: string;
+  } | null;
+}
+
 // Cloudflare KV type (will be available at runtime in CF Workers/Pages)
 interface KVNamespace {
   get(key: string, type?: string): Promise<any>;
@@ -67,11 +109,13 @@ export class LRUCache<K, V> {
 export class DecompilerCache {
   private astCache: LRUCache<string, UplcTerm>;
   private patternCache: LRUCache<string, ContractStructure>;
+  private unifiedCache: LRUCache<string, UnifiedCacheEntry>;
   private kvNamespace?: KVNamespace;
 
   constructor(kvNamespace?: KVNamespace) {
     this.astCache = new LRUCache<string, UplcTerm>(50);
     this.patternCache = new LRUCache<string, ContractStructure>(50);
+    this.unifiedCache = new LRUCache<string, UnifiedCacheEntry>(100);
     this.kvNamespace = kvNamespace;
   }
 
@@ -152,11 +196,51 @@ export class DecompilerCache {
   }
 
   /**
+   * Get unified analysis result from cache
+   */
+  async getUnified(scriptHash: string): Promise<UnifiedCacheEntry | null> {
+    // Check memory cache first
+    const cached = this.unifiedCache.get(scriptHash);
+    if (cached) return cached;
+
+    // Check KV
+    if (this.kvNamespace) {
+      const kvCached = await this.kvNamespace.get(`script:v1:${scriptHash}`, 'json');
+      if (kvCached) {
+        const entry = kvCached as UnifiedCacheEntry;
+        this.unifiedCache.set(scriptHash, entry);
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Set unified analysis result in cache
+   */
+  async setUnified(entry: UnifiedCacheEntry): Promise<void> {
+    this.unifiedCache.set(entry.scriptHash, entry);
+
+    // Store in KV with 24h TTL
+    if (this.kvNamespace) {
+      await this.kvNamespace.put(
+        `script:v1:${entry.scriptHash}`,
+        JSON.stringify(entry),
+        {
+          expirationTtl: 86400, // 24 hours
+        }
+      );
+    }
+  }
+
+  /**
    * Clear all caches
    */
   clear(): void {
     this.astCache.clear();
     this.patternCache.clear();
+    this.unifiedCache.clear();
   }
 }
 

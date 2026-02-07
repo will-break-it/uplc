@@ -188,8 +188,18 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
       }
       return collectParamsAndBody(term.body);
     } else if (term.tag === 'app') {
-      // Skip over applications, continue with func
-      return collectParamsAndBody(term.func);
+      // Only skip utility applications (where the arg is a utility binding)
+      // Otherwise, this is the start of the actual body
+      const isUtilityApp = term.arg.tag === 'builtin' ||
+                          (term.arg.tag === 'force' && extractBuiltinName(term.arg));
+
+      if (isUtilityApp) {
+        // This is applying a utility, continue looking for the real body
+        return collectParamsAndBody(term.func);
+      }
+
+      // This is part of the validator body, return it
+      return term;
     }
     // Reached the actual body
     return term;
