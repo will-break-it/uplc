@@ -1,6 +1,8 @@
 // UPLC Analyzer - Real UPLC decoding using @harmoniclabs/uplc
 
 import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
+import type { Data } from '@harmoniclabs/plutus-data';
+import { isData, DataConstr, DataList, DataI, DataB } from '@harmoniclabs/plutus-data';
 
 export interface ScriptInfo {
   scriptHash: string;
@@ -250,7 +252,9 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         if (val === undefined || val === null) return `(con unit ())`;
         if (typeof val === 'string' && val.length <= 20) return `(con string "${val}")`;
         if (val instanceof Uint8Array && val.length <= 16) return `(con bytestring #${bufferToHex(val)})`;
-        // For complex constants (Data, lists, etc.), don't inline
+        // For complex constants (Plutus Data, lists, etc.), don't inline
+        if (isData(val)) return null; // Too complex to inline
+        if (Array.isArray(val)) return null; // Lists don't inline
         if (typeof val === 'object' && val !== null) return null;
         return null; // Too long or unknown
       }
@@ -318,14 +322,43 @@ function prettyPrintUPLC(term: any, indent: number, maxLines: number, version: s
         }
         if (val === undefined || val === null) return `${pad}(con unit ())`;
 
-        // Handle Plutus Data constants (lists, pairs, etc.)
-        // These are complex objects that we can't properly represent in UPLC text format
-        if (typeof val === 'object' && val !== null) {
-          console.warn('Unknown constant type:', typeof val, val);
-          return `${pad}(error)`;
+        // Handle Plutus Data constants
+        if (isData(val)) {
+          if (val instanceof DataConstr) {
+            const fieldsStr = val.fields.length > 0
+              ? ` fields:${val.fields.length}`
+              : '';
+            return `${pad}(con data (Constr ${val.constr}${fieldsStr}))`;
+          }
+          if (val instanceof DataList) {
+            return `${pad}(con data (List length:${val.list.length}))`;
+          }
+          if (val instanceof DataI) {
+            return `${pad}(con data (I ${val.int}))`;
+          }
+          if (val instanceof DataB) {
+            const bytes = val.bytes.toBuffer ? val.bytes.toBuffer() : val.bytes;
+            const hex = bufferToHex(bytes);
+            return hex.length <= 32
+              ? `${pad}(con data (B #${hex}))`
+              : `${pad}(con data (B #${hex.slice(0, 28)}...))`;
+          }
+          // DataMap or other Data type
+          return `${pad}(con data)`;
         }
 
-        return `${pad}(error)`;
+        // Handle lists
+        if (Array.isArray(val)) {
+          return `${pad}(con list length:${val.length})`;
+        }
+
+        // Unknown object type
+        if (typeof val === 'object' && val !== null) {
+          console.warn('Unknown constant type:', val.constructor?.name || typeof val);
+          return `${pad}(con unknown)`;
+        }
+
+        return `${pad}(con unknown)`;
       }
       case 'Constr': {
         const terms = term.terms?.map((t: any) => pp(t, depth + 1, varStack)).join('\n') || '';
