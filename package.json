@@ -11,7 +11,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "test": "pnpm -r test",
-    "cache:clear": "npx wrangler kv key list --namespace-id=7afe617d961440eab41446b192b03769 | node -e \"const keys=JSON.parse(require('fs').readFileSync(0,'utf8')); keys.forEach(k=>console.log(k.name))\" | xargs -I{} npx wrangler kv key delete '{}' --namespace-id=7afe617d961440eab41446b192b03769 -f",
+    "cache:clear": "./scripts/clear-cache.sh",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=uplc --commit-dirty=true"
   },
   "dependencies": {
