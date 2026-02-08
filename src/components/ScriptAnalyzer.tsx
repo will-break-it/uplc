@@ -495,9 +495,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     setDecompiled(null);
     setEnhancement(null);
     setScriptHash(targetHash);
-    setContractView('aiken');
+    // Don't reset contractView - preserve current state (may be from URL)
 
-    updateUrl(targetHash, activeTab, 'aiken');
+    updateUrl(targetHash, activeTab, contractView);
 
     try {
       // Try server-side cached analysis first
@@ -957,37 +957,6 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                   <h2>{Icons.contract} Contract Code</h2>
                   <p>View the smart contract in different formats.</p>
 
-                  {/* AI Enhancement Badge */}
-                  {contractView === 'aiken' && enhancement && (
-                    <div style={{
-                      background: 'var(--card-bg)',
-                      border: '1px solid var(--border)',
-                      borderRadius: '0.5rem',
-                      padding: '0.75rem 1rem',
-                      marginBottom: '1rem',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="18" height="18">
-                          <path d="M12 2 L2 7 L12 12 L22 7 Z" />
-                          <path d="M2 17 L12 22 L22 17" />
-                          <path d="M2 12 L12 17 L22 12" />
-                        </svg>
-                        <span style={{ fontSize: '0.9rem', fontWeight: '500' }}>✨ AI Enhanced</span>
-                      </div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={showOriginal}
-                          onChange={(e) => setShowOriginal(e.target.checked)}
-                        />
-                        <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>View Original</span>
-                      </label>
-                    </div>
-                  )}
-
                   <div className="code-section">
                     <div className="code-header">
                       <div className="code-tabs">
@@ -1060,24 +1029,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                 ⚠️ Partial decompilation: {decompiled.error}
                               </div>
                             )}
-                            {enhancement && !showOriginal && (
-                              <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-success)' }}>
-                                ✓ Enhanced with AI
-                                {enhancement.naming && ' • Variable naming'}
-                                {enhancement.annotations && ' • Annotations'}
-                              </div>
-                            )}
                             <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                               <em>Note: Auto-generated from UPLC. Variable names derived from bytecode structure.</em>
                             </div>
-
-                            {/* Architecture Diagram (inline in Contract tab when enhanced) */}
-                            {enhancement?.diagram && !showOriginal && (
-                              <div style={{ marginTop: '2rem' }}>
-                                <h3 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Architecture Diagram</h3>
-                                <MermaidDiagram chart={enhancement.diagram} />
-                              </div>
-                            )}
                           </div>
                         ) : decompiling ? (
                           <div className="coming-soon-section" style={{ padding: '2rem' }}>
