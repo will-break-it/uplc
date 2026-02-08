@@ -130,88 +130,102 @@ function extractBuiltinName(term: UplcTerm): string | null {
 
 /**
  * Simple pattern: Detect Plutus-style utility binding pattern
- * Handles nested patterns like: ((lam i_0 ((lam i_1 BODY) util1)) util0)
- * Recursively peels off application layers and lambda bindings
+ * Handles:
+ * 1. Parameterized scripts: [[[lam a [lam b ...]] param1] param2] param3]
+ * 2. Nested utility bindings: ((lam i_0 ((lam i_1 BODY) util1)) util0)
  */
 function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
   const utilityBindings: Record<string, string> = {};
-  let current = ast;
-
-  // Recursively extract utility bindings from nested application patterns
+  const scriptParams: string[] = [];  // Pre-applied script parameters
+  const validatorParams: string[] = [];  // Runtime validator parameters (datum, redeemer, ctx)
+  
+  // Step 1: Unwrap outer applications to find the core lambda
+  // Parameterized scripts look like: [[[lam a ...] param1] param2]
+  let current: UplcTerm = ast;
+  const appliedArgs: UplcTerm[] = [];
+  
+  while (current.tag === 'app') {
+    appliedArgs.unshift(current.arg);
+    current = current.func;
+  }
+  
+  // Now 'current' should be a lambda (if script is parameterized)
+  // 'appliedArgs' contains the applied script parameters
+  
+  // Match outer lambdas to applied args (these are script parameters, not validator params)
+  for (let i = 0; i < appliedArgs.length && current.tag === 'lam'; i++) {
+    scriptParams.push(current.param);
+    current = current.body;
+    
+    // Continue unwrapping if body is also an application
+    while (current.tag === 'app') {
+      appliedArgs.splice(i + 1, 0, current.arg);  // Insert new args after current position
+      current = current.func;
+    }
+  }
+  
+  // Step 2: Extract utility bindings from nested patterns
   function extractUtilities(term: UplcTerm): void {
-    // Peel off application layers
-    const appliedArgs: UplcTerm[] = [];
+    const innerAppliedArgs: UplcTerm[] = [];
     let inner: UplcTerm = term;
 
     while (inner.tag === 'app') {
-      appliedArgs.unshift(inner.arg);
+      innerAppliedArgs.unshift(inner.arg);
       inner = inner.func;
     }
 
-    // Collect lambda parameters at this level
     const lambdaParams: string[] = [];
     while (inner.tag === 'lam') {
       lambdaParams.push(inner.param);
       inner = inner.body;
     }
 
-    // Match lambda params to applied args
-    for (let i = 0; i < Math.min(lambdaParams.length, appliedArgs.length); i++) {
+    for (let i = 0; i < Math.min(lambdaParams.length, innerAppliedArgs.length); i++) {
       const param = lambdaParams[i];
-      const arg = appliedArgs[i];
+      const arg = innerAppliedArgs[i];
       const builtinName = extractBuiltinName(arg);
 
       if (builtinName) {
         utilityBindings[param] = builtinName;
       }
-      // If not a builtin, we don't add it to utilities
-      // (might be a complex term or error placeholder)
     }
 
-    // If the body is still an application, recurse to find more utilities
     if (inner.tag === 'app') {
       extractUtilities(inner);
     }
   }
 
-  // Extract all nested utility bindings (modifies utilityBindings)
   extractUtilities(current);
 
-  // Now collect real validator parameters (non-utilities) and find the body
-  const validatorParams: string[] = [];
-
-  // Walk through the entire AST to collect non-utility params and find body
+  // Step 3: Collect validator parameters (non-script, non-utility lambdas)
   function collectParamsAndBody(term: UplcTerm): UplcTerm {
     if (term.tag === 'lam') {
-      if (!utilityBindings[term.param]) {
+      if (!utilityBindings[term.param] && !scriptParams.includes(term.param)) {
         validatorParams.push(term.param);
       }
       return collectParamsAndBody(term.body);
     } else if (term.tag === 'app') {
-      // Only skip utility applications (where the arg is a utility binding)
-      // Otherwise, this is the start of the actual body
       const isUtilityApp = term.arg.tag === 'builtin' ||
                           (term.arg.tag === 'force' && extractBuiltinName(term.arg));
 
       if (isUtilityApp) {
-        // This is applying a utility, continue looking for the real body
         return collectParamsAndBody(term.func);
       }
 
-      // This is part of the validator body, return it
       return term;
     }
-    // Reached the actual body
     return term;
   }
 
-  const finalBody = collectParamsAndBody(ast);
-
-  const purpose = inferPurposeFromParams(validatorParams, finalBody);
+  const finalBody = collectParamsAndBody(current);
+  
+  // Combine script params + validator params for full signature
+  const allParams = [...scriptParams, ...validatorParams];
+  const purpose = inferPurposeFromParams(validatorParams.length > 0 ? validatorParams : allParams, finalBody);
 
   return {
     type: purpose,
-    params: validatorParams,
+    params: validatorParams.length > 0 ? validatorParams : allParams,
     body: finalBody,
     utilityBindings: Object.keys(utilityBindings).length > 0 ? utilityBindings : undefined
   };
