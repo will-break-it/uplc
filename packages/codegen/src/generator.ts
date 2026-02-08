@@ -277,6 +277,24 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
 }
 
 /**
+ * Flatten a chain of nested lambdas into a list of params and the inner body
+ * fn(a) { fn(b) { fn(c) { body } } } → params: [a, b, c], body: body
+ * 
+ * Only flattens up to 6 consecutive lambdas to keep readability
+ */
+function flattenLambdaChain(term: any, maxDepth: number = 6): { flatParams: string[], innerBody: any } {
+  const flatParams: string[] = [];
+  let current = term;
+  
+  while (current.tag === 'lam' && flatParams.length < maxDepth) {
+    flatParams.push(current.param);
+    current = current.body;
+  }
+  
+  return { flatParams, innerBody: current };
+}
+
+/**
  * Convert a UPLC term to an Aiken-style expression string
  */
 function termToExpression(term: any, params: string[], depth: number): string {
@@ -297,7 +315,15 @@ function termToExpression(term: any, params: string[], depth: number): string {
       return `builtin::${term.name}`;
       
     case 'lam':
-      const body = termToExpression(term.body, [...params, term.param], depth + 1);
+      // Try to flatten consecutive lambdas into multi-param function
+      const { flatParams, innerBody } = flattenLambdaChain(term);
+      const allParams = [...params, ...flatParams];
+      const body = termToExpression(innerBody, allParams, depth + 1);
+      
+      // If we flattened multiple params, show as multi-param function
+      if (flatParams.length > 1) {
+        return `fn(${flatParams.join(', ')}) { ${body} }`;
+      }
       return `fn(${term.param}) { ${body} }`;
       
     case 'app':
