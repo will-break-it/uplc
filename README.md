@@ -1,121 +1,90 @@
-<p align="center">
-  <a href="https://uplc.wtf">
-    <img src="public/banner.svg" alt="UPLC.WTF - Decode Cardano smart contracts" width="100%" />
-  </a>
-</p>
+# UPLC.WTF
 
-<p align="center">
-  <a href="https://uplc.wtf"><strong>uplc.wtf</strong></a> · Reverse-engineer Cardano Plutus smart contracts from on-chain bytecode
-</p>
+Reverse-engineer Cardano smart contracts from on-chain bytecode.
 
-## What It Does
+**[uplc.wtf](https://uplc.wtf)** — Paste a script hash → get readable Aiken code.
 
-Paste a Cardano script hash or CBOR hex → get readable Aiken code.
+## How It Works
 
-**Example output:**
-
-```aiken
-use aiken/list
-use aiken/transaction.{OutputReference, Transaction}
-
-type Datum {
-  owner: ByteArray,
-  deadline: Int,
-}
-
-type Action {
-  Cancel
-  Claim
-}
-
-validator decompiled_validator {
-  spend(datum: Option<Datum>, redeemer: Action, own_ref: OutputReference, tx: Transaction) {
-    expect Some(d) = datum
-
-    when redeemer is {
-      Cancel -> list.has(tx.extra_signatories, d.owner)
-      Claim -> d.deadline < tx.validity_range.upper_bound
-    }
-  }
-}
+```
+Script Hash → Koios API → CBOR → UPLC → AST → Patterns → Aiken → AI Rewrite
 ```
 
-## Architecture
-
-```mermaid
-flowchart LR
-    A[Script Hash<br/>or CBOR] --> B[Decode<br/>UPLC]
-    B --> C[Parse &<br/>Analyze]
-    C --> D[Generate<br/>Aiken Code]
-
-    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
-    style B fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
-    style C fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
-    style D fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#000
-```
+1. **Fetch**: Get script bytecode from chain via Koios
+2. **Decode**: CBOR → Flat → UPLC text (using `@harmoniclabs/uplc`)
+3. **Parse**: UPLC text → AST ([`@uplc/parser`](packages/parser))
+4. **Analyze**: Extract contract structure ([`@uplc/patterns`](packages/patterns))
+5. **Generate**: Emit Aiken code ([`@uplc/codegen`](packages/codegen))
+6. **Enhance**: AI rewrites code into human-readable form (Claude API)
 
 ## Packages
 
-Five npm packages for programmatic use:
-
-| Package | Description |
-|---------|-------------|
-| `@uplc/parser` | UPLC text → AST with Plutus V3 support (case/constr) |
-| `@uplc/ir` | AST → Intermediate representation for analysis |
-| `@uplc/patterns` | AST → Contract structure (purpose, datum, redeemer, checks) |
-| `@uplc/codegen` | Structure → Aiken code with proper imports and types |
-| `@uplc/cache` | LRU + Cloudflare KV caching layer for serverless functions |
+| Package | Purpose |
+|---------|---------|
+| [`@uplc/parser`](packages/parser) | UPLC text → AST (Plutus V1-V3) |
+| [`@uplc/patterns`](packages/patterns) | AST → Contract structure |
+| [`@uplc/codegen`](packages/codegen) | Structure → Aiken code |
 
 ## Development
 
 ```bash
 pnpm install
-pnpm dev          # localhost:4321
-pnpm build        # production build
-pnpm test         # run all tests
+pnpm dev      # localhost:4321
+pnpm build    # production
+pnpm test     # all tests
 ```
 
-### Project Structure
+## Project Structure
 
 ```
-packages/
-  parser/      # UPLC text parser
-  ir/          # Intermediate representation
-  patterns/    # Contract pattern recognition
-  codegen/     # Aiken code generation + stdlib mapping
-  cache/       # LRU + KV caching layer
 src/
-  lib/         # Decompiler helper, frontend utils
-  components/  # React components
+  components/   # React UI
+  lib/          # Frontend decompiler wrapper
+packages/
+  parser/       # UPLC parser
+  patterns/     # Pattern recognition
+  codegen/      # Code generation
 functions/
-  api/         # Cloudflare serverless functions (analyze, enhance)
-  lib/         # Shared utilities for serverless functions
+  api/          # Cloudflare Functions
+    analyze.ts  # Full analysis endpoint (cached)
+    enhance.ts  # AI enhancement (rewrite, diagram)
+    koios.ts    # Blockchain data proxy
 ```
 
-### Testing
+## API Endpoints
 
-```bash
-# Run all package tests
-pnpm test
+### `GET /api/analyze?hash={scriptHash}`
 
-# Individual packages
-cd packages/parser && pnpm test
-cd packages/patterns && pnpm test
-cd packages/codegen && pnpm test
+Returns full analysis: CBOR, UPLC, Aiken code, builtins, stats.  
+Cached permanently (scripts are immutable).
+
+### `POST /api/enhance`
+
+AI-powered enhancements:
+- `rewrite`: Transform machine code into human-readable Aiken
+- `diagram`: Generate Mermaid architecture diagram
+
+## Why AI Rewrite?
+
+Raw decompilation produces valid but unreadable code—nested lambdas, single-letter variables, no types. The AI rewrite transforms this into code that looks hand-written: proper names, flattened structures, inferred types, idiomatic patterns.
+
+**Before** (deterministic decompilation):
+```
+fn(a) { fn(b) { fn(c) { g(o(c), delay { True }, delay { False }) }}}
 ```
 
-## How It Works
-
-1. **Fetch** — Retrieve script bytecode from Cardano blockchain (via Koios API)
-2. **Decode** — CBOR wrapper → Flat encoding → UPLC AST
-3. **Analyze** — Detect purpose, extract datum/redeemer structure, find checks
-4. **Generate** — Emit valid Aiken with types, imports, and idiomatic syntax
-5. **Enhance** — AI-powered variable naming, annotations, and architecture diagrams (automatic)
+**After** (AI rewrite):
+```aiken
+validator {
+  spend(datum: Option<PoolDatum>, redeemer: SwapAction, own_ref: OutputReference, tx: Transaction) {
+    when redeemer is {
+      Swap { amount_in, min_out } -> validate_swap(datum, amount_in, min_out, tx)
+      AddLiquidity { ... } -> ...
+    }
+  }
+}
+```
 
 ## License
 
-MIT
-
----
-
-<sub>Free to use. [Sponsors welcome](https://github.com/sponsors/will-break-it).</sub>
+MIT — [Sponsors welcome](https://github.com/sponsors/will-break-it)
