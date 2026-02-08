@@ -147,11 +147,8 @@ function extractUtilityName(term: UplcTerm): string | null {
     // [(builtin equalsInteger) (con integer N)] → is_constr_N
     if (builtinName === 'equalsInteger' && term.arg.tag === 'con') {
       const value = term.arg.value;
-      if (value && typeof value.value === 'bigint') {
+      if (value.tag === 'integer') {
         return `is_constr_${value.value}`;
-      }
-      if (value && typeof value === 'bigint') {
-        return `is_constr_${value}`;
       }
     }
     
