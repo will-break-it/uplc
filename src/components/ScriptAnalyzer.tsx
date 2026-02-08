@@ -484,22 +484,64 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     updateUrl(targetHash, activeTab);
 
     try {
-      // Analyze script (fetch + decode UPLC)
+      // Try server-side cached analysis first
+      const serverResponse = await fetch(`/api/analyze?hash=${targetHash}`);
+      
+      if (serverResponse.ok) {
+        const serverResult = await serverResponse.json();
+        
+        // Map server result to our types
+        const coreResult: AnalysisResult = {
+          scriptInfo: {
+            scriptHash: serverResult.scriptHash,
+            type: serverResult.scriptType,
+            size: serverResult.size,
+            bytes: '', // Not needed for display
+          },
+          builtins: serverResult.builtins,
+          errorMessages: [], // TODO: extract from bytes
+          constants: { bytestrings: [], integers: [] },
+          classification: serverResult.scriptPurpose,
+          version: serverResult.version,
+          stats: serverResult.stats,
+          uplcPreview: serverResult.uplc,
+        };
+        
+        setResult(coreResult);
+        
+        // Decompiled code comes from server
+        const decompiledResult: DecompilerResult = {
+          aikenCode: serverResult.aikenCode,
+          scriptPurpose: serverResult.scriptPurpose,
+          params: [],
+          datumUsed: false,
+          datumFields: 0,
+          redeemerVariants: 0,
+          validationChecks: 0,
+        };
+        setDecompiled(decompiledResult);
+        setLoading(false);
+        
+        // Auto-enhance if decompilation succeeded
+        if (!decompiledResult.error && decompiledResult.aikenCode) {
+          enhanceCodeAuto(coreResult, decompiledResult);
+        }
+        return;
+      }
+      
+      // Fallback to client-side analysis if server fails
+      console.warn('Server analysis failed, falling back to client-side:', serverResponse.statusText);
+      
       const coreResult = await analyzeScriptCore(targetHash);
       setResult(coreResult);
       setLoading(false);
 
-      // Decompile UPLC to Aiken code (async to not block UI)
       if (coreResult.uplcPreview) {
         setDecompiling(true);
-
-        // Use setTimeout to let React render the loading state first
         setTimeout(() => {
           try {
             const decompiledResult = decompileUplc(coreResult.uplcPreview);
             setDecompiled(decompiledResult);
-
-            // Automatically call AI enhancement (async, don't block UI)
             if (!decompiledResult.error && decompiledResult.aikenCode) {
               enhanceCodeAuto(coreResult, decompiledResult);
             }
