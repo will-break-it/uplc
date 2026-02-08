@@ -1,0 +1,35 @@
+{
+  "scriptHash": "c3e28c36c3447315ba5a56f33da6a6ddc1770a876a8d9f0cb3a97c4c",
+  "scriptType": "plutusV2",
+  "scriptPurpose": "spend",
+  "version": "1.0.0",
+  "builtins": [
+    "bData",
+    "chooseList",
+    "constrData",
+    "equalsByteString",
+    "equalsData",
+    "equalsInteger",
+    "fstPair",
+    "headList",
+    "ifThenElse",
+    "mapData",
+    "mkCons",
+    "mkPairData",
+    "sndPair",
+    "tailList",
+    "unBData",
+    "unConstrData",
+    "unIData",
+    "unListData",
+    "unMapData"
+  ],
+  "stats": {
+    "totalBuiltins": 158,
+    "uniqueBuiltins": 19,
+    "lambdaCount": 294,
+    "forceCount": 98,
+    "delayCount": 194,
+    "applicationCount": 1147
+  }
+}

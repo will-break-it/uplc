@@ -1,0 +1,36 @@
+{
+  "scriptHash": "fa6a58bbe2d0ff05534431c8e2f0ef2cbdc1602a8456e4b13c8f3077",
+  "scriptType": "plutusV2",
+  "scriptPurpose": "mint",
+  "version": "1.0.0",
+  "builtins": [
+    "addInteger",
+    "chooseList",
+    "constrData",
+    "equalsByteString",
+    "equalsData",
+    "equalsInteger",
+    "fstPair",
+    "headList",
+    "ifThenElse",
+    "lessThanEqualsInteger",
+    "lessThanInteger",
+    "mkCons",
+    "mkPairData",
+    "sndPair",
+    "tailList",
+    "unBData",
+    "unConstrData",
+    "unIData",
+    "unListData",
+    "unMapData"
+  ],
+  "stats": {
+    "totalBuiltins": 175,
+    "uniqueBuiltins": 20,
+    "lambdaCount": 240,
+    "forceCount": 108,
+    "delayCount": 213,
+    "applicationCount": 1113
+  }
+}

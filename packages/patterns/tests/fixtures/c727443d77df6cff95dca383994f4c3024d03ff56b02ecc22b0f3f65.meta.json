@@ -1,0 +1,41 @@
+{
+  "scriptHash": "c727443d77df6cff95dca383994f4c3024d03ff56b02ecc22b0f3f65",
+  "scriptType": "plutusV2",
+  "scriptPurpose": "spend",
+  "version": "1.0.0",
+  "builtins": [
+    "addInteger",
+    "bData",
+    "blake2b_256",
+    "chooseList",
+    "constrData",
+    "divideInteger",
+    "equalsByteString",
+    "equalsData",
+    "equalsInteger",
+    "fstPair",
+    "headList",
+    "ifThenElse",
+    "lessThanEqualsInteger",
+    "lessThanInteger",
+    "mkCons",
+    "multiplyInteger",
+    "serialiseData",
+    "sndPair",
+    "subtractInteger",
+    "tailList",
+    "unBData",
+    "unConstrData",
+    "unIData",
+    "unListData",
+    "unMapData"
+  ],
+  "stats": {
+    "totalBuiltins": 86,
+    "uniqueBuiltins": 25,
+    "lambdaCount": 209,
+    "forceCount": 54,
+    "delayCount": 108,
+    "applicationCount": 669
+  }
+}
