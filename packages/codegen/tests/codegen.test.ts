@@ -18,7 +18,7 @@ describe('@uplc/codegen', () => {
 
       const code = generate(structure);
       
-      expect(code).toContain('validator decompiled_validator');
+      expect(code).toContain('validator script');
       expect(code).toContain('spend(');
       expect(code).toContain('True');
     });

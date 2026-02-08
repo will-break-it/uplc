@@ -25,6 +25,21 @@ const DEFAULT_OPTIONS: GeneratorOptions = {
 };
 
 /**
+ * Generate validator name based on script purpose
+ */
+function getValidatorName(purpose: ScriptPurpose): string {
+  switch (purpose) {
+    case 'spend': return 'script';
+    case 'mint': return 'policy';
+    case 'withdraw': return 'staking';
+    case 'publish': return 'certificate';
+    case 'vote': return 'governance';
+    case 'propose': return 'proposal';
+    default: return 'validator';
+  }
+}
+
+/**
  * Map script purpose to handler kind
  */
 function purposeToHandlerKind(purpose: ScriptPurpose): HandlerBlock['kind'] {
@@ -76,9 +91,10 @@ export function generateValidator(
     body
   };
   
-  // Build validator
+  // Build validator with purpose-based name
+  const validatorName = getValidatorName(structure.type);
   const validator: ValidatorBlock = {
-    name: 'decompiled_validator',
+    name: validatorName,
     params: [], // No validator-level params detected yet
     handlers: [handler]
   };
