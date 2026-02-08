@@ -10,6 +10,24 @@
 
 ## How It Works
 
+```mermaid
+flowchart LR
+    A[Script Hash] --> B[CBOR]
+    B --> C[UPLC]
+    C --> D[AST]
+    D --> E[Structure]
+    E --> F[Aiken]
+    F --> G[✨ Clean Aiken]
+    
+    style A fill:#0891b2,stroke:#0891b2,color:#fff
+    style B fill:#6366f1,stroke:#6366f1,color:#fff
+    style C fill:#8b5cf6,stroke:#8b5cf6,color:#fff
+    style D fill:#a855f7,stroke:#a855f7,color:#fff
+    style E fill:#d946ef,stroke:#d946ef,color:#fff
+    style F fill:#ec4899,stroke:#ec4899,color:#fff
+    style G fill:#10b981,stroke:#10b981,color:#fff
+```
+
 | Step | Input | Output | How |
 |------|-------|--------|-----|
 | Fetch | Script Hash | CBOR | Koios API |
