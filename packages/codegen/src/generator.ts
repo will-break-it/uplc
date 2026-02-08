@@ -367,7 +367,7 @@ function constToExpression(term: any): string {
       const hex = Array.from(term.value.value as Uint8Array)
         .map((b: number) => b.toString(16).padStart(2, '0'))
         .join('');
-      return `#"${hex.substring(0, 16)}${hex.length > 16 ? '...' : ''}"`;
+      return `#"${hex}"`;
     case 'string':
       return `"${term.value.value}"`;
     default:

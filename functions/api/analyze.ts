@@ -33,6 +33,10 @@ interface AnalysisResult {
   scriptPurpose: string;
   builtins: Record<string, number>;
   traceStrings: string[];
+  constants: {
+    bytestrings: string[];
+    integers: string[];
+  };
   stats: {
     totalBuiltins: number;
     uniqueBuiltins: number;
@@ -83,12 +87,20 @@ function stripCborWrapper(cbor: string): string {
   return cbor;
 }
 
+// Convert Uint8Array to hex string
+function bufferToHex(buffer: Uint8Array): string {
+  return Array.from(buffer)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 // Decode CBOR to UPLC and extract stats
 function decodeAndAnalyze(bytes: string): {
   uplc: string;
   version: string;
   builtins: Record<string, number>;
   traceStrings: string[];
+  constants: { bytestrings: string[]; integers: string[] };
   stats: { lambdaCount: number; forceCount: number; delayCount: number; applicationCount: number };
 } {
   const innerHex = stripCborWrapper(bytes);
@@ -99,6 +111,8 @@ function decodeAndAnalyze(bytes: string): {
   
   const builtins: Record<string, number> = {};
   const traceStrings: string[] = [];
+  const bytestrings: string[] = [];
+  const integers: string[] = [];
   let lambdaCount = 0, forceCount = 0, delayCount = 0, applicationCount = 0;
   
   function getType(term: any): string {
@@ -189,6 +203,36 @@ function decodeAndAnalyze(bytes: string): {
         const tag = builtinTagToString(term._tag);
         builtins[tag] = (builtins[tag] || 0) + 1;
         break;
+      case 'UPLCConst':
+        if (term.value) {
+          const val = term.value;
+          if (typeof val === 'bigint') {
+            const intStr = val.toString();
+            if (!integers.includes(intStr)) {
+              integers.push(intStr);
+            }
+          } else if (val instanceof Uint8Array) {
+            const hex = bufferToHex(val);
+            // Only include meaningful-length bytestrings (not empty or too short)
+            if (hex.length >= 8 && !bytestrings.includes(hex)) {
+              bytestrings.push(hex);
+            }
+          } else if (val.value !== undefined) {
+            // Wrapped value (harmoniclabs format)
+            if (typeof val.value === 'bigint') {
+              const intStr = val.value.toString();
+              if (!integers.includes(intStr)) {
+                integers.push(intStr);
+              }
+            } else if (val.value instanceof Uint8Array) {
+              const hex = bufferToHex(val.value);
+              if (hex.length >= 8 && !bytestrings.includes(hex)) {
+                bytestrings.push(hex);
+              }
+            }
+          }
+        }
+        break;
       case 'Constr':
         term.terms?.forEach(traverse);
         break;
@@ -208,6 +252,10 @@ function decodeAndAnalyze(bytes: string): {
     version,
     builtins,
     traceStrings,
+    constants: {
+      bytestrings: bytestrings.slice(0, 50),  // Limit to 50
+      integers: integers.slice(0, 50),
+    },
     stats: { lambdaCount, forceCount, delayCount, applicationCount },
   };
 }
@@ -315,6 +363,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       scriptPurpose: decompiled.scriptPurpose,
       builtins: decoded.builtins,
       traceStrings: decoded.traceStrings,
+      constants: decoded.constants,
       stats: {
         totalBuiltins: Object.values(decoded.builtins).reduce((a, b) => a + b, 0),
         uniqueBuiltins: Object.keys(decoded.builtins).length,
