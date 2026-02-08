@@ -98,11 +98,10 @@ const Icons = {
       <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z" />
     </svg>
   ),
-  traces: (
+  analysis: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-      <line x1="12" y1="9" x2="12" y2="13" />
-      <line x1="12" y1="17" x2="12.01" y2="17" />
+      <path d="M3 3v18h18" />
+      <path d="M18 9l-5 5-4-4-3 3" />
     </svg>
   ),
   sun: (
@@ -343,7 +342,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [decompiled, setDecompiled] = useState<DecompilerResult | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'builtins' | 'traces'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'architecture' | 'contract' | 'analysis'>('overview');
   const [contractView, setContractView] = useState<'cbor' | 'uplc' | 'aiken'>('aiken');
   const carouselRef = useRef<HTMLDivElement>(null);
   const carouselDirectionRef = useRef<1 | -1>(1);
@@ -425,7 +424,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     // Check for tab and view in query params
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
-    if (tabParam && ['overview', 'architecture', 'contract', 'builtins', 'traces'].includes(tabParam)) {
+    if (tabParam && ['overview', 'architecture', 'contract', 'analysis'].includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
     const viewParam = params.get('view');
@@ -810,15 +809,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                   {Icons.contract}
                   <span>Contract</span>
                 </a>
-                <a href="#builtins" className={activeTab === 'builtins' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('builtins'); }}>
-                  {Icons.builtins}
-                  <span>Builtins</span>
-                  <span className="badge-small">{result.stats.uniqueBuiltins}</span>
-                </a>
-                <a href="#traces" className={activeTab === 'traces' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('traces'); }}>
-                  {Icons.traces}
-                  <span>Trace Strings</span>
-                  <span className="badge-small">{result.errorMessages.length}</span>
+                <a href="#analysis" className={activeTab === 'analysis' ? 'active' : ''} onClick={(e) => { e.preventDefault(); handleTabChange('analysis'); }}>
+                  {Icons.analysis}
+                  <span>Static Analysis</span>
                 </a>
               </nav>
             </aside>
@@ -829,8 +822,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                 <option value="overview">Overview</option>
                 <option value="architecture">Architecture</option>
                 <option value="contract">Contract</option>
-                <option value="builtins">Builtins ({result.stats.uniqueBuiltins})</option>
-                <option value="traces">Trace Strings ({result.errorMessages.length})</option>
+                <option value="analysis">Static Analysis</option>
               </select>
             </div>
 
@@ -1026,61 +1018,90 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                 </section>
               )}
 
-              {activeTab === 'builtins' && (
+              {activeTab === 'analysis' && (
                 <section className="docs-section">
-                  <h2>{Icons.builtins} Builtin Functions</h2>
-                  <p>Plutus builtins extracted from the UPLC AST. Higher counts indicate core logic patterns.</p>
+                  <h2>{Icons.analysis} Static Analysis</h2>
+                  <p>Data extracted directly from UPLC bytecode without AI interpretation.</p>
 
-                  {Object.keys(result.builtins).length > 0 ? (
-                    <div className="builtin-table-wrapper">
-                      <table className="builtin-table">
-                        <thead>
-                          <tr>
-                            <th>Function</th>
-                            <th>Count</th>
-                            <th>Category</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {Object.entries(result.builtins)
-                            .sort((a, b) => (b[1] as number) - (a[1] as number))
-                            .map(([name, count]) => (
-                              <tr key={name}>
-                                <td><code>{name}</code></td>
-                                <td className="count">{count as number}</td>
-                                <td className="category">{getBuiltinCategory(name)}</td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="empty-state">
-                      <p>No builtins detected (minimal script)</p>
-                    </div>
-                  )}
-                </section>
-              )}
+                  {/* Builtins */}
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                      Builtin Functions ({result.stats.uniqueBuiltins})
+                    </h3>
+                    {Object.keys(result.builtins).length > 0 ? (
+                      <div className="builtin-table-wrapper">
+                        <table className="builtin-table">
+                          <thead>
+                            <tr>
+                              <th>Function</th>
+                              <th>Count</th>
+                              <th>Category</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.entries(result.builtins)
+                              .sort((a, b) => (b[1] as number) - (a[1] as number))
+                              .map(([name, count]) => (
+                                <tr key={name}>
+                                  <td><code>{name}</code></td>
+                                  <td className="count">{count as number}</td>
+                                  <td className="category">{getBuiltinCategory(name)}</td>
+                                </tr>
+                              ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="empty-state">
+                        <p>No builtins detected</p>
+                      </div>
+                    )}
+                  </div>
 
-              {activeTab === 'traces' && (
-                <section className="docs-section">
-                  <h2>{Icons.traces} Trace Strings</h2>
-                  <p>Human-readable strings embedded in the contract, typically used for error messages.</p>
+                  {/* Trace Strings */}
+                  <div style={{ marginTop: '2rem' }}>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                      Trace Strings ({result.errorMessages.length})
+                    </h3>
+                    {result.errorMessages.length > 0 ? (
+                      <div>
+                        {result.errorMessages.map((msg: string, i: number) => (
+                          <div key={i} className="error-item">
+                            <code>{msg}</code>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-state">
+                        <p>No trace strings found</p>
+                      </div>
+                    )}
+                  </div>
 
-                  {result.errorMessages.length > 0 ? (
-                    <div>
-                      {result.errorMessages.map((msg: string, i: number) => (
-                        <div key={i} className="error-item">
-                          {Icons.contract}
-                          <span>{msg}</span>
-                        </div>
-                      ))}
+                  {/* Stats */}
+                  <div style={{ marginTop: '2rem' }}>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                      AST Statistics
+                    </h3>
+                    <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
+                      <div className="stat-card">
+                        <div className="label">Lambdas</div>
+                        <div className="value">{result.stats.lambdaCount}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="label">Applications</div>
+                        <div className="value">{result.stats.applicationCount}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="label">Force</div>
+                        <div className="value">{result.stats.forceCount}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="label">Delay</div>
+                        <div className="value">{result.stats.delayCount}</div>
+                      </div>
                     </div>
-                  ) : (
-                    <div className="empty-state">
-                      <p>No trace strings found in bytecode</p>
-                    </div>
-                  )}
+                  </div>
                 </section>
               )}
             </main>
