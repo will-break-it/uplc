@@ -936,10 +936,11 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
                           onClick={() => handleContractViewChange('aiken')}
                           title="Decompiled Aiken code"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
                         >
                           Aiken
                           {decompiled && !enhancement && (
-                            <span className="spinner" style={{ width: '12px', height: '12px', marginLeft: '6px', borderWidth: '2px' }} />
+                            <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
                           )}
                         </button>
                       </div>
