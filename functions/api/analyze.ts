@@ -239,10 +239,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   try {
     // Get script hash from request
+    const url = new URL(context.request.url);
     let scriptHash: string | null = null;
     
     if (context.request.method === 'GET') {
-      const url = new URL(context.request.url);
       scriptHash = url.searchParams.get('hash');
     } else if (context.request.method === 'POST') {
       const body = await context.request.json() as { hash?: string };
@@ -256,9 +256,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       });
     }
 
-    // Check cache for full analysis
+    // Check cache for full analysis (skip if nocache=1)
+    const nocache = url.searchParams.get('nocache') === '1';
     const cacheKey = `analysis:${scriptHash}`;
-    if (context.env.UPLC_CACHE) {
+    if (context.env.UPLC_CACHE && !nocache) {
       const cached = await context.env.UPLC_CACHE.get(cacheKey, 'json') as AnalysisResult | null;
       if (cached) {
         return new Response(JSON.stringify({ ...cached, cached: true }), {

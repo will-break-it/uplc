@@ -89,5 +89,63 @@ describe('@uplc/codegen', () => {
       
       expect(code).toContain('list.has(tx.extra_signatories');
     });
+
+    it('handles deeply nested lambdas without ??? output', () => {
+      // Create a deeply nested lambda structure (600+ depth)
+      // This tests the recursion depth limit fix
+      let deepBody: any = { tag: 'con', value: { tag: 'bool', value: true } };
+      
+      for (let i = 0; i < 700; i++) {
+        deepBody = {
+          tag: 'lam',
+          param: `x${i}`,
+          body: deepBody
+        };
+      }
+
+      const structure: ContractStructure = {
+        type: 'spend',
+        params: ['datum', 'redeemer', 'own_ref', 'tx'],
+        redeemer: {
+          variants: [],
+          matchPattern: 'unknown'
+        },
+        checks: [],
+        rawBody: deepBody
+      };
+
+      const code = generate(structure);
+      
+      // Should not contain ??? (depth limit failure marker)
+      expect(code).not.toContain('???');
+      // Should contain some nested functions
+      expect(code).toContain('fn(');
+    });
+
+    it('handles BLS12-381 builtins', () => {
+      const structure: ContractStructure = {
+        type: 'spend',
+        params: ['datum', 'redeemer', 'own_ref', 'tx'],
+        redeemer: {
+          variants: [],
+          matchPattern: 'unknown'
+        },
+        checks: [],
+        rawBody: {
+          tag: 'app',
+          func: {
+            tag: 'app',
+            func: { tag: 'builtin', name: 'bls12_381_G1_equal' },
+            arg: { tag: 'var', name: 'a' }
+          },
+          arg: { tag: 'var', name: 'b' }
+        } as any
+      };
+
+      const code = generate(structure);
+      
+      expect(code).toContain('g1_equal');
+      expect(code).toContain('aiken/crypto/bls12_381');
+    });
   });
 });

@@ -280,7 +280,7 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
  * Convert a UPLC term to an Aiken-style expression string
  */
 function termToExpression(term: any, params: string[], depth: number): string {
-  if (!term || depth > 500) return '???';
+  if (!term || depth > 1000) return '???';
   
   switch (term.tag) {
     case 'con':

@@ -603,6 +603,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           uplcPreview: result.uplcPreview,
           purpose: decompiled.scriptPurpose,
           builtins: result.builtins,
+          traces: result.errorMessages || [],
           enhance: enhancements,
         }),
       });
@@ -936,11 +937,11 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
                           onClick={() => handleContractViewChange('aiken')}
                           title="Decompiled Aiken code"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}
                         >
                           Aiken
                           {decompiled && !enhancement && (
-                            <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px' }} />
+                            <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', margin: 0, flexShrink: 0, display: 'block', verticalAlign: 'middle' }} />
                           )}
                         </button>
                       </div>
@@ -962,50 +963,49 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                       </button>
                     </div>
                     
-                    <div className="code-block">
-                      {contractView === 'cbor' && (
-                        <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
+                    <div className="code-block" style={{ position: 'relative' }}>
+                      {contractView === 'aiken' && enhancement?.rewrite && (
+                        <button
+                          onClick={() => setShowOriginal(!showOriginal)}
+                          style={{
+                            position: 'sticky',
+                            top: '0',
+                            float: 'right',
+                            marginTop: '-0.25rem',
+                            padding: '0.25rem 0.5rem',
+                            fontSize: '0.7rem',
+                            background: 'rgba(0,0,0,0.8)',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            borderRadius: '4px',
+                            color: 'var(--text-code)',
+                            cursor: 'pointer',
+                            zIndex: 20,
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.95)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.8)'}
+                          title={showOriginal ? 'Show AI-enhanced code' : 'Show raw decompilation'}
+                        >
+                          {showOriginal ? 'AI' : 'Raw'}
+                        </button>
                       )}
-                      {contractView === 'uplc' && (
-                        <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
-                          {result.uplcPreview.replace(/\s+/g, ' ').trim()}
-                        </pre>
-                      )}
-                      {contractView === 'aiken' && (
-                        decompiled ? (
-                          <div style={{ position: 'relative' }}>
-                            {enhancement?.rewrite && (
-                              <button
-                                onClick={() => setShowOriginal(!showOriginal)}
-                                style={{
-                                  position: 'absolute',
-                                  top: '0.5rem',
-                                  right: '0.5rem',
-                                  padding: '0.25rem 0.5rem',
-                                  fontSize: '0.7rem',
-                                  background: 'rgba(255,255,255,0.1)',
-                                  border: '1px solid rgba(255,255,255,0.2)',
-                                  borderRadius: '4px',
-                                  color: 'var(--text-code)',
-                                  cursor: 'pointer',
-                                  zIndex: 10,
-                                  opacity: 0.7,
-                                  transition: 'opacity 0.2s',
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
-                                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
-                                title={showOriginal ? 'Show AI-enhanced code' : 'Show raw decompilation'}
-                              >
-                                {showOriginal ? '✨ AI' : 'Raw'}
-                              </button>
-                            )}
-                            <CodeBlock code={getDisplayCode()} language="rust" />
-                            {decompiled.error && (
-                              <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
-                                ⚠️ Partial decompilation: {decompiled.error}
-                              </div>
-                            )}
-                          </div>
+                        {contractView === 'cbor' && (
+                          <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>
+                        )}
+                        {contractView === 'uplc' && (
+                          <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
+                            {result.uplcPreview.replace(/\s+/g, ' ').trim()}
+                          </pre>
+                        )}
+                        {contractView === 'aiken' && (
+                          decompiled ? (
+                            <>
+                              <CodeBlock code={getDisplayCode()} language="rust" />
+                              {decompiled.error && (
+                                <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
+                                  Partial decompilation: {decompiled.error}
+                                </div>
+                              )}
+                            </>
                         ) : decompiling ? (
                           <div className="coming-soon-section" style={{ padding: '2rem' }}>
                             <div className="spinner" style={{ width: '32px', height: '32px', margin: '0 auto 1rem' }} />
@@ -1018,8 +1018,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             <h3>No decompilation available</h3>
                             <p>UPLC preview not available for this script</p>
                           </div>
-                        )
-                      )}
+                          )
+                        )}
                     </div>
                   </div>
                 </section>

@@ -1,5 +1,5 @@
 /**
- * Cloudflare Function - Claude API Enhancement Endpoint
+ * Cloudflare Function - AI Enhancement Endpoint
  *
  * Provides AI-powered enhancements:
  * 1. Semantic variable naming
@@ -18,6 +18,7 @@ export interface EnhanceRequest {
   uplcPreview: string;
   purpose: string;
   builtins: Record<string, number>;
+  traces: string[];
   enhance: ('naming' | 'annotations' | 'diagram' | 'rewrite')[];
 }
 
@@ -34,6 +35,7 @@ export interface EnhancementInput {
   aikenCode: string;
   purpose: string;
   builtins: Record<string, number>;
+  traces: string[];
 }
 
 const ALLOWED_ORIGINS = [
@@ -109,6 +111,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         aikenCode: body.aikenCode,
         purpose: body.purpose,
         builtins: body.builtins,
+        traces: body.traces || [],
       };
 
       switch (enhance) {
@@ -152,7 +155,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 };
 
 /**
- * Enhance variable naming using Claude
+ * Enhance variable naming using AI
  */
 export async function enhanceNaming(input: EnhancementInput, env: Env): Promise<Record<string, string>> {
   const prompt = `You are analyzing a decompiled Cardano Plutus smart contract. The contract has been reverse-engineered from UPLC bytecode to Aiken-style code.
@@ -191,7 +194,7 @@ Respond with a JSON object mapping old names to new names:
 }
 
 /**
- * Generate code annotations using Claude
+ * Generate code annotations using AI
  */
 export async function enhanceAnnotations(input: EnhancementInput, env: Env): Promise<string[]> {
   const prompt = `You are analyzing a decompiled Cardano Plutus smart contract.
@@ -229,7 +232,7 @@ Respond with a JSON array of comments:
 }
 
 /**
- * Generate architecture diagram using Claude
+ * Generate architecture diagram using AI
  */
 export async function generateDiagram(input: EnhancementInput, env: Env): Promise<string> {
   const prompt = `You are generating a Mermaid architecture diagram for a decompiled Cardano Plutus smart contract.
@@ -277,37 +280,33 @@ Respond with ONLY the Mermaid code (no markdown fences):`;
  * Rewrite code into clean, idiomatic Aiken
  */
 export async function rewriteCode(input: EnhancementInput, env: Env): Promise<string> {
-  const prompt = `You are an expert Cardano developer rewriting decompiled Plutus bytecode into clean, human-readable Aiken code.
+  const tracesSection = input.traces.length > 0
+    ? `\nTRACE STRINGS (extracted from bytecode - preserve ALL of these exactly):\n${input.traces.map(t => `- "${t}"`).join('\n')}\n`
+    : '';
+
+  const prompt = `You are translating decompiled Plutus bytecode into readable Aiken. Be FAITHFUL to the original - do not interpret or guess intent.
 
 CONTRACT TYPE: ${input.purpose} validator
-KEY OPERATIONS: ${Object.entries(input.builtins).slice(0, 15).map(([k, v]) => `${k}(${v})`).join(', ')}
-
-DECOMPILED CODE (machine-like, hard to read):
+BUILTINS USED: ${Object.entries(input.builtins).slice(0, 20).map(([k, v]) => `${k}(${v})`).join(', ')}${tracesSection}
+DECOMPILED CODE:
 \`\`\`
 ${input.aikenCode}
 \`\`\`
 
-TASK: Rewrite this into clean Aiken that looks like a human wrote it.
+TRANSLATION RULES (strict):
+1. PRESERVE ALL LOGIC exactly - do not simplify, optimize, or reinterpret
+2. PRESERVE ALL TRACE STRINGS exactly as they appear (trace @"...")
+3. Keep control flow structure - if the original has nested conditions, keep them nested
+4. Use Data type when actual type is unclear - do not invent type definitions
+5. Variable names: use context clues (datum, redeemer, tx, signer) but keep original names (cbA, cbB) if purpose is unclear
+6. Do not add comments that speculate about intent
+7. Do not add validation logic that isn't explicitly in the decompiled code
+8. Flatten fn(a) { fn(b) { body }} to fn(a, b) { body } ONLY when semantically equivalent
+9. Use Aiken stdlib (list.has, list.find, etc.) only for clear matches
 
-REQUIREMENTS:
-1. Use meaningful variable names based on context (owner, deadline, amount, signer, etc.)
-2. Flatten nested lambdas into proper function signatures
-3. Replace fn(a) { fn(b) { fn(c) { body }}} with fn(a, b, c) { body } where possible
-4. Use proper Aiken types (Int, ByteArray, List<T>, Option<T>)
-5. Use Aiken's standard library (list.has, list.any, option.is_some, etc.)
-6. Add brief inline comments for complex validation logic
-7. Structure with proper when/is blocks for variant matching
-8. Use expect/when for pattern matching
-9. Keep the same validation logic - don't change what the contract does!
+CRITICAL: This is for security analysis. Accuracy > readability. When in doubt, stay closer to the original structure.
 
-AIKEN STYLE GUIDE:
-- snake_case for variables and functions
-- PascalCase for types
-- Use and/or instead of &&/||
-- Use expect for pattern matching with early failure
-- Validator handlers: spend(datum, redeemer, own_ref, tx), mint(redeemer, policy_id, tx), etc.
-
-OUTPUT: Return ONLY the rewritten Aiken code. No explanations, no markdown fences.`;
+OUTPUT: Return ONLY the Aiken code. No markdown fences, no explanations.`;
 
   const response = await callClaude(prompt, env, 4096);
 
@@ -321,7 +320,7 @@ OUTPUT: Return ONLY the rewritten Aiken code. No explanations, no markdown fence
 }
 
 /**
- * Call Claude API
+ * Call AI API
  */
 export async function callClaude(prompt: string, env: Env, maxTokens: number = 2048): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -332,7 +331,7 @@ export async function callClaude(prompt: string, env: Env, maxTokens: number = 2
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-opus-4-20250514',
       max_tokens: maxTokens,
       messages: [
         {
@@ -345,7 +344,7 @@ export async function callClaude(prompt: string, env: Env, maxTokens: number = 2
 
   if (!response.ok) {
     const errorBody = await response.text();
-    throw new Error(`Claude API error: ${response.status} - ${errorBody}`);
+    throw new Error(`AI enhancement error: ${response.status} - ${errorBody}`);
   }
 
   const data = await response.json() as any;
