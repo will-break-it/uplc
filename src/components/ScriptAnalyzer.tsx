@@ -421,11 +421,15 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
 
   // URL handling - supports both path-based (/script/hash) and legacy query params
   useEffect(() => {
-    // Check for tab in query params
+    // Check for tab and view in query params
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam && ['overview', 'architecture', 'contract', 'builtins', 'traces'].includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
+    }
+    const viewParam = params.get('view');
+    if (viewParam && ['cbor', 'uplc', 'aiken'].includes(viewParam)) {
+      setContractView(viewParam as typeof contractView);
     }
     
     // Priority: initialHash prop > path-based URL > query param
@@ -448,18 +452,31 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     }
   }, [initialHash]);
 
-  const updateUrl = (hash: string, _tab: string) => {
-    // Use clean path-based URL
-    const newPath = `/script/${hash}`;
-    if (window.location.pathname !== newPath) {
-      window.history.pushState({}, '', newPath);
+  const updateUrl = (hash: string, tab: string, view?: string) => {
+    // Build URL with path and query params
+    const params = new URLSearchParams();
+    if (tab !== 'overview') params.set('tab', tab);
+    if (tab === 'contract' && view && view !== 'aiken') params.set('view', view);
+    
+    const queryString = params.toString();
+    const newUrl = `/script/${hash}${queryString ? `?${queryString}` : ''}`;
+    
+    if (window.location.pathname + window.location.search !== newUrl) {
+      window.history.pushState({}, '', newUrl);
     }
   };
 
   const handleTabChange = (tab: typeof activeTab) => {
     setActiveTab(tab);
     if (scriptHash) {
-      updateUrl(scriptHash, tab);
+      updateUrl(scriptHash, tab, tab === 'contract' ? contractView : undefined);
+    }
+  };
+
+  const handleContractViewChange = (view: typeof contractView) => {
+    setContractView(view);
+    if (scriptHash) {
+      updateUrl(scriptHash, activeTab, view);
     }
   };
 
@@ -480,7 +497,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     setScriptHash(targetHash);
     setContractView('aiken');
 
-    updateUrl(targetHash, activeTab);
+    updateUrl(targetHash, activeTab, 'aiken');
 
     try {
       // Try server-side cached analysis first
@@ -974,15 +991,15 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                   <div className="code-section">
                     <div className="code-header">
                       <div className="code-tabs">
-                        <button className={`code-tab ${contractView === 'cbor' ? 'active' : ''}`} onClick={() => setContractView('cbor')}>
+                        <button className={`code-tab ${contractView === 'cbor' ? 'active' : ''}`} onClick={() => handleContractViewChange('cbor')}>
                           CBOR
                         </button>
-                        <button className={`code-tab ${contractView === 'uplc' ? 'active' : ''}`} onClick={() => setContractView('uplc')}>
+                        <button className={`code-tab ${contractView === 'uplc' ? 'active' : ''}`} onClick={() => handleContractViewChange('uplc')}>
                           UPLC
                         </button>
                         <button 
                           className={`code-tab ${contractView === 'aiken' ? 'active' : ''}`} 
-                          onClick={() => setContractView('aiken')}
+                          onClick={() => handleContractViewChange('aiken')}
                           title="Decompiled Aiken code"
                         >
                           Aiken
