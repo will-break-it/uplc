@@ -970,34 +970,89 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                       {contractView === 'aiken' && (
                         decompiled ? (
                           <div>
-                            <div style={{
-                              display: 'flex',
-                              gap: '1rem',
-                              marginBottom: '1rem',
-                              flexWrap: 'wrap',
-                              fontSize: '0.85rem',
-                              color: 'var(--text-muted)'
-                            }}>
-                              <span><strong>Purpose:</strong> {decompiled.scriptPurpose}</span>
-                              {decompiled.scriptPurpose === 'spend' && (
-                                <span><strong>Datum:</strong> {decompiled.datumUsed ? `used (${decompiled.datumFields} fields)` : 'unused'}</span>
-                              )}
-                              {decompiled.redeemerVariants > 0 && (
-                                <span><strong>Redeemer:</strong> {decompiled.redeemerVariants} variant{decompiled.redeemerVariants > 1 ? 's' : ''}</span>
-                              )}
-                              {decompiled.validationChecks > 0 && (
-                                <span><strong>Checks:</strong> {decompiled.validationChecks}</span>
-                              )}
-                            </div>
+                            {/* AI Enhancement loading indicator */}
+                            {!enhancement && !showOriginal && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                marginBottom: '1rem',
+                                padding: '0.5rem 0.75rem',
+                                background: 'var(--accent-subtle)',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                color: 'var(--accent-text)'
+                              }}>
+                                <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
+                                <span>Enhancing with AI...</span>
+                              </div>
+                            )}
+                            {enhancement?.rewrite && !showOriginal && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                marginBottom: '1rem',
+                                padding: '0.5rem 0.75rem',
+                                background: 'var(--success-bg)',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                color: 'var(--success)'
+                              }}>
+                                <span>✓ AI Enhanced</span>
+                                <button 
+                                  onClick={() => setShowOriginal(true)}
+                                  style={{
+                                    marginLeft: 'auto',
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--text-muted)',
+                                    fontSize: '0.8rem',
+                                    cursor: 'pointer',
+                                    textDecoration: 'underline'
+                                  }}
+                                >
+                                  Show raw
+                                </button>
+                              </div>
+                            )}
+                            {showOriginal && (
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.5rem',
+                                marginBottom: '1rem',
+                                padding: '0.5rem 0.75rem',
+                                background: 'var(--bg-hover)',
+                                borderRadius: '6px',
+                                fontSize: '0.85rem',
+                                color: 'var(--text-muted)'
+                              }}>
+                                <span>Showing raw decompilation</span>
+                                {enhancement?.rewrite && (
+                                  <button 
+                                    onClick={() => setShowOriginal(false)}
+                                    style={{
+                                      marginLeft: 'auto',
+                                      background: 'none',
+                                      border: 'none',
+                                      color: 'var(--accent)',
+                                      fontSize: '0.8rem',
+                                      cursor: 'pointer',
+                                      textDecoration: 'underline'
+                                    }}
+                                  >
+                                    Show enhanced
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             <CodeBlock code={getDisplayCode()} language="rust" />
                             {decompiled.error && (
                               <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
                                 ⚠️ Partial decompilation: {decompiled.error}
                               </div>
                             )}
-                            <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                              <em>Note: Auto-generated from UPLC. Variable names derived from bytecode structure.</em>
-                            </div>
                           </div>
                         ) : decompiling ? (
                           <div className="coming-soon-section" style={{ padding: '2rem' }}>
