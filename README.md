@@ -17,15 +17,15 @@ flowchart LR
     C --> D[AST]
     D --> E[Structure]
     E --> F[Aiken]
-    F --> G[✨ Clean Aiken]
+    F --> G[Clean Aiken]
     
-    style A fill:#0891b2,stroke:#0891b2,color:#fff
-    style B fill:#6366f1,stroke:#6366f1,color:#fff
-    style C fill:#8b5cf6,stroke:#8b5cf6,color:#fff
-    style D fill:#a855f7,stroke:#a855f7,color:#fff
-    style E fill:#d946ef,stroke:#d946ef,color:#fff
-    style F fill:#ec4899,stroke:#ec4899,color:#fff
-    style G fill:#10b981,stroke:#10b981,color:#fff
+    style A fill:#4a5568,stroke:#2d3748,color:#fff
+    style B fill:#4a5568,stroke:#2d3748,color:#fff
+    style C fill:#4a5568,stroke:#2d3748,color:#fff
+    style D fill:#4a5568,stroke:#2d3748,color:#fff
+    style E fill:#4a5568,stroke:#2d3748,color:#fff
+    style F fill:#4a5568,stroke:#2d3748,color:#fff
+    style G fill:#2b6cb0,stroke:#2c5282,color:#fff
 ```
 
 | Step | Input | Output | How |
@@ -35,7 +35,7 @@ flowchart LR
 | Parse | UPLC text | AST | [`@uplc/parser`](packages/parser) |
 | Analyze | AST | Structure | [`@uplc/patterns`](packages/patterns) |
 | Generate | Structure | Aiken | [`@uplc/codegen`](packages/codegen) |
-| Enhance | Aiken | Clean Aiken | Claude API |
+| Enhance | Aiken | Clean Aiken | LLM |
 
 ## Packages
 
