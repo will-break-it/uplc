@@ -407,20 +407,34 @@ export class Parser {
       return { tag: 'constr', index, fields };
     }
 
-    // Map: Map [[k, v], ...]
+    // Map: Map [[k, v], ...] or Map [(k, v), ...] (harmoniclabs uses parens for entries)
     if (token.type === 'IDENT' && token.value === 'Map') {
       this.advance();
       const entries: [PlutusData, PlutusData][] = [];
       this.expect('LBRACKET', 'Map entries');
       while (this.current().type !== 'RBRACKET' && this.current().type !== 'EOF') {
-        this.expect('LBRACKET', 'Map entry');
-        const key = this.parsePlutusData();
-        if (this.current().type === 'COMMA') {
+        // Accept either [k, v] or (k, v) for entries
+        const entryStart = this.current().type;
+        if (entryStart === 'LBRACKET') {
           this.advance();
+          const key = this.parsePlutusData();
+          if (this.current().type === 'COMMA') this.advance();
+          const val = this.parsePlutusData();
+          this.expect('RBRACKET', 'Map entry');
+          entries.push([key, val]);
+        } else if (entryStart === 'LPAREN') {
+          this.advance();
+          const key = this.parsePlutusData();
+          if (this.current().type === 'COMMA') this.advance();
+          const val = this.parsePlutusData();
+          this.expect('RPAREN', 'Map entry');
+          entries.push([key, val]);
+        } else {
+          throw new ParseError(
+            `Expected [ or ( for Map entry but got ${entryStart}`,
+            this.current().location
+          );
         }
-        const val = this.parsePlutusData();
-        this.expect('RBRACKET', 'Map entry');
-        entries.push([key, val]);
         if (this.current().type === 'COMMA') {
           this.advance();
         }
