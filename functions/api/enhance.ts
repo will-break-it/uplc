@@ -281,7 +281,7 @@ export async function callClaude(prompt: string, env: Env): Promise<string> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-3-5-sonnet-20241022',
+      model: 'claude-sonnet-4-20250514',
       max_tokens: 2048,
       messages: [
         {
@@ -293,7 +293,8 @@ export async function callClaude(prompt: string, env: Env): Promise<string> {
   });
 
   if (!response.ok) {
-    throw new Error(`Claude API error: ${response.status}`);
+    const errorBody = await response.text();
+    throw new Error(`Claude API error: ${response.status} - ${errorBody}`);
   }
 
   const data = await response.json() as any;
