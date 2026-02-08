@@ -10,16 +10,14 @@
 
 ## How It Works
 
-```
-Script Hash → Koios API → CBOR → UPLC → AST → Patterns → Aiken → AI Rewrite
-```
-
-1. **Fetch**: Get script bytecode from chain via Koios
-2. **Decode**: CBOR → Flat → UPLC text (using `@harmoniclabs/uplc`)
-3. **Parse**: UPLC text → AST ([`@uplc/parser`](packages/parser))
-4. **Analyze**: Extract contract structure ([`@uplc/patterns`](packages/patterns))
-5. **Generate**: Emit Aiken code ([`@uplc/codegen`](packages/codegen))
-6. **Enhance**: AI rewrites code into human-readable form (Claude API)
+| Step | Input | Output | How |
+|------|-------|--------|-----|
+| Fetch | Script Hash | CBOR | Koios API |
+| Decode | CBOR | UPLC | `@harmoniclabs/uplc` |
+| Parse | UPLC text | AST | [`@uplc/parser`](packages/parser) |
+| Analyze | AST | Structure | [`@uplc/patterns`](packages/patterns) |
+| Generate | Structure | Aiken | [`@uplc/codegen`](packages/codegen) |
+| Enhance | Aiken | Clean Aiken | Claude API |
 
 ## Packages
 
