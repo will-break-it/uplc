@@ -328,6 +328,7 @@ interface EnhancementResult {
   naming?: Record<string, string>;
   annotations?: string[];
   diagram?: string;
+  rewrite?: string;
   cached?: boolean;
 }
 
@@ -586,9 +587,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   // Automatic AI enhancement (called after successful decompilation)
   const enhanceCodeAuto = async (result: AnalysisResult, decompiled: DecompilerResult) => {
     try {
-      // Diagram generation requires fully successful decompilation (no errors)
-      // Naming and annotations can work with partial code, but diagram needs complete structure
-      const enhancements: ('naming' | 'annotations' | 'diagram')[] = ['naming', 'annotations'];
+      // Request rewrite + diagram for fully successful decompilation
+      const enhancements: ('rewrite' | 'diagram')[] = ['rewrite'];
       if (!decompiled.error) {
         enhancements.push('diagram');
       }
@@ -625,39 +625,13 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     if (!decompiled) return '';
     if (showOriginal || !enhancement) return decompiled.aikenCode;
 
-    let code = decompiled.aikenCode;
-
-    // Apply variable renaming
-    if (enhancement.naming) {
-      Object.entries(enhancement.naming).forEach(([oldName, newName]) => {
-        // Use word boundaries to avoid partial replacements
-        const regex = new RegExp(`\\b${oldName}\\b`, 'g');
-        code = code.replace(regex, newName);
-      });
+    // Use AI-rewritten code if available
+    if (enhancement.rewrite) {
+      return enhancement.rewrite;
     }
 
-    // Apply annotations (insert comments above validation checks)
-    if (enhancement.annotations && enhancement.annotations.length > 0) {
-      const lines = code.split('\n');
-      const annotatedLines: string[] = [];
-      let annotationIndex = 0;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        // Insert annotation before lines that look like validation checks
-        if (annotationIndex < enhancement.annotations.length &&
-            (line.includes('when ') || line.includes('expect ') || line.includes('if '))) {
-          const indent = line.match(/^\s*/)?.[0] || '';
-          annotatedLines.push(`${indent}${enhancement.annotations[annotationIndex]}`);
-          annotationIndex++;
-        }
-        annotatedLines.push(line);
-      }
-
-      code = annotatedLines.join('\n');
-    }
-
-    return code;
+    // Fallback to original decompiled code
+    return decompiled.aikenCode;
   };
 
   const copyToClipboard = async (text: string, btnId: string) => {

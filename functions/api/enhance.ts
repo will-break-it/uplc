@@ -18,13 +18,14 @@ export interface EnhanceRequest {
   uplcPreview: string;
   purpose: string;
   builtins: Record<string, number>;
-  enhance: ('naming' | 'annotations' | 'diagram')[];
+  enhance: ('naming' | 'annotations' | 'diagram' | 'rewrite')[];
 }
 
 export interface EnhanceResponse {
   naming?: Record<string, string>;
   annotations?: string[];
   diagram?: string;
+  rewrite?: string;
   cached?: boolean;
   error?: string;
 }
@@ -119,6 +120,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           break;
         case 'diagram':
           result.diagram = await generateDiagram(input, context.env);
+          break;
+        case 'rewrite':
+          result.rewrite = await rewriteCode(input, context.env);
           break;
       }
     }
@@ -270,9 +274,56 @@ Respond with ONLY the Mermaid code (no markdown fences):`;
 }
 
 /**
+ * Rewrite code into clean, idiomatic Aiken
+ */
+export async function rewriteCode(input: EnhancementInput, env: Env): Promise<string> {
+  const prompt = `You are an expert Cardano developer rewriting decompiled Plutus bytecode into clean, human-readable Aiken code.
+
+CONTRACT TYPE: ${input.purpose} validator
+KEY OPERATIONS: ${Object.entries(input.builtins).slice(0, 15).map(([k, v]) => `${k}(${v})`).join(', ')}
+
+DECOMPILED CODE (machine-like, hard to read):
+\`\`\`
+${input.aikenCode}
+\`\`\`
+
+TASK: Rewrite this into clean Aiken that looks like a human wrote it.
+
+REQUIREMENTS:
+1. Use meaningful variable names based on context (owner, deadline, amount, signer, etc.)
+2. Flatten nested lambdas into proper function signatures
+3. Replace fn(a) { fn(b) { fn(c) { body }}} with fn(a, b, c) { body } where possible
+4. Use proper Aiken types (Int, ByteArray, List<T>, Option<T>)
+5. Use Aiken's standard library (list.has, list.any, option.is_some, etc.)
+6. Add brief inline comments for complex validation logic
+7. Structure with proper when/is blocks for variant matching
+8. Use expect/when for pattern matching
+9. Keep the same validation logic - don't change what the contract does!
+
+AIKEN STYLE GUIDE:
+- snake_case for variables and functions
+- PascalCase for types
+- Use and/or instead of &&/||
+- Use expect for pattern matching with early failure
+- Validator handlers: spend(datum, redeemer, own_ref, tx), mint(redeemer, policy_id, tx), etc.
+
+OUTPUT: Return ONLY the rewritten Aiken code. No explanations, no markdown fences.`;
+
+  const response = await callClaude(prompt, env, 4096);
+
+  // Clean up response
+  let code = response.trim();
+  code = code.replace(/^```aiken\n?/gm, '');
+  code = code.replace(/^```\n?/gm, '');
+  code = code.trim();
+
+  return code;
+}
+
+/**
  * Call Claude API
  */
-export async function callClaude(prompt: string, env: Env): Promise<string> {
+export async function callClaude(prompt: string, env: Env, maxTokens: number = 2048): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -281,8 +332,8 @@ export async function callClaude(prompt: string, env: Env): Promise<string> {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-opus-4-6',
-      max_tokens: 2048,
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: maxTokens,
       messages: [
         {
           role: 'user',
