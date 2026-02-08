@@ -26,3 +26,5 @@ pnpm-debug.log*
 .vscode/
 test/fixtures/build/
 test/fixtures/docs/
+# Admin scripts (contain namespace IDs)
+scripts/
