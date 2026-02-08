@@ -4,7 +4,7 @@
  * Analyzes how the datum parameter is used in spend validators:
  * - Whether datum is actually used or ignored
  * - What fields are accessed from the datum
- * - Inferred datum structure
+ * - Inferred datum structure with type inference
  */
 import type { UplcTerm } from '@uplc/parser';
 import type { DatumInfo, FieldInfo } from './types.js';
@@ -35,7 +35,7 @@ export function analyzeDatum(body: UplcTerm, datumParam: string | undefined): Da
     };
   }
   
-  // Find datum field accesses
+  // Find datum field accesses with type inference
   const fields = extractDatumFields(body, datumParam);
   
   // Infer type based on usage
@@ -47,6 +47,74 @@ export function analyzeDatum(body: UplcTerm, datumParam: string | undefined): Da
     fields,
     inferredType
   };
+}
+
+/**
+ * Infer the type of a field access based on how it's used
+ */
+function inferFieldType(body: UplcTerm, fieldAccessExpr: UplcTerm): string {
+  // Look for type-revealing builtins applied to this expression
+  // Track what builtins are applied to track down the expression
+  
+  const typeHints = findAll(body, term => {
+    if (term.tag !== 'app') return false;
+    const parts = flattenApp(term);
+    const builtin = getBuiltinName(parts[0]);
+    
+    // Check if this builtin operates on our field expression
+    if (parts.length < 2) return false;
+    
+    // Type-revealing builtins
+    if (['unIData', 'unBData', 'unListData', 'unMapData'].includes(builtin || '')) {
+      return true;
+    }
+    
+    // Comparison builtins reveal types
+    if (['equalsInteger', 'lessThanInteger', 'lessThanEqualsInteger'].includes(builtin || '')) {
+      return true;
+    }
+    if (['equalsByteString', 'lessThanByteString'].includes(builtin || '')) {
+      return true;
+    }
+    
+    return false;
+  });
+  
+  // Default to unknown
+  if (typeHints.length === 0) return 'unknown';
+  
+  // Check the first type hint
+  const hint = typeHints[0];
+  if (hint.tag !== 'app') return 'unknown';
+  
+  const parts = flattenApp(hint);
+  const builtin = getBuiltinName(parts[0]);
+  
+  switch (builtin) {
+    case 'unIData':
+    case 'equalsInteger':
+    case 'lessThanInteger':
+    case 'lessThanEqualsInteger':
+    case 'addInteger':
+    case 'subtractInteger':
+    case 'multiplyInteger':
+      return 'integer';
+      
+    case 'unBData':
+    case 'equalsByteString':
+    case 'lessThanByteString':
+    case 'lengthOfByteString':
+      return 'bytestring';
+      
+    case 'unListData':
+      return 'list';
+      
+    case 'unMapData':
+      return 'map';
+      
+    default:
+      return 'unknown';
+  }
 }
 
 /**

@@ -8,6 +8,7 @@
 import type { ContractStructure } from '@uplc/patterns';
 import { generateValidator } from './generator.js';
 import { formatCode } from './formatter.js';
+import { postProcess, extractConstants } from './postprocess.js';
 
 // Re-export types
 export type { GeneratorOptions, GeneratedCode } from './types.js';
@@ -16,6 +17,7 @@ export type { GeneratorOptions, GeneratedCode } from './types.js';
 export { generateValidator } from './generator.js';
 export { formatCode } from './formatter.js';
 export { BUILTIN_MAP, getRequiredImports, builtinToAiken } from './stdlib.js';
+export { postProcess, extractConstants } from './postprocess.js';
 export type { BuiltinMapping } from './stdlib.js';
 
 /**
@@ -24,34 +26,24 @@ export type { BuiltinMapping } from './stdlib.js';
  * @param structure - Analyzed contract structure from @uplc/patterns
  * @param options - Code generation options
  * @returns Formatted Aiken-style code
- * 
- * @example
- * ```typescript
- * import { parseUplc } from '@uplc/parser';
- * import { analyzeContract } from '@uplc/patterns';
- * import { generate } from '@uplc/codegen';
- * 
- * const ast = parseUplc(uplcSource);
- * const structure = analyzeContract(ast);
- * const code = generate(structure);
- * 
- * console.log(code);
- * // validator my_validator {
- * //   spend(datum: Option<Data>, redeemer: Action, ctx: ScriptContext) {
- * //     when redeemer is {
- * //       variant_0 -> ...
- * //       variant_1 -> ...
- * //     }
- * //   }
- * // }
- * ```
  */
 export function generate(structure: ContractStructure, options?: Partial<import('./types.js').GeneratorOptions>): string {
   const generated = generateValidator(structure, options);
   let code = formatCode(generated);
   
-  // Post-process: simplify repeated .tail() chains
+  // Post-process: simplify tail chains, booleans, etc.
   code = simplifyTailChains(code);
+  code = postProcess(code);
+  
+  // Extract constants if there are long hex strings
+  const { code: finalCode, constants } = extractConstants(code);
+  
+  // Prepend constants if any
+  if (constants.length > 0) {
+    code = constants.join('\n') + '\n\n' + finalCode;
+  } else {
+    code = finalCode;
+  }
   
   return code;
 }

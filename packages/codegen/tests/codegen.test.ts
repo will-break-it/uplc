@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generate } from '../src/index.js';
+import { generate, postProcess, extractConstants } from '../src/index.js';
 import type { ContractStructure } from '@uplc/patterns';
 
 describe('@uplc/codegen', () => {
@@ -146,6 +146,67 @@ describe('@uplc/codegen', () => {
       
       expect(code).toContain('g1_equal');
       expect(code).toContain('aiken/crypto/bls12_381');
+    });
+  });
+
+  describe('postProcess', () => {
+    it('simplifies boolean if True else False', () => {
+      const input = 'if cond { True } else { False }';
+      const result = postProcess(input);
+      expect(result).toBe('cond');
+    });
+
+    it('simplifies negated booleans if False else True', () => {
+      const input = 'if cond { False } else { True }';
+      const result = postProcess(input);
+      expect(result).toBe('!(cond)');
+    });
+
+    it('preserves module paths with slashes', () => {
+      const input = 'use aiken/crypto/bls12_381';
+      const result = postProcess(input);
+      expect(result).toBe('use aiken/crypto/bls12_381');
+    });
+
+    it('formats arithmetic between digits', () => {
+      const input = '10+20';
+      const result = postProcess(input);
+      expect(result).toContain('10 + 20');
+    });
+
+    it('detects recursive patterns', () => {
+      const input = 'fn(f) { (f)(f)(x) }';
+      const result = postProcess(input);
+      expect(result).toContain('Recursive function detected');
+    });
+  });
+
+  describe('extractConstants', () => {
+    it('extracts long hex strings as constants', () => {
+      const input = 'check(#"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4")';
+      const { code, constants } = extractConstants(input);
+      
+      expect(constants.length).toBe(1);
+      expect(constants[0]).toContain('SCRIPT_HASH_0');
+      expect(code).toContain('SCRIPT_HASH_0');
+      expect(code).not.toContain('#"a1b2c3');
+    });
+
+    it('reuses constants for repeated hex strings', () => {
+      const hex = 'a'.repeat(64);
+      const input = `check(#"${hex}") && verify(#"${hex}")`;
+      const { code, constants } = extractConstants(input);
+      
+      expect(constants.length).toBe(1);
+      expect(code.match(/POLICY_ID_0/g)?.length).toBe(2);
+    });
+
+    it('ignores short hex strings', () => {
+      const input = 'check(#"a1b2c3")';
+      const { code, constants } = extractConstants(input);
+      
+      expect(constants.length).toBe(0);
+      expect(code).toBe(input);
     });
   });
 });
