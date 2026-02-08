@@ -944,22 +944,33 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           )}
                         </button>
                       </div>
-                      <button
-                        className="copy-btn"
-                        id="copy-code"
-                        onClick={() => {
-                          let text = '';
-                          if (contractView === 'cbor') text = result.scriptInfo.bytes;
-                          else if (contractView === 'uplc') {
-                            text = result.uplcPreview.replace(/\s+/g, ' ').trim();
-                          } else if (contractView === 'aiken' && decompiled) {
-                            text = getDisplayCode();
-                          }
-                          copyToClipboard(text, 'copy-code');
-                        }}
-                      >
-                        Copy
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {contractView === 'aiken' && decompiled && enhancement?.rewrite && (
+                          <button
+                            className="copy-btn"
+                            onClick={() => setShowOriginal(!showOriginal)}
+                            style={{ fontSize: '0.75rem' }}
+                          >
+                            {showOriginal ? 'AI' : 'Raw'}
+                          </button>
+                        )}
+                        <button
+                          className="copy-btn"
+                          id="copy-code"
+                          onClick={() => {
+                            let text = '';
+                            if (contractView === 'cbor') text = result.scriptInfo.bytes;
+                            else if (contractView === 'uplc') {
+                              text = result.uplcPreview.replace(/\s+/g, ' ').trim();
+                            } else if (contractView === 'aiken' && decompiled) {
+                              text = getDisplayCode();
+                            }
+                            copyToClipboard(text, 'copy-code');
+                          }}
+                        >
+                          Copy
+                        </button>
+                      </div>
                     </div>
                     
                     <div className="code-block">
@@ -1003,12 +1014,52 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
               {activeTab === 'analysis' && (
                 <section className="docs-section">
                   <h2>{Icons.analysis} Static Analysis</h2>
-                  <p>Data extracted directly from UPLC bytecode without AI interpretation.</p>
+                  <p>Data extracted directly from UPLC bytecode.</p>
+
+                  {/* Stats */}
+                  <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', marginTop: '1rem' }}>
+                    <div className="stat-card">
+                      <div className="label">Builtins</div>
+                      <div className="value">{result.stats.uniqueBuiltins}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="label">Lambdas</div>
+                      <div className="value">{result.stats.lambdaCount}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="label">Applications</div>
+                      <div className="value">{result.stats.applicationCount}</div>
+                    </div>
+                    <div className="stat-card">
+                      <div className="label">Force/Delay</div>
+                      <div className="value">{result.stats.forceCount}/{result.stats.delayCount}</div>
+                    </div>
+                  </div>
+
+                  {/* Trace Strings */}
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                      Trace Strings ({result.errorMessages.length})
+                    </h3>
+                    {result.errorMessages.length > 0 ? (
+                      <div>
+                        {result.errorMessages.map((msg: string, i: number) => (
+                          <div key={i} className="error-item">
+                            <code>{msg}</code>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="empty-state">
+                        <p>No trace strings found in bytecode</p>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Builtins */}
                   <div style={{ marginTop: '1.5rem' }}>
                     <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                      Builtin Functions ({result.stats.uniqueBuiltins})
+                      Builtin Functions
                     </h3>
                     {Object.keys(result.builtins).length > 0 ? (
                       <div className="builtin-table-wrapper">
@@ -1038,51 +1089,6 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                         <p>No builtins detected</p>
                       </div>
                     )}
-                  </div>
-
-                  {/* Trace Strings */}
-                  <div style={{ marginTop: '2rem' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                      Trace Strings ({result.errorMessages.length})
-                    </h3>
-                    {result.errorMessages.length > 0 ? (
-                      <div>
-                        {result.errorMessages.map((msg: string, i: number) => (
-                          <div key={i} className="error-item">
-                            <code>{msg}</code>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="empty-state">
-                        <p>No trace strings found</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Stats */}
-                  <div style={{ marginTop: '2rem' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                      AST Statistics
-                    </h3>
-                    <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
-                      <div className="stat-card">
-                        <div className="label">Lambdas</div>
-                        <div className="value">{result.stats.lambdaCount}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="label">Applications</div>
-                        <div className="value">{result.stats.applicationCount}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="label">Force</div>
-                        <div className="value">{result.stats.forceCount}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="label">Delay</div>
-                        <div className="value">{result.stats.delayCount}</div>
-                      </div>
-                    </div>
                   </div>
                 </section>
               )}
