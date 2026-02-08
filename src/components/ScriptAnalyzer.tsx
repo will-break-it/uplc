@@ -938,6 +938,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           title="Decompiled Aiken code"
                         >
                           Aiken
+                          {decompiled && !enhancement && (
+                            <span className="spinner" style={{ width: '12px', height: '12px', marginLeft: '6px', borderWidth: '2px' }} />
+                          )}
                         </button>
                       </div>
                       <button
@@ -970,83 +973,6 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                       {contractView === 'aiken' && (
                         decompiled ? (
                           <div>
-                            {/* AI Enhancement loading indicator */}
-                            {!enhancement && !showOriginal && (
-                              <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem',
-                                marginBottom: '1rem',
-                                padding: '0.5rem 0.75rem',
-                                background: 'var(--accent-subtle)',
-                                borderRadius: '6px',
-                                fontSize: '0.85rem',
-                                color: 'var(--accent-text)'
-                              }}>
-                                <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
-                                <span>Enhancing with AI...</span>
-                              </div>
-                            )}
-                            {enhancement?.rewrite && !showOriginal && (
-                              <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem',
-                                marginBottom: '1rem',
-                                padding: '0.5rem 0.75rem',
-                                background: 'var(--success-bg)',
-                                borderRadius: '6px',
-                                fontSize: '0.85rem',
-                                color: 'var(--success)'
-                              }}>
-                                <span>✓ AI Enhanced</span>
-                                <button 
-                                  onClick={() => setShowOriginal(true)}
-                                  style={{
-                                    marginLeft: 'auto',
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--text-muted)',
-                                    fontSize: '0.8rem',
-                                    cursor: 'pointer',
-                                    textDecoration: 'underline'
-                                  }}
-                                >
-                                  Show raw
-                                </button>
-                              </div>
-                            )}
-                            {showOriginal && (
-                              <div style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.5rem',
-                                marginBottom: '1rem',
-                                padding: '0.5rem 0.75rem',
-                                background: 'var(--bg-hover)',
-                                borderRadius: '6px',
-                                fontSize: '0.85rem',
-                                color: 'var(--text-muted)'
-                              }}>
-                                <span>Showing raw decompilation</span>
-                                {enhancement?.rewrite && (
-                                  <button 
-                                    onClick={() => setShowOriginal(false)}
-                                    style={{
-                                      marginLeft: 'auto',
-                                      background: 'none',
-                                      border: 'none',
-                                      color: 'var(--accent)',
-                                      fontSize: '0.8rem',
-                                      cursor: 'pointer',
-                                      textDecoration: 'underline'
-                                    }}
-                                  >
-                                    Show enhanced
-                                  </button>
-                                )}
-                              </div>
-                            )}
                             <CodeBlock code={getDisplayCode()} language="rust" />
                             {decompiled.error && (
                               <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
