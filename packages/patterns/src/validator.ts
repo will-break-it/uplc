@@ -133,14 +133,15 @@ function extractBuiltinName(term: UplcTerm): string | null {
  * Handles:
  * 1. Parameterized scripts: [[[lam a [lam b ...]] param1] param2] param3]
  * 2. Nested utility bindings: ((lam i_0 ((lam i_1 BODY) util1)) util0)
+ * 3. Mixed utility/script params: [[[lam a [lam b ...]] builtin1] builtin2] data_param]
  */
 function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
   const utilityBindings: Record<string, string> = {};
-  const scriptParams: string[] = [];  // Pre-applied script parameters
+  const scriptParams: string[] = [];  // Pre-applied script parameters (actual data values)
   const validatorParams: string[] = [];  // Runtime validator parameters (datum, redeemer, ctx)
   
   // Step 1: Unwrap outer applications to find the core lambda
-  // Parameterized scripts look like: [[[lam a ...] param1] param2]
+  // Collect all applied args and their corresponding lambda params
   let current: UplcTerm = ast;
   const appliedArgs: UplcTerm[] = [];
   
@@ -150,11 +151,24 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
   }
   
   // Now 'current' should be a lambda (if script is parameterized)
-  // 'appliedArgs' contains the applied script parameters
+  // 'appliedArgs' contains applied values (builtins for utilities, data for params)
   
-  // Match outer lambdas to applied args (these are script parameters, not validator params)
+  // Match outer lambdas to applied args - distinguish utilities from script params
+  const lambdaParamsMatched: string[] = [];
   for (let i = 0; i < appliedArgs.length && current.tag === 'lam'; i++) {
-    scriptParams.push(current.param);
+    const param = current.param;
+    const arg = appliedArgs[i];
+    const builtinName = extractBuiltinName(arg);
+    
+    if (builtinName) {
+      // This is a utility binding (builtin applied to lambda)
+      utilityBindings[param] = builtinName;
+    } else {
+      // This is a script parameter (data value applied to lambda)
+      scriptParams.push(param);
+    }
+    
+    lambdaParamsMatched.push(param);
     current = current.body;
     
     // Continue unwrapping if body is also an application
@@ -164,7 +178,7 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     }
   }
   
-  // Step 2: Extract utility bindings from nested patterns
+  // Step 2: Extract any additional utility bindings from nested patterns
   function extractUtilities(term: UplcTerm): void {
     const innerAppliedArgs: UplcTerm[] = [];
     let inner: UplcTerm = term;
@@ -185,7 +199,7 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
       const arg = innerAppliedArgs[i];
       const builtinName = extractBuiltinName(arg);
 
-      if (builtinName) {
+      if (builtinName && !utilityBindings[param]) {
         utilityBindings[param] = builtinName;
       }
     }

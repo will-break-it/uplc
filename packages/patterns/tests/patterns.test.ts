@@ -62,6 +62,32 @@ describe('Validator Detection', () => {
     // All params are now returned (no artificial slicing)
     expect(result.params).toEqual(['d', 'r', 'ctx', 'extra']);
   });
+
+  it('detects utility bindings from applied builtins', () => {
+    // Pattern: [[lam a [lam b BODY]] util_a] util_b]
+    // Simpler test with just 2 utility bindings
+    const source = `
+      [[
+        (lam a
+          (lam b
+            (lam datum
+              (lam redeemer
+                (con unit ())))))
+        (force (builtin headList))]
+        (force (builtin tailList))]
+    `;
+    const ast = parseUplc(source);
+    const result = detectValidator(ast);
+    
+    expect(result.utilityBindings).toBeDefined();
+    expect(result.utilityBindings?.['a']).toBe('headList');
+    expect(result.utilityBindings?.['b']).toBe('tailList');
+    expect(result.params).toContain('datum');
+    expect(result.params).toContain('redeemer');
+    // a and b should NOT be in params (they're utilities)
+    expect(result.params).not.toContain('a');
+    expect(result.params).not.toContain('b');
+  });
 });
 
 describe('Redeemer Variant Detection', () => {
