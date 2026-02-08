@@ -45,17 +45,7 @@ function hexToText(hex: string): string {
   return result;
 }
 
-import { getCached, setCached } from './cache.js';
-
 export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
-  // Check browser cache first
-  const cacheKey = `script:${scriptHash}`;
-  const cached = getCached<ScriptInfo>(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
-  // Fetch from API (which has its own KV cache)
   const apiUrl = '/api/koios';
     
   const response = await fetch(apiUrl, {
@@ -74,18 +64,13 @@ export async function fetchScriptInfo(scriptHash: string): Promise<ScriptInfo> {
   }
 
   const script = data[0];
-  const result: ScriptInfo = {
+  return {
     scriptHash: script.script_hash,
     type: script.type,
     size: script.size,
     bytes: script.bytes,
     creationTxHash: script.creation_tx_hash,
   };
-
-  // Cache for future requests (script data is immutable)
-  setCached(cacheKey, result);
-  
-  return result;
 }
 
 export function decodeUPLC(bytes: string): {
@@ -436,13 +421,6 @@ export function classifyContract(
 
 // Core analysis - fetches script and decodes UPLC
 export async function analyzeScriptCore(scriptHash: string): Promise<AnalysisResult> {
-  // Check cache first (analysis is deterministic)
-  const cacheKey = `analysis:${scriptHash}`;
-  const cached = getCached<AnalysisResult>(cacheKey);
-  if (cached) {
-    return cached;
-  }
-
   const scriptInfo = await fetchScriptInfo(scriptHash);
   
   // Decode UPLC
@@ -465,7 +443,7 @@ export async function analyzeScriptCore(scriptHash: string): Promise<AnalysisRes
   
   const totalBuiltins = Object.values(decoded.builtins).reduce((a, b) => a + b, 0);
   
-  const result: AnalysisResult = {
+  return {
     scriptInfo,
     builtins: decoded.builtins,
     errorMessages,
@@ -479,10 +457,5 @@ export async function analyzeScriptCore(scriptHash: string): Promise<AnalysisRes
     },
     uplcPreview: decoded.prettyPrint,
   };
-
-  // Cache the result (deterministic, never changes)
-  setCached(cacheKey, result);
-  
-  return result;
 }
 
