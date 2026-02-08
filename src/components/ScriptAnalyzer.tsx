@@ -944,33 +944,22 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           )}
                         </button>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                        {contractView === 'aiken' && decompiled && enhancement?.rewrite && (
-                          <button
-                            className="copy-btn"
-                            onClick={() => setShowOriginal(!showOriginal)}
-                            style={{ fontSize: '0.75rem' }}
-                          >
-                            {showOriginal ? 'AI' : 'Raw'}
-                          </button>
-                        )}
-                        <button
-                          className="copy-btn"
-                          id="copy-code"
-                          onClick={() => {
-                            let text = '';
-                            if (contractView === 'cbor') text = result.scriptInfo.bytes;
-                            else if (contractView === 'uplc') {
-                              text = result.uplcPreview.replace(/\s+/g, ' ').trim();
-                            } else if (contractView === 'aiken' && decompiled) {
-                              text = getDisplayCode();
-                            }
-                            copyToClipboard(text, 'copy-code');
-                          }}
-                        >
-                          Copy
-                        </button>
-                      </div>
+                      <button
+                        className="copy-btn"
+                        id="copy-code"
+                        onClick={() => {
+                          let text = '';
+                          if (contractView === 'cbor') text = result.scriptInfo.bytes;
+                          else if (contractView === 'uplc') {
+                            text = result.uplcPreview.replace(/\s+/g, ' ').trim();
+                          } else if (contractView === 'aiken' && decompiled) {
+                            text = getDisplayCode();
+                          }
+                          copyToClipboard(text, 'copy-code');
+                        }}
+                      >
+                        Copy
+                      </button>
                     </div>
                     
                     <div className="code-block">
@@ -984,7 +973,32 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                       )}
                       {contractView === 'aiken' && (
                         decompiled ? (
-                          <div>
+                          <div style={{ position: 'relative' }}>
+                            {enhancement?.rewrite && (
+                              <button
+                                onClick={() => setShowOriginal(!showOriginal)}
+                                style={{
+                                  position: 'absolute',
+                                  top: '0.5rem',
+                                  right: '0.5rem',
+                                  padding: '0.25rem 0.5rem',
+                                  fontSize: '0.7rem',
+                                  background: 'rgba(255,255,255,0.1)',
+                                  border: '1px solid rgba(255,255,255,0.2)',
+                                  borderRadius: '4px',
+                                  color: 'var(--text-code)',
+                                  cursor: 'pointer',
+                                  zIndex: 10,
+                                  opacity: 0.7,
+                                  transition: 'opacity 0.2s',
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+                                onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+                                title={showOriginal ? 'Show AI-enhanced code' : 'Show raw decompilation'}
+                              >
+                                {showOriginal ? '✨ AI' : 'Raw'}
+                              </button>
+                            )}
                             <CodeBlock code={getDisplayCode()} language="rust" />
                             {decompiled.error && (
                               <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>

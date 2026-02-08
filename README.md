@@ -1,8 +1,12 @@
-# UPLC.WTF
+<p align="center">
+  <a href="https://uplc.wtf">
+    <img src="public/banner.svg" alt="UPLC.WTF" width="100%" />
+  </a>
+</p>
 
-Reverse-engineer Cardano smart contracts from on-chain bytecode.
-
-**[uplc.wtf](https://uplc.wtf)** — Paste a script hash → get readable Aiken code.
+<p align="center">
+  <strong><a href="https://uplc.wtf">uplc.wtf</a></strong> — Reverse-engineer Cardano smart contracts from on-chain bytecode
+</p>
 
 ## How It Works
 
