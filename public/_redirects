@@ -1,2 +1,2 @@
-# Redirect www to apex domain
-https://www.uplc.wtf/* https://uplc.wtf/:splat 301
+# Redirect all /script/* routes to index.html for client-side routing
+/script/*  /index.html  200

@@ -184,19 +184,21 @@ export function decodeUPLC(bytes: string): {
   traverse(program._body);
 
   // Generate pretty print using harmoniclabs implementation
-  // Note: showUPLC expects the whole program, not just the body
+  // showUPLC expects the full program object
   let prettyPrint: string;
   try {
     const uplcOutput = showUPLC(program);
     prettyPrint = typeof uplcOutput === 'string' ? uplcOutput : String(uplcOutput);
 
     if (!prettyPrint || prettyPrint.trim().length === 0) {
-      console.warn('showUPLC returned empty string, using fallback');
-      prettyPrint = `(program ${version}\n  ; showUPLC returned empty output\n)`;
+      console.warn('showUPLC returned empty, this should not happen');
+      // If showUPLC fails, we need a valid UPLC representation
+      // Use a minimal valid UPLC program as fallback
+      prettyPrint = `(program ${version} (error))`;
     }
   } catch (e) {
-    console.error('showUPLC failed:', e);
-    prettyPrint = `(program ${version}\n  ; Error: ${e instanceof Error ? e.message : 'unknown'}\n)`;
+    console.error('showUPLC threw error:', e);
+    prettyPrint = `(program ${version} (error))`;
   }
 
   return {

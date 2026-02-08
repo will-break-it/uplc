@@ -331,8 +331,12 @@ interface EnhancementResult {
   cached?: boolean;
 }
 
-export default function ScriptAnalyzer() {
-  const [scriptHash, setScriptHash] = useState('');
+interface ScriptAnalyzerProps {
+  initialHash?: string;
+}
+
+export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
+  const [scriptHash, setScriptHash] = useState(initialHash || '');
   const [loading, setLoading] = useState(false);
   const [decompiling, setDecompiling] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -416,25 +420,41 @@ export default function ScriptAnalyzer() {
     localStorage.setItem('theme', newTheme);
   };
 
-  // URL handling
+  // URL handling - supports both path-based (/script/hash) and legacy query params
   useEffect(() => {
+    // Check for tab in query params
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam && ['overview', 'architecture', 'contract', 'builtins', 'traces'].includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
     
-    const hashParam = params.get('hash');
-    if (hashParam && /^[a-f0-9]{56}$/i.test(hashParam)) {
-      analyze(hashParam);
+    // Priority: initialHash prop > path-based URL > query param
+    if (initialHash) {
+      analyze(initialHash);
+    } else {
+      // Check for path-based URL: /script/[hash]
+      const pathMatch = window.location.pathname.match(/^\/script\/([a-f0-9]{56})$/i);
+      if (pathMatch) {
+        analyze(pathMatch[1]);
+      } else {
+        // Legacy: check query params and redirect to clean URL
+        const hashParam = params.get('hash');
+        if (hashParam && /^[a-f0-9]{56}$/i.test(hashParam)) {
+          // Redirect to clean path-based URL
+          window.history.replaceState({}, '', `/script/${hashParam}`);
+          analyze(hashParam);
+        }
+      }
     }
-  }, []);
+  }, [initialHash]);
 
-  const updateUrl = (hash: string, tab: string) => {
-    const params = new URLSearchParams();
-    params.set('hash', hash);
-    params.set('tab', tab);
-    window.history.pushState({}, '', `?${params.toString()}`);
+  const updateUrl = (hash: string, _tab: string) => {
+    // Use clean path-based URL
+    const newPath = `/script/${hash}`;
+    if (window.location.pathname !== newPath) {
+      window.history.pushState({}, '', newPath);
+    }
   };
 
   const handleTabChange = (tab: typeof activeTab) => {
