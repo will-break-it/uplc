@@ -321,9 +321,14 @@ function termToExpression(term: any, params: string[], depth: number): string {
       return constToExpression(term);
       
     case 'var':
-      // Check if this variable is a utility binding (substitute with builtin)
+      // Check if this variable is a utility binding (substitute with builtin or predicate)
       if (currentUtilityBindings[term.name]) {
-        return `builtin::${currentUtilityBindings[term.name]}`;
+        const binding = currentUtilityBindings[term.name];
+        // is_constr_N predicates are not builtins, just use the name directly
+        if (binding.startsWith('is_constr_')) {
+          return binding;
+        }
+        return `builtin::${binding}`;
       }
       return term.name;
       
@@ -415,8 +420,15 @@ function appToExpression(term: any, params: string[], depth: number): string {
   
   // Check if it's a utility binding being called (e.g., c(x) where c = headList)
   if (parts[0]?.tag === 'var' && currentUtilityBindings[parts[0].name]) {
-    const builtinName = currentUtilityBindings[parts[0].name];
-    return builtinCallToExpression(builtinName, parts.slice(1), params, depth);
+    const bindingName = currentUtilityBindings[parts[0].name];
+    
+    // is_constr_N predicates are not builtins - call as regular function
+    if (bindingName.startsWith('is_constr_')) {
+      const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
+      return `${bindingName}(${argExprs.join(', ')})`;
+    }
+    
+    return builtinCallToExpression(bindingName, parts.slice(1), params, depth);
   }
   
   // Regular function call

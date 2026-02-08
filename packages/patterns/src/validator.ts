@@ -129,6 +129,40 @@ function extractBuiltinName(term: UplcTerm): string | null {
 }
 
 /**
+ * Extract a meaningful name for a utility binding
+ * Handles:
+ * - Simple builtins: (force (builtin headList)) → "headList"
+ * - Partial applications: [(builtin equalsInteger) (con integer 0)] → "is_constr_0"
+ */
+function extractUtilityName(term: UplcTerm): string | null {
+  // Simple builtin (possibly forced)
+  const simpleName = extractBuiltinName(term);
+  if (simpleName) return simpleName;
+  
+  // Partial application pattern: [builtin arg]
+  if (term.tag === 'app') {
+    const builtinName = extractBuiltinName(term.func);
+    if (!builtinName) return null;
+    
+    // [(builtin equalsInteger) (con integer N)] → is_constr_N
+    if (builtinName === 'equalsInteger' && term.arg.tag === 'con') {
+      const value = term.arg.value;
+      if (value && typeof value.value === 'bigint') {
+        return `is_constr_${value.value}`;
+      }
+      if (value && typeof value === 'bigint') {
+        return `is_constr_${value}`;
+      }
+    }
+    
+    // Other partial applications - return builtin name
+    return builtinName;
+  }
+  
+  return null;
+}
+
+/**
  * Simple pattern: Detect Plutus-style utility binding pattern
  * Handles:
  * 1. Parameterized scripts: [[[lam a [lam b ...]] param1] param2] param3]
@@ -158,11 +192,11 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
   for (let i = 0; i < appliedArgs.length && current.tag === 'lam'; i++) {
     const param = current.param;
     const arg = appliedArgs[i];
-    const builtinName = extractBuiltinName(arg);
+    const utilityName = extractUtilityName(arg);
     
-    if (builtinName) {
-      // This is a utility binding (builtin applied to lambda)
-      utilityBindings[param] = builtinName;
+    if (utilityName) {
+      // This is a utility binding (builtin or partial app applied to lambda)
+      utilityBindings[param] = utilityName;
     } else {
       // This is a script parameter (data value applied to lambda)
       scriptParams.push(param);
@@ -197,10 +231,10 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     for (let i = 0; i < Math.min(lambdaParams.length, innerAppliedArgs.length); i++) {
       const param = lambdaParams[i];
       const arg = innerAppliedArgs[i];
-      const builtinName = extractBuiltinName(arg);
+      const utilityName = extractUtilityName(arg);
 
-      if (builtinName && !utilityBindings[param]) {
-        utilityBindings[param] = builtinName;
+      if (utilityName && !utilityBindings[param]) {
+        utilityBindings[param] = utilityName;
       }
     }
 
