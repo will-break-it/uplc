@@ -127,9 +127,7 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem 1.5rem;
-  padding-bottom: 5rem; /* Space for sticky footer */
   flex: 1;
-  min-height: calc(100vh - 60px - 3rem); /* Fill available height */
 }
 
 /* Header - subtle glass effect */
@@ -1504,19 +1502,13 @@ header > .header-inner {
   color: var(--text-muted);
 }
 
-/* Footer - sticky bottom */
+/* Footer */
 footer {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
   text-align: center;
   padding: 1rem 1.5rem;
   color: var(--text-muted);
   font-size: 0.8125rem;
-  background: var(--bg-main);
   border-top: 1px solid var(--border);
-  z-index: 50;
 }
 
 footer p {
