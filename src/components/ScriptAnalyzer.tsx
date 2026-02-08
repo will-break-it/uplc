@@ -515,7 +515,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
             bytes: serverResult.bytes || '',
           },
           builtins: serverResult.builtins,
-          errorMessages: [], // TODO: extract from bytes
+          errorMessages: serverResult.traceStrings || [],
           constants: { bytestrings: [], integers: [] },
           classification: serverResult.scriptPurpose,
           version: serverResult.version,

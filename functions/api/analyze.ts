@@ -32,6 +32,7 @@ interface AnalysisResult {
   aikenCode: string;
   scriptPurpose: string;
   builtins: Record<string, number>;
+  traceStrings: string[];
   stats: {
     totalBuiltins: number;
     uniqueBuiltins: number;
@@ -87,6 +88,7 @@ function decodeAndAnalyze(bytes: string): {
   uplc: string;
   version: string;
   builtins: Record<string, number>;
+  traceStrings: string[];
   stats: { lambdaCount: number; forceCount: number; delayCount: number; applicationCount: number };
 } {
   const innerHex = stripCborWrapper(bytes);
@@ -96,6 +98,7 @@ function decodeAndAnalyze(bytes: string): {
   const version = `${program._version._major}.${program._version._minor}.${program._version._patch}`;
   
   const builtins: Record<string, number> = {};
+  const traceStrings: string[] = [];
   let lambdaCount = 0, forceCount = 0, delayCount = 0, applicationCount = 0;
   
   function getType(term: any): string {
@@ -112,6 +115,37 @@ function decodeAndAnalyze(bytes: string): {
     return 'unknown';
   }
 
+  // Check if term is a trace builtin (possibly wrapped in force)
+  function isTraceBuiltin(term: any): boolean {
+    if (!term) return false;
+    const type = getType(term);
+    if (type === 'Builtin') {
+      return builtinTagToString(term._tag) === 'trace';
+    }
+    if (type === 'Force') {
+      return isTraceBuiltin(term.termToForce);
+    }
+    return false;
+  }
+
+  // Extract string from a constant term
+  function extractString(term: any): string | null {
+    if (!term) return null;
+    const type = getType(term);
+    if (type === 'UPLCConst' && term.value) {
+      // Check for string type
+      if (typeof term.value === 'string') return term.value;
+      if (term.value.value && typeof term.value.value === 'string') return term.value.value;
+      // Check for bytestring that might be a trace message
+      if (term.value.value instanceof Uint8Array) {
+        try {
+          return new TextDecoder().decode(term.value.value);
+        } catch { return null; }
+      }
+    }
+    return null;
+  }
+
   function traverse(term: any) {
     if (!term) return;
     const termType = getType(term);
@@ -119,6 +153,23 @@ function decodeAndAnalyze(bytes: string): {
     switch (termType) {
       case 'Application':
         applicationCount++;
+        // Check for trace builtin application: (trace "message" ...)
+        if (isTraceBuiltin(term.funcTerm)) {
+          const msg = extractString(term.argTerm);
+          if (msg && !traceStrings.includes(msg)) {
+            traceStrings.push(msg);
+          }
+        }
+        // Also check for partially applied trace: ((trace "message") term)
+        if (getType(term.funcTerm) === 'Application') {
+          const inner = term.funcTerm;
+          if (isTraceBuiltin(inner.funcTerm)) {
+            const msg = extractString(inner.argTerm);
+            if (msg && !traceStrings.includes(msg)) {
+              traceStrings.push(msg);
+            }
+          }
+        }
         traverse(term.funcTerm);
         traverse(term.argTerm);
         break;
@@ -156,6 +207,7 @@ function decodeAndAnalyze(bytes: string): {
     uplc: typeof uplc === 'string' ? uplc : String(uplc),
     version,
     builtins,
+    traceStrings,
     stats: { lambdaCount, forceCount, delayCount, applicationCount },
   };
 }
@@ -261,6 +313,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       aikenCode: decompiled.aikenCode,
       scriptPurpose: decompiled.scriptPurpose,
       builtins: decoded.builtins,
+      traceStrings: decoded.traceStrings,
       stats: {
         totalBuiltins: Object.values(decoded.builtins).reduce((a, b) => a + b, 0),
         uniqueBuiltins: Object.keys(decoded.builtins).length,
