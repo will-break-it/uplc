@@ -205,8 +205,8 @@ export function decodeUPLC(bytes: string): {
     version,
     builtins,
     constants: {
-      bytestrings: [...new Set(bytestrings)].slice(0, 20),
-      integers: [...new Set(integers)].slice(0, 20),
+      bytestrings: [...new Set(bytestrings)].slice(0, 50),
+      integers: [...new Set(integers)].slice(0, 50),
     },
     stats: { lambdaCount, forceCount, delayCount, applicationCount },
     prettyPrint,
