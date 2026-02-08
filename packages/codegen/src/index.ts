@@ -48,5 +48,36 @@ export type { BuiltinMapping } from './stdlib.js';
  */
 export function generate(structure: ContractStructure, options?: Partial<import('./types.js').GeneratorOptions>): string {
   const generated = generateValidator(structure, options);
-  return formatCode(generated);
+  let code = formatCode(generated);
+  
+  // Post-process: simplify repeated .tail() chains
+  code = simplifyTailChains(code);
+  
+  return code;
+}
+
+/**
+ * Simplify repeated .tail() chains into indexed access
+ * e.g., x.tail().tail().tail().head() → list.at(x, 3)
+ */
+function simplifyTailChains(code: string): string {
+  // Pattern for identifier.tail().tail()...head() - must be simple identifier
+  code = code.replace(
+    /\b([a-zA-Z_][a-zA-Z0-9_]*)((?:\.tail\(\)){3,})\.head\(\)/g,
+    (match, base, tails) => {
+      const count = (tails.match(/\.tail\(\)/g) || []).length;
+      return `list.at(${base}, ${count})`;
+    }
+  );
+  
+  // Pattern for expr.2nd.tail().tail()...head() chains
+  code = code.replace(
+    /\b([a-zA-Z_][a-zA-Z0-9_]*)\.(1st|2nd)((?:\.tail\(\)){3,})\.head\(\)/g,
+    (match, base, accessor, tails) => {
+      const count = (tails.match(/\.tail\(\)/g) || []).length;
+      return `list.at(${base}.${accessor}, ${count})`;
+    }
+  );
+  
+  return code;
 }
