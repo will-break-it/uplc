@@ -26,6 +26,7 @@ interface AnalysisResult {
   scriptHash: string;
   scriptType: string;
   size: number;
+  bytes: string;  // CBOR hex
   version: string;
   uplc: string;
   aikenCode: string;
@@ -254,6 +255,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       scriptHash: script.script_hash,
       scriptType: script.type,
       size: script.size,
+      bytes: script.bytes,
       version: decoded.version,
       uplc: decoded.uplc,
       aikenCode: decompiled.aikenCode,
