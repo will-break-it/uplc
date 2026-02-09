@@ -16,6 +16,32 @@
       "notes": "Pool validator for Minswap DEX v2. Contains embedded authen minting policy hash."
     },
     {
+      "id": "minswap-v2-lp",
+      "name": "Minswap V2 LP Minting",
+      "protocol": "Minswap",
+      "type": "DEX",
+      "purpose": "mint",
+      "scriptHash": "13aa2accf2e1561723aa26871e071fdf32c867cff7e7d50ad470d62f",
+      "plutusVersion": "v1",
+      "size": 2419,
+      "file": "minswap-v2-lp.cbor",
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "notes": "LP token minting policy for Minswap DEX v2. Contains CREATOR token check."
+    },
+    {
+      "id": "minswap-v2-authen",
+      "name": "Minswap V2 Authen Minting",
+      "protocol": "Minswap",
+      "type": "DEX",
+      "purpose": "mint",
+      "scriptHash": "0be55d262b29f564998ff81efe21bdc0022621c12f15af08d0f2ddb1",
+      "plutusVersion": "v1",
+      "size": 908,
+      "file": "minswap-v2-authen.cbor",
+      "github": "https://github.com/minswap/minswap-dex-v2",
+      "notes": "Factory authentication minting policy for Minswap DEX v2."
+    },
+    {
       "id": "sundaeswap-v3-order",
       "name": "SundaeSwap V3 Order",
       "protocol": "SundaeSwap",

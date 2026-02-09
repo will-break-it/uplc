@@ -520,20 +520,22 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           classification: serverResult.scriptPurpose,
           version: serverResult.version,
           stats: serverResult.stats,
-          uplcPreview: serverResult.uplc,
+          uplcPreview: serverResult.aikenCode, // Use Aiken code as preview (no UPLC text anymore)
+          analysis: serverResult.analysis,
         };
         
         setResult(coreResult);
         
-        // Decompiled code comes from server
+        // Decompiled code comes from server with analysis data
+        const analysis = serverResult.analysis || {};
         const decompiledResult: DecompilerResult = {
           aikenCode: serverResult.aikenCode,
           scriptPurpose: serverResult.scriptPurpose,
           params: [],
-          datumUsed: false,
-          datumFields: 0,
-          redeemerVariants: 0,
-          validationChecks: 0,
+          datumUsed: analysis.datumUsed || false,
+          datumFields: analysis.datumFields || 0,
+          redeemerVariants: analysis.redeemerVariants || 0,
+          validationChecks: analysis.validationChecks || 0,
         };
         setDecompiled(decompiledResult);
         setLoading(false);
@@ -1030,23 +1032,82 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                   <h2>{Icons.analysis} Static Analysis</h2>
                   <p>Data extracted directly from UPLC bytecode.</p>
 
-                  {/* Stats */}
-                  <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', marginTop: '1rem' }}>
-                    <div className="stat-card">
-                      <div className="label">Builtins</div>
-                      <div className="value">{result.stats.uniqueBuiltins}</div>
+                  {/* Pattern Analysis */}
+                  {result.analysis && (
+                    <div style={{ marginTop: '1rem' }}>
+                      <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Contract Structure
+                      </h3>
+                      <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
+                        <div className="stat-card">
+                          <div className="label">Datum</div>
+                          <div className="value small">{result.analysis.datumUsed ? (result.analysis.datumOptional ? 'Optional' : 'Required') : 'Unused'}</div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="label">Datum Fields</div>
+                          <div className="value">{result.analysis.datumFields}</div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="label">Redeemer Variants</div>
+                          <div className="value">{result.analysis.redeemerVariants}</div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="label">Validation Checks</div>
+                          <div className="value">{result.analysis.validationChecks}</div>
+                        </div>
+                      </div>
+                      {result.analysis.checkTypes && result.analysis.checkTypes.length > 0 && (
+                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {result.analysis.checkTypes.map((type, i) => (
+                            <span key={i} style={{
+                              padding: '0.25rem 0.5rem',
+                              background: 'var(--card-bg)',
+                              border: '1px solid var(--border)',
+                              borderRadius: '4px',
+                              fontSize: '0.75rem',
+                              color: 'var(--text-secondary)',
+                            }}>{type}</span>
+                          ))}
+                        </div>
+                      )}
+                      {result.analysis.scriptParams && result.analysis.scriptParams.length > 0 && (
+                        <div style={{ marginTop: '1rem' }}>
+                          <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
+                            Script Parameters
+                          </h4>
+                          {result.analysis.scriptParams.map((param, i) => (
+                            <div key={i} className="error-item" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                              <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{param.name}</span>
+                              <code style={{ fontSize: '0.75rem', wordBreak: 'break-all' }}>{param.value}</code>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="stat-card">
-                      <div className="label">Lambdas</div>
-                      <div className="value">{result.stats.lambdaCount}</div>
-                    </div>
-                    <div className="stat-card">
-                      <div className="label">Applications</div>
-                      <div className="value">{result.stats.applicationCount}</div>
-                    </div>
-                    <div className="stat-card">
-                      <div className="label">Force/Delay</div>
-                      <div className="value">{result.stats.forceCount}/{result.stats.delayCount}</div>
+                  )}
+
+                  {/* Bytecode Stats */}
+                  <div style={{ marginTop: '1.5rem' }}>
+                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                      Bytecode Statistics
+                    </h3>
+                    <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' }}>
+                      <div className="stat-card">
+                        <div className="label">Builtins</div>
+                        <div className="value">{result.stats.uniqueBuiltins}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="label">Lambdas</div>
+                        <div className="value">{result.stats.lambdaCount}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="label">Applications</div>
+                        <div className="value">{result.stats.applicationCount}</div>
+                      </div>
+                      <div className="stat-card">
+                        <div className="label">Force/Delay</div>
+                        <div className="value">{result.stats.forceCount}/{result.stats.delayCount}</div>
+                      </div>
                     </div>
                   </div>
 

@@ -1,12 +1,12 @@
 /**
  * Full analysis endpoint with caching
  * 
- * Pipeline: script_hash → CBOR → UPLC → Decompiled
+ * Pipeline: script_hash → CBOR → AST → Analysis → Decompiled
  * All stages cached in KV (immutable once computed)
  */
 
-import { UPLCDecoder, showUPLC, builtinTagToString } from '@harmoniclabs/uplc';
-import { parseUplc } from '@uplc/parser';
+import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
+import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
 import { generate } from '@uplc/codegen';
 
@@ -28,7 +28,6 @@ interface AnalysisResult {
   size: number;
   bytes: string;  // CBOR hex
   version: string;
-  uplc: string;
   aikenCode: string;
   scriptPurpose: string;
   builtins: Record<string, number>;
@@ -44,6 +43,17 @@ interface AnalysisResult {
     forceCount: number;
     delayCount: number;
     applicationCount: number;
+  };
+  // Rich analysis from @uplc/patterns
+  analysis: {
+    datumUsed: boolean;
+    datumOptional: boolean;
+    datumFields: number;
+    redeemerVariants: number;
+    redeemerMatchPattern: string;
+    validationChecks: number;
+    checkTypes: string[];
+    scriptParams: Array<{ name: string; type: string; value: string }>;
   };
   cached: boolean;
 }
@@ -94,14 +104,25 @@ function bufferToHex(buffer: Uint8Array): string {
     .join('');
 }
 
-// Decode CBOR to UPLC and extract stats
+// Decode CBOR and perform full analysis
 function decodeAndAnalyze(bytes: string): {
-  uplc: string;
   version: string;
+  aikenCode: string;
+  scriptPurpose: string;
   builtins: Record<string, number>;
   traceStrings: string[];
   constants: { bytestrings: string[]; integers: string[] };
   stats: { lambdaCount: number; forceCount: number; delayCount: number; applicationCount: number };
+  analysis: {
+    datumUsed: boolean;
+    datumOptional: boolean;
+    datumFields: number;
+    redeemerVariants: number;
+    redeemerMatchPattern: string;
+    validationChecks: number;
+    checkTypes: string[];
+    scriptParams: Array<{ name: string; type: string; value: string }>;
+  };
 } {
   const innerHex = stripCborWrapper(bytes);
   const buffer = hexToBuffer(innerHex);
@@ -109,13 +130,131 @@ function decodeAndAnalyze(bytes: string): {
   
   const version = `${program._version._major}.${program._version._minor}.${program._version._patch}`;
   
+  // Convert to our AST (no text round-trip)
+  const ast = convertFromHarmoniclabs(program.body);
+  
+  // Analyze patterns
+  const structure = analyzeContract(ast);
+  
+  // Generate Aiken code
+  const aikenCode = generate(structure);
+  
+  // Extract stats from AST
   const builtins: Record<string, number> = {};
   const traceStrings: string[] = [];
   const bytestrings: string[] = [];
   const integers: string[] = [];
   let lambdaCount = 0, forceCount = 0, delayCount = 0, applicationCount = 0;
   
-  function getType(term: any): string {
+  function traverseAst(term: any) {
+    if (!term) return;
+    
+    switch (term.tag) {
+      case 'app':
+        applicationCount++;
+        // Check for trace applications
+        if (term.func?.tag === 'builtin' && term.func.name === 'trace') {
+          if (term.arg?.tag === 'con' && term.arg.value?.tag === 'string') {
+            const msg = term.arg.value.value;
+            if (msg && !traceStrings.includes(msg)) {
+              traceStrings.push(msg);
+            }
+          }
+        }
+        // Check for nested trace: ((trace "msg") ...)
+        if (term.func?.tag === 'app' && term.func.func?.tag === 'builtin' && term.func.func.name === 'trace') {
+          if (term.func.arg?.tag === 'con' && term.func.arg.value?.tag === 'string') {
+            const msg = term.func.arg.value.value;
+            if (msg && !traceStrings.includes(msg)) {
+              traceStrings.push(msg);
+            }
+          }
+        }
+        traverseAst(term.func);
+        traverseAst(term.arg);
+        break;
+      case 'lam':
+        lambdaCount++;
+        traverseAst(term.body);
+        break;
+      case 'delay':
+        delayCount++;
+        traverseAst(term.term);
+        break;
+      case 'force':
+        forceCount++;
+        traverseAst(term.term);
+        break;
+      case 'builtin':
+        builtins[term.name] = (builtins[term.name] || 0) + 1;
+        break;
+      case 'con':
+        if (term.value) {
+          const val = term.value;
+          if (val.tag === 'integer') {
+            const intStr = val.value.toString();
+            if (!integers.includes(intStr)) {
+              integers.push(intStr);
+            }
+          } else if (val.tag === 'bytestring' && val.value instanceof Uint8Array) {
+            const hex = bufferToHex(val.value);
+            if (hex.length >= 8 && !bytestrings.includes(hex)) {
+              bytestrings.push(hex);
+            }
+          }
+        }
+        break;
+      case 'case':
+        traverseAst(term.scrutinee);
+        term.branches?.forEach(traverseAst);
+        break;
+      case 'constr':
+        term.args?.forEach(traverseAst);
+        break;
+    }
+  }
+  
+  traverseAst(ast);
+  
+  // Also traverse raw AST from harmoniclabs for trace strings (more reliable)
+  function traverseRaw(term: any) {
+    if (!term) return;
+    const termType = getTermType(term);
+    
+    if (termType === 'Application') {
+      // Check for trace builtin
+      if (isTraceBuiltin(term.funcTerm)) {
+        const msg = extractStringFromRaw(term.argTerm);
+        if (msg && !traceStrings.includes(msg)) {
+          traceStrings.push(msg);
+        }
+      }
+      if (getTermType(term.funcTerm) === 'Application') {
+        const inner = term.funcTerm;
+        if (isTraceBuiltin(inner.funcTerm)) {
+          const msg = extractStringFromRaw(inner.argTerm);
+          if (msg && !traceStrings.includes(msg)) {
+            traceStrings.push(msg);
+          }
+        }
+      }
+      traverseRaw(term.funcTerm);
+      traverseRaw(term.argTerm);
+    } else if (termType === 'Lambda') {
+      traverseRaw(term.body);
+    } else if (termType === 'Delay') {
+      traverseRaw(term.delayedTerm);
+    } else if (termType === 'Force') {
+      traverseRaw(term.termToForce);
+    } else if (termType === 'Constr') {
+      term.terms?.forEach(traverseRaw);
+    } else if (termType === 'Case') {
+      traverseRaw(term.scrutinee);
+      term.branches?.forEach(traverseRaw);
+    }
+  }
+  
+  function getTermType(term: any): string {
     if (!term) return 'null';
     if ('funcTerm' in term && 'argTerm' in term) return 'Application';
     if ('body' in term && !('scrutinee' in term) && !('terms' in term)) return 'Lambda';
@@ -128,11 +267,10 @@ function decodeAndAnalyze(bytes: string): {
     if ('scrutinee' in term && 'branches' in term) return 'Case';
     return 'unknown';
   }
-
-  // Check if term is a trace builtin (possibly wrapped in force)
+  
   function isTraceBuiltin(term: any): boolean {
     if (!term) return false;
-    const type = getType(term);
+    const type = getTermType(term);
     if (type === 'Builtin') {
       return builtinTagToString(term._tag) === 'trace';
     }
@@ -141,141 +279,48 @@ function decodeAndAnalyze(bytes: string): {
     }
     return false;
   }
-
-  // Extract string from a constant term
-  function extractString(term: any): string | null {
+  
+  function extractStringFromRaw(term: any): string | null {
     if (!term) return null;
-    const type = getType(term);
+    const type = getTermType(term);
     if (type === 'UPLCConst' && term.value) {
-      // Check for string type
       if (typeof term.value === 'string') return term.value;
       if (term.value.value && typeof term.value.value === 'string') return term.value.value;
-      // Check for bytestring that might be a trace message
       if (term.value.value instanceof Uint8Array) {
-        try {
-          return new TextDecoder().decode(term.value.value);
-        } catch { return null; }
+        try { return new TextDecoder().decode(term.value.value); }
+        catch { return null; }
       }
     }
     return null;
   }
-
-  function traverse(term: any) {
-    if (!term) return;
-    const termType = getType(term);
-    
-    switch (termType) {
-      case 'Application':
-        applicationCount++;
-        // Check for trace builtin application: (trace "message" ...)
-        if (isTraceBuiltin(term.funcTerm)) {
-          const msg = extractString(term.argTerm);
-          if (msg && !traceStrings.includes(msg)) {
-            traceStrings.push(msg);
-          }
-        }
-        // Also check for partially applied trace: ((trace "message") term)
-        if (getType(term.funcTerm) === 'Application') {
-          const inner = term.funcTerm;
-          if (isTraceBuiltin(inner.funcTerm)) {
-            const msg = extractString(inner.argTerm);
-            if (msg && !traceStrings.includes(msg)) {
-              traceStrings.push(msg);
-            }
-          }
-        }
-        traverse(term.funcTerm);
-        traverse(term.argTerm);
-        break;
-      case 'Lambda':
-        lambdaCount++;
-        traverse(term.body);
-        break;
-      case 'Delay':
-        delayCount++;
-        traverse(term.delayedTerm);
-        break;
-      case 'Force':
-        forceCount++;
-        traverse(term.termToForce);
-        break;
-      case 'Builtin':
-        const tag = builtinTagToString(term._tag);
-        builtins[tag] = (builtins[tag] || 0) + 1;
-        break;
-      case 'UPLCConst':
-        if (term.value) {
-          const val = term.value;
-          if (typeof val === 'bigint') {
-            const intStr = val.toString();
-            if (!integers.includes(intStr)) {
-              integers.push(intStr);
-            }
-          } else if (val instanceof Uint8Array) {
-            const hex = bufferToHex(val);
-            // Only include meaningful-length bytestrings (not empty or too short)
-            if (hex.length >= 8 && !bytestrings.includes(hex)) {
-              bytestrings.push(hex);
-            }
-          } else if (val.value !== undefined) {
-            // Wrapped value (harmoniclabs format)
-            if (typeof val.value === 'bigint') {
-              const intStr = val.value.toString();
-              if (!integers.includes(intStr)) {
-                integers.push(intStr);
-              }
-            } else if (val.value instanceof Uint8Array) {
-              const hex = bufferToHex(val.value);
-              if (hex.length >= 8 && !bytestrings.includes(hex)) {
-                bytestrings.push(hex);
-              }
-            }
-          }
-        }
-        break;
-      case 'Constr':
-        term.terms?.forEach(traverse);
-        break;
-      case 'Case':
-        traverse(term.scrutinee);
-        term.branches?.forEach(traverse);
-        break;
-    }
-  }
   
-  traverse(program._body);
+  traverseRaw(program._body);
   
-  const uplc = showUPLC(program.body);
+  // Collect check types
+  const checkTypes = [...new Set(structure.checks.map(c => c.type))];
   
   return {
-    uplc: typeof uplc === 'string' ? uplc : String(uplc),
     version,
+    aikenCode,
+    scriptPurpose: structure.type,
     builtins,
     traceStrings,
     constants: {
-      bytestrings: bytestrings.slice(0, 50),  // Limit to 50
+      bytestrings: bytestrings.slice(0, 50),
       integers: integers.slice(0, 50),
     },
     stats: { lambdaCount, forceCount, delayCount, applicationCount },
+    analysis: {
+      datumUsed: structure.datum.isUsed,
+      datumOptional: structure.datum.isOptional,
+      datumFields: structure.datum.fields.length,
+      redeemerVariants: structure.redeemer.variants.length,
+      redeemerMatchPattern: structure.redeemer.matchPattern,
+      validationChecks: structure.checks.length,
+      checkTypes,
+      scriptParams: structure.scriptParams || [],
+    },
   };
-}
-
-// Decompile UPLC to Aiken
-function decompileToAiken(uplcText: string): { aikenCode: string; scriptPurpose: string } {
-  try {
-    const ast = parseUplc(uplcText);
-    const structure = analyzeContract(ast);
-    const code = generate(structure);
-    return {
-      aikenCode: code,
-      scriptPurpose: structure.type,
-    };
-  } catch (e) {
-    return {
-      aikenCode: `// Decompilation failed: ${e instanceof Error ? e.message : 'Unknown error'}`,
-      scriptPurpose: 'unknown',
-    };
-  }
 }
 
 export const onRequest: PagesFunction<Env> = async (context) => {
@@ -298,19 +343,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (!scriptHash || !/^[a-f0-9]{56}$/i.test(scriptHash)) {
-      return new Response(JSON.stringify({ error: 'Invalid script hash. Must be 56 hex characters.' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) },
-      });
+      return new Response(
+        JSON.stringify({ error: 'Invalid script hash. Must be 56 hex characters.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
+      );
     }
 
-    // Check cache for full analysis (skip if nocache=1)
-    const nocache = url.searchParams.get('nocache') === '1';
-    const cacheKey = `analysis:${scriptHash}`;
-    if (context.env.UPLC_CACHE && !nocache) {
-      const cached = await context.env.UPLC_CACHE.get(cacheKey, 'json') as AnalysisResult | null;
+    const cacheKey = `analysis:v3:${scriptHash}`;
+
+    // Check cache
+    if (context.env.UPLC_CACHE) {
+      const cached = await context.env.UPLC_CACHE.get(cacheKey);
       if (cached) {
-        return new Response(JSON.stringify({ ...cached, cached: true }), {
+        const result = JSON.parse(cached) as AnalysisResult;
+        result.cached = true;
+        return new Response(JSON.stringify(result), {
           headers: {
             'Content-Type': 'application/json',
             'X-Cache': 'hit',
@@ -321,36 +368,39 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // Fetch script from Koios (or KV cache via our koios endpoint)
-    const koiosUrl = new URL('/api/koios', context.request.url);
-    const koiosResponse = await fetch(koiosUrl, {
+    // Fetch from Koios
+    const koiosResponse = await fetch('https://api.koios.rest/api/v1/script_info', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ _script_hashes: [scriptHash] }),
     });
 
     if (!koiosResponse.ok) {
-      return new Response(JSON.stringify({ error: `Failed to fetch script: ${koiosResponse.statusText}` }), {
-        status: koiosResponse.status,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) },
-      });
+      return new Response(
+        JSON.stringify({ error: `Koios API error: ${koiosResponse.status}` }),
+        { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
+      );
     }
 
     const scripts = await koiosResponse.json() as ScriptInfo[];
     if (!scripts || scripts.length === 0) {
-      return new Response(JSON.stringify({ error: 'Script not found on chain' }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) },
-      });
+      return new Response(
+        JSON.stringify({ error: 'Script not found on chain' }),
+        { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
+      );
     }
 
     const script = scripts[0];
-
-    // Decode CBOR → UPLC
-    const decoded = decodeAndAnalyze(script.bytes);
     
-    // Decompile UPLC → Aiken
-    const decompiled = decompileToAiken(decoded.uplc);
+    if (!script.bytes) {
+      return new Response(
+        JSON.stringify({ error: 'Script is a native script (no Plutus bytecode)' }),
+        { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
+      );
+    }
+
+    // Decode and analyze
+    const decoded = decodeAndAnalyze(script.bytes);
 
     const result: AnalysisResult = {
       scriptHash: script.script_hash,
@@ -358,9 +408,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       size: script.size,
       bytes: script.bytes,
       version: decoded.version,
-      uplc: decoded.uplc,
-      aikenCode: decompiled.aikenCode,
-      scriptPurpose: decompiled.scriptPurpose,
+      aikenCode: decoded.aikenCode,
+      scriptPurpose: decoded.scriptPurpose,
       builtins: decoded.builtins,
       traceStrings: decoded.traceStrings,
       constants: decoded.constants,
@@ -369,6 +418,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         uniqueBuiltins: Object.keys(decoded.builtins).length,
         ...decoded.stats,
       },
+      analysis: decoded.analysis,
       cached: false,
     };
 

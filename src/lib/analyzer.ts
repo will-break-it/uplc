@@ -10,6 +10,17 @@ export interface ScriptInfo {
   creationTxHash?: string;
 }
 
+export interface PatternAnalysis {
+  datumUsed: boolean;
+  datumOptional: boolean;
+  datumFields: number;
+  redeemerVariants: number;
+  redeemerMatchPattern: string;
+  validationChecks: number;
+  checkTypes: string[];
+  scriptParams: Array<{ name: string; type: string; value: string }>;
+}
+
 export interface AnalysisResult {
   scriptInfo: ScriptInfo;
   builtins: Record<string, number>;
@@ -29,6 +40,8 @@ export interface AnalysisResult {
   };
   version: string;
   uplcPreview: string;
+  // Rich pattern analysis from @uplc/patterns
+  analysis?: PatternAnalysis;
 }
 
 // Helper: Convert hex bytes to readable text (for protocol detection)
