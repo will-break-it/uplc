@@ -281,10 +281,10 @@ Respond with ONLY the Mermaid code (no markdown fences):`;
  */
 export async function rewriteCode(input: EnhancementInput, env: Env): Promise<string> {
   const tracesSection = input.traces.length > 0
-    ? `\nTRACE STRINGS (extracted from bytecode - preserve ALL of these exactly):\n${input.traces.map(t => `- "${t}"`).join('\n')}\n`
+    ? `\nTRACE STRINGS (from bytecode - MUST include ALL of these):\n${input.traces.map(t => `- "${t}"`).join('\n')}\n`
     : '';
 
-  const prompt = `You are translating decompiled Plutus bytecode into readable Aiken. Be FAITHFUL to the original - do not interpret or guess intent.
+  const prompt = `You are an expert Aiken developer transforming decompiled Plutus bytecode into clean, readable Aiken code.
 
 CONTRACT TYPE: ${input.purpose} validator
 BUILTINS USED: ${Object.entries(input.builtins).slice(0, 20).map(([k, v]) => `${k}(${v})`).join(', ')}${tracesSection}
@@ -293,22 +293,51 @@ DECOMPILED CODE:
 ${input.aikenCode}
 \`\`\`
 
-TRANSLATION RULES (strict):
-1. PRESERVE ALL LOGIC exactly - do not simplify, optimize, or reinterpret
-2. PRESERVE ALL TRACE STRINGS exactly as they appear (trace @"...")
-3. Keep control flow structure - if the original has nested conditions, keep them nested
-4. Use Data type when actual type is unclear - do not invent type definitions
-5. Variable names: use context clues (datum, redeemer, tx, signer) but keep original names (cbA, cbB) if purpose is unclear
-6. Do not add comments that speculate about intent
-7. Do not add validation logic that isn't explicitly in the decompiled code
-8. Flatten fn(a) { fn(b) { body }} to fn(a, b) { body } ONLY when semantically equivalent
-9. Use Aiken stdlib (list.has, list.find, etc.) only for clear matches
+YOUR TASK:
+Transform this into human-readable Aiken that a developer would write. Focus on:
 
-CRITICAL: This is for security analysis. Accuracy > readability. When in doubt, stay closer to the original structure.
+1. MEANINGFUL NAMES - Infer purpose from usage:
+   - Variables accessing tx.extra_signatories → required_signer, authorized_key
+   - Variables compared with deadlines → deadline, valid_until, lock_time
+   - Variables from datum fields → owner, beneficiary, amount, token_policy
+   - Loop/recursion counters → index, count, remaining
+   - ByteArrays used in signatures → pubkey_hash, signature
+   - Integers used in comparisons → threshold, min_amount, deadline
+   
+2. TYPE DEFINITIONS - Create types when structure is clear:
+   - Datum with multiple fields → type Datum { field1: Type, field2: Type }
+   - Redeemer with constructor checks → type Action { Claim, Cancel, Update }
+   - Don't invent types you can't justify from the code
+   
+3. HELPER FUNCTIONS - Extract repeated patterns:
+   - Repeated field access → named function
+   - Common validation → expect_* or check_* function
+   
+4. AIKEN IDIOMS:
+   - when/is for constructor matching (not nested if/else on .1st)
+   - expect for fallible destructuring
+   - list.has, list.find, list.filter for list operations
+   - Proper pipe operators |>
 
-OUTPUT: Return ONLY the Aiken code. No markdown fences, no explanations.`;
+5. PRESERVE:
+   - ALL trace strings exactly as written
+   - ALL validation logic (do not remove checks)
+   - Functional correctness (equivalent behavior)
 
-  const response = await callClaude(prompt, env, 4096);
+6. STRUCTURE:
+   - Put type definitions at the top
+   - Put helper functions before the validator
+   - Keep the validator body clean and readable
+
+OUTPUT FORMAT:
+Return ONLY valid Aiken code. No markdown fences, no explanations, no comments unless they clarify complex logic.
+
+Example transformation:
+BAD:  let cbA = fn(x) { if builtin.un_constr_data(x).1st == 0 { ... } }
+GOOD: fn expect_datum(data: Data) -> Datum { expect datum: Datum = data; datum }`;
+
+  // Use higher token limit for complex contracts
+  const response = await callClaude(prompt, env, 8192);
 
   // Clean up response
   let code = response.trim();
