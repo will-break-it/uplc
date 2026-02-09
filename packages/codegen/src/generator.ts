@@ -509,12 +509,20 @@ function builtinCallToExpression(name: string, args: any[], params: string[], de
   }
   
   // Handle inline templates (operators, simple expressions)
+  // Only use inline if we have enough arguments to fill all placeholders
   if (mapping.inline) {
-    let result = mapping.inline;
-    argExprs.forEach((arg, i) => {
-      result = result.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
-    });
-    return result;
+    // Count required placeholders in template
+    const placeholderCount = (mapping.inline.match(/\{\d+\}/g) || []).length;
+    
+    // Only use inline template if we have all required arguments
+    if (argExprs.length >= placeholderCount) {
+      let result = mapping.inline;
+      argExprs.forEach((arg, i) => {
+        result = result.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
+      });
+      return result;
+    }
+    // Fall through to function call for partial applications
   }
   
   const fnName = mapping.aikenName || name;

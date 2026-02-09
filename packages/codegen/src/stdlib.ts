@@ -32,7 +32,7 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   
   // Data operations → pattern matching (usually inlined)
   unConstrData: { inline: '{0}' },  // Becomes pattern match
-  constrData: { inline: '{0} {{ {1} }}' },
+  constrData: { inline: 'Constr({0}, {1})' },
   unIData: { inline: '{0}' },
   iData: { inline: '{0}' },
   unBData: { inline: '{0}' },
@@ -81,7 +81,7 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   verifySchnorrSecp256k1Signature: { module: 'aiken/crypto', aikenName: 'verify_schnorr_signature' },
   
   // Boolean
-  ifThenElse: { inline: 'if {0} {{ {1} }} else {{ {2} }}' },
+  ifThenElse: { inline: 'if {0} { {1} } else { {2} }' },
   
   // Trace (debug)
   trace: { inline: 'trace @"{0}": {1}' },
