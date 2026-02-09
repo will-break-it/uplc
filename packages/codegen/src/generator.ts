@@ -533,6 +533,14 @@ function dataToExpression(data: any): string {
  * Convert function application to expression
  */
 function appToExpression(term: any, params: string[], depth: number): string {
+  // CRITICAL: Check for let-binding pattern ((lam x body) value)
+  // These should be skipped since we already have bindings captured
+  if (term.func?.tag === 'lam') {
+    // This is a let-binding: ((lam x body) value)
+    // Just emit the body - the binding environment already knows about x
+    return termToExpression(term.func.body, params, depth + 1);
+  }
+  
   // Flatten nested applications
   const parts: any[] = [];
   let current = term;

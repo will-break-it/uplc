@@ -12,6 +12,32 @@
 import type { UplcTerm, UplcValue } from '@uplc/parser';
 
 /**
+ * Arity (number of required arguments) for common builtins
+ */
+const BUILTIN_ARITY: Record<string, number> = {
+  // Binary ops
+  addInteger: 2, subtractInteger: 2, multiplyInteger: 2, divideInteger: 2,
+  modInteger: 2, quotientInteger: 2, remainderInteger: 2,
+  equalsInteger: 2, lessThanInteger: 2, lessThanEqualsInteger: 2,
+  appendByteString: 2, equalsByteString: 2, lessThanByteString: 2,
+  lessThanEqualsByteString: 2,
+  appendString: 2, equalsString: 2,
+  constrData: 2, mkPairData: 2,
+  ifThenElse: 3, chooseList: 3, chooseData: 6,
+  // Unary ops
+  unIData: 1, unBData: 1, unListData: 1, unMapData: 1, unConstrData: 1,
+  iData: 1, bData: 1, listData: 1, mapData: 1,
+  headList: 1, tailList: 1, nullList: 1,
+  fstPair: 1, sndPair: 1,
+  sha2_256: 1, sha3_256: 1, blake2b_256: 1, blake2b_224: 1, keccak_256: 1,
+  lengthOfByteString: 1, encodeUtf8: 1, decodeUtf8: 1,
+  serialiseData: 1,
+  // Two args
+  mkCons: 2, sliceByteString: 3, indexByteString: 2, consByteString: 2,
+  trace: 2, verifyEd25519Signature: 3,
+};
+
+/**
  * A resolved binding with its analysis
  */
 export interface ResolvedBinding {
@@ -355,18 +381,26 @@ export class BindingEnvironment {
     const parts = flattenApp(term);
     const head = parts[0];
     
-    // Partial builtin application
+    // Check for builtin application
     const builtin = getBuiltinName(head);
     if (builtin) {
-      // Check for common patterns with constant arguments
-      const semanticName = this.getPartialBuiltinName(builtin, parts.slice(1));
-      return {
-        name,
-        value: term,
-        category: 'rename',
-        semanticName,
-        pattern: 'partial_builtin'
-      };
+      const argCount = parts.length - 1;
+      const requiredArity = BUILTIN_ARITY[builtin] || 1;
+      
+      // Only partial if we have fewer args than required
+      if (argCount < requiredArity) {
+        const semanticName = this.getPartialBuiltinName(builtin, parts.slice(1));
+        return {
+          name,
+          value: term,
+          category: 'rename',
+          semanticName,
+          pattern: 'partial_builtin'
+        };
+      }
+      
+      // Fully applied - keep as expression
+      return { name, value: term, category: 'keep', pattern: 'unknown' };
     }
     
     // Y combinator application (recursion)
