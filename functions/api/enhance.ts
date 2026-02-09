@@ -284,7 +284,7 @@ export async function rewriteCode(input: EnhancementInput, env: Env): Promise<st
     ? `\nTRACE STRINGS (from bytecode - MUST include ALL of these):\n${input.traces.map(t => `- "${t}"`).join('\n')}\n`
     : '';
 
-  const prompt = `You are an expert Aiken developer transforming decompiled Plutus bytecode into clean, readable Aiken code.
+  const prompt = `You are rewriting decompiled Plutus bytecode into cleaner Aiken. You MUST preserve all logic exactly - this is for security auditing.
 
 CONTRACT TYPE: ${input.purpose} validator
 BUILTINS USED: ${Object.entries(input.builtins).slice(0, 20).map(([k, v]) => `${k}(${v})`).join(', ')}${tracesSection}
@@ -293,48 +293,40 @@ DECOMPILED CODE:
 ${input.aikenCode}
 \`\`\`
 
-YOUR TASK:
-Transform this into human-readable Aiken that a developer would write. Focus on:
+STRICT RULES:
 
-1. MEANINGFUL NAMES - Infer purpose from usage:
-   - Variables accessing tx.extra_signatories → required_signer, authorized_key
-   - Variables compared with deadlines → deadline, valid_until, lock_time
-   - Variables from datum fields → owner, beneficiary, amount, token_policy
-   - Loop/recursion counters → index, count, remaining
-   - ByteArrays used in signatures → pubkey_hash, signature
-   - Integers used in comparisons → threshold, min_amount, deadline
-   
-2. TYPE DEFINITIONS - Create types when structure is clear:
-   - Datum with multiple fields → type Datum { field1: Type, field2: Type }
-   - Redeemer with constructor checks → type Action { Claim, Cancel, Update }
-   - Don't invent types you can't justify from the code
-   
-3. HELPER FUNCTIONS - Extract repeated patterns:
-   - Repeated field access → named function
-   - Common validation → expect_* or check_* function
-   
-4. AIKEN IDIOMS:
-   - when/is for constructor matching (not nested if/else on .1st)
-   - expect for fallible destructuring
-   - list.has, list.find, list.filter for list operations
-   - Proper pipe operators |>
-
-5. PRESERVE:
+1. PRESERVE EVERYTHING:
+   - ALL bytestring constants (#"...") exactly as they appear
+   - ALL integer constants exactly as they appear  
    - ALL trace strings exactly as written
-   - ALL validation logic (do not remove checks)
-   - Functional correctness (equivalent behavior)
+   - ALL conditional checks and comparisons
+   - ALL function calls and their arguments
+   - The exact control flow structure
 
-6. STRUCTURE:
-   - Put type definitions at the top
-   - Put helper functions before the validator
-   - Keep the validator body clean and readable
+2. ONLY RENAME variables to meaningful names based on usage:
+   - cbA, cbB → owner, amount, deadline (when clear from context)
+   - Variables accessing tx.extra_signatories → signer, required_key
+   - Variables with un_b_data → pubkey_hash, token_name, policy_id
+   - Keep original names if purpose is unclear
 
-OUTPUT FORMAT:
-Return ONLY valid Aiken code. No markdown fences, no explanations, no comments unless they clarify complex logic.
+3. SIMPLIFY SYNTAX (not logic):
+   - fn(x) { x } applied to arg → just arg (inline identity)
+   - if x.1st == 0 { ... } else { fail } → when x is { ... }
+   - Nested if/else on same variable → when/is pattern match
 
-Example transformation:
-BAD:  let cbA = fn(x) { if builtin.un_constr_data(x).1st == 0 { ... } }
-GOOD: fn expect_datum(data: Data) -> Datum { expect datum: Datum = data; datum }`;
+4. DO NOT:
+   - Remove any constants, checks, or comparisons
+   - Simplify or "optimize" the logic
+   - Invent validation that isn't there
+   - Add helper functions that change behavior
+   - Guess what the contract "should" do
+
+5. FORMAT:
+   - Keep bytestring constants inline (don't extract to variables)
+   - Use Aiken syntax for pattern matching where applicable
+   - One statement per line for readability
+
+OUTPUT: Return ONLY the Aiken code. No markdown, no explanations.`;
 
   // Use higher token limit for complex contracts
   const response = await callClaude(prompt, env, 8192);
