@@ -18,6 +18,8 @@ export { generateValidator } from './generator.js';
 export { formatCode } from './formatter.js';
 export { BUILTIN_MAP, getRequiredImports, builtinToAiken } from './stdlib.js';
 export { postProcess, extractConstants } from './postprocess.js';
+export { BindingEnvironment } from './bindings.js';
+export type { ResolvedBinding, BindingPattern } from './bindings.js';
 export { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from './helpers.js';
 export type { BuiltinMapping } from './stdlib.js';
 export type { ExtractedHelper, HelperPattern } from './helpers.js';

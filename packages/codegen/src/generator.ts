@@ -14,6 +14,7 @@ import type {
 } from './types.js';
 import { BUILTIN_MAP, getRequiredImports } from './stdlib.js';
 import { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP, type ExtractedHelper } from './helpers.js';
+import { BindingEnvironment } from './bindings.js';
 
 // Track builtins used during code generation (reset per generateValidator call)
 let usedBuiltins: Set<string> = new Set();
@@ -23,6 +24,9 @@ let extractedHelpers: Map<string, ExtractedHelper> = new Map();
 
 // Track which parameters are the transaction context
 let txContextParam: string | null = null;
+
+// Binding environment for resolving let-bound variables
+let bindingEnv: BindingEnvironment | null = null;
 
 const DEFAULT_OPTIONS: GeneratorOptions = {
   comments: true,
@@ -73,9 +77,11 @@ export function generateValidator(
   // Reset tracking state
   usedBuiltins = new Set();
   extractedHelpers = new Map();
+  bindingEnv = null;
   
-  // Extract helper functions from the raw body
+  // Build binding environment and extract helpers from the raw body
   if (structure.rawBody) {
+    bindingEnv = BindingEnvironment.build(structure.rawBody);
     extractedHelpers = extractHelpers(structure.rawBody);
   }
   
@@ -344,6 +350,21 @@ function termToExpression(term: any, params: string[], depth: number): string {
       return constToExpression(term);
       
     case 'var':
+      // Check binding environment for resolved bindings first
+      if (bindingEnv) {
+        const resolved = bindingEnv.get(term.name);
+        if (resolved) {
+          // Inline constants and simple expressions
+          if (resolved.category === 'inline' && resolved.inlineValue) {
+            return resolved.inlineValue;
+          }
+          // Use semantic name for renamed bindings
+          if (resolved.category === 'rename' && resolved.semanticName) {
+            return resolved.semanticName;
+          }
+        }
+      }
+      
       // Check if this variable is a utility binding (substitute with builtin or predicate)
       if (currentUtilityBindings[term.name]) {
         const binding = currentUtilityBindings[term.name];
@@ -493,7 +514,48 @@ function appToExpression(term: any, params: string[], depth: number): string {
     }
   }
   
-  // Check if function is an extracted helper that can be inlined
+  // Check binding environment for function calls
+  if (parts[0]?.tag === 'var' && bindingEnv) {
+    const resolved = bindingEnv.get(parts[0].name);
+    if (resolved) {
+      // Inline identity: id(x) → x
+      if (resolved.pattern === 'identity' && parts.length === 2) {
+        return termToExpression(parts[1], params, depth + 1);
+      }
+      // Inline apply: apply(f, x) → f(x)
+      if (resolved.pattern === 'apply' && parts.length === 3) {
+        const f = termToExpression(parts[1], params, depth + 1);
+        const x = termToExpression(parts[2], params, depth + 1);
+        return `${f}(${x})`;
+      }
+      // Use builtin for wrapper functions: to_int(x) → builtin call
+      if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
+        return builtinCallToExpression(resolved.semanticName, parts.slice(1), params, depth);
+      }
+      // Use semantic name for is_constr_N predicates
+      if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
+        const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
+        return `${resolved.semanticName}(${argExprs.join(', ')})`;
+      }
+      // Use semantic name for field accessors
+      if (resolved.pattern === 'field_accessor' && resolved.semanticName) {
+        const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
+        return `${resolved.semanticName}(${argExprs.join(', ')})`;
+      }
+      // Use semantic name for boolean and/or
+      if ((resolved.pattern === 'boolean_and' || resolved.pattern === 'boolean_or') && resolved.semanticName) {
+        const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
+        if (resolved.pattern === 'boolean_and' && argExprs.length === 2) {
+          return `(${argExprs[0]} && ${argExprs[1]})`;
+        }
+        if (resolved.pattern === 'boolean_or' && argExprs.length === 2) {
+          return `(${argExprs[0]} || ${argExprs[1]})`;
+        }
+      }
+    }
+  }
+  
+  // Check if function is an extracted helper that can be inlined (legacy path)
   if (parts[0]?.tag === 'var') {
     const helper = extractedHelpers.get(parts[0].name);
     if (helper) {

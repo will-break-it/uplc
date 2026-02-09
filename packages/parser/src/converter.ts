@@ -309,8 +309,8 @@ function convertTerm(term: UPLCTerm, ctx: ConversionContext): UplcTerm {
   // Variable (de Bruijn index)
   if (isUPLCVar(term)) {
     const index = Number(term.deBruijn);
-    // de Bruijn indices are 1-based in UPLC
-    const name = ctx.bindings[index - 1] ?? `?${index}`;
+    // harmoniclabs uses 0-based de Bruijn indices
+    const name = ctx.bindings[index] ?? `?${index}`;
     return { tag: 'var', name };
   }
   
