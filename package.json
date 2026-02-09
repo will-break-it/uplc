@@ -10,7 +10,9 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "test": "pnpm -r test",
+    "test": "pnpm -r test && pnpm test:e2e",
+    "test:e2e": "vitest run test/",
+    "test:packages": "pnpm -r test",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=uplc --commit-dirty=true"
   },
   "dependencies": {
