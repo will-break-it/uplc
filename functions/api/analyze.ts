@@ -8,7 +8,7 @@
 import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
-import { generate } from '@uplc/codegen';
+import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
 
 interface Env {
   UPLC_CACHE?: KVNamespace;
@@ -43,6 +43,20 @@ interface AnalysisResult {
     forceCount: number;
     delayCount: number;
     applicationCount: number;
+  };
+  // Execution cost estimate
+  cost: {
+    cpu: string;        // CPU units (as string for bigint)
+    memory: string;     // Memory units
+    cpuBudgetPercent: number;
+    memoryBudgetPercent: number;
+    breakdown: Array<{
+      category: string;
+      cpu: string;
+      memory: string;
+      count: number;
+    }>;
+    warnings: string[];
   };
   // Rich analysis from @uplc/patterns
   analysis: {
@@ -349,7 +363,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       );
     }
 
-    const cacheKey = `analysis:v3:${scriptHash}`;
+    const cacheKey = `analysis:v4:${scriptHash}`;  // v4: added cost estimation
 
     // Check cache
     if (context.env.UPLC_CACHE) {
@@ -401,6 +415,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Decode and analyze
     const decoded = decodeAndAnalyze(script.bytes);
+    
+    // Estimate execution cost
+    const costEstimate = estimateCost(decoded.builtins);
+    const costWarnings = getCostWarnings(decoded.builtins);
 
     const result: AnalysisResult = {
       scriptHash: script.script_hash,
@@ -417,6 +435,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         totalBuiltins: Object.values(decoded.builtins).reduce((a, b) => a + b, 0),
         uniqueBuiltins: Object.keys(decoded.builtins).length,
         ...decoded.stats,
+      },
+      cost: {
+        cpu: costEstimate.cpu.toString(),
+        memory: costEstimate.memory.toString(),
+        cpuBudgetPercent: costEstimate.budgetPercent.cpu,
+        memoryBudgetPercent: costEstimate.budgetPercent.memory,
+        breakdown: costEstimate.breakdown.map(b => ({
+          category: b.category,
+          cpu: b.cpu.toString(),
+          memory: b.memory.toString(),
+          count: b.count,
+        })),
+        warnings: costWarnings,
       },
       analysis: decoded.analysis,
       cached: false,
