@@ -15,6 +15,7 @@ import type {
 import { BUILTIN_MAP, getRequiredImports } from './stdlib.js';
 import { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP, type ExtractedHelper } from './helpers.js';
 import { BindingEnvironment } from './bindings.js';
+import { extractFragments, type CodeFragment } from './fragments.js';
 
 // Track builtins used during code generation (reset per generateValidator call)
 let usedBuiltins: Set<string> = new Set();
@@ -723,4 +724,113 @@ function formatCheck(check: ValidationCheck): string {
     default:
       return `/* ${check.builtin}: ${check.description} */`;
   }
+}
+
+/**
+ * Fragmented output structure for AI processing
+ */
+export interface FragmentedOutput {
+  /** Fragment definitions with metadata */
+  fragments: Array<{
+    id: string;
+    role: string;
+    suggestedName: string;
+    params: string[];
+    returnType: string;
+    builtins: string[];
+    code: string;
+  }>;
+  /** Main validator code using fragments */
+  mainCode: string;
+  /** Combined output for AI */
+  fullOutput: string;
+}
+
+/**
+ * Generate fragmented output for AI consumption
+ * 
+ * This breaks the code into logical fragments that can be
+ * processed and named individually by AI.
+ */
+export function generateFragmented(structure: ContractStructure): FragmentedOutput {
+  // Reset state
+  usedBuiltins = new Set();
+  extractedHelpers = new Map();
+  bindingEnv = null;
+  currentUtilityBindings = {};
+  
+  if (!structure.rawBody) {
+    return { fragments: [], mainCode: '', fullOutput: '' };
+  }
+  
+  // Build binding environment
+  bindingEnv = BindingEnvironment.build(structure.rawBody);
+  currentUtilityBindings = structure.utilityBindings || {};
+  
+  // Extract fragments
+  const bindings = bindingEnv.all();
+  const fragmented = extractFragments(bindings, structure.rawBody, structure.params);
+  
+  // Generate code for each fragment
+  const fragmentOutputs = fragmented.fragments.map(frag => {
+    const code = termToExpression(frag.body, [], 0);
+    return {
+      id: frag.id,
+      role: frag.role,
+      suggestedName: frag.suggestedName || frag.name,
+      params: frag.params,
+      returnType: frag.returnType,
+      builtins: frag.builtinsUsed.slice(0, 5),
+      code
+    };
+  });
+  
+  // Generate main validator code (will use fragment references)
+  const mainCode = termToExpression(structure.rawBody, structure.params, 0);
+  
+  // Build combined output
+  const sections: string[] = [];
+  
+  // Group fragments by role
+  const byRole = new Map<string, typeof fragmentOutputs>();
+  for (const frag of fragmentOutputs) {
+    if (!byRole.has(frag.role)) byRole.set(frag.role, []);
+    byRole.get(frag.role)!.push(frag);
+  }
+  
+  // Output fragments by role
+  const roleOrder = ['fold', 'calculator', 'validator', 'extractor', 'combinator', 'constructor', 'helper'];
+  for (const role of roleOrder) {
+    const frags = byRole.get(role);
+    if (!frags || frags.length === 0) continue;
+    
+    sections.push(`\n// ========== ${role.toUpperCase()} FRAGMENTS ==========`);
+    
+    for (const frag of frags) {
+      sections.push(`
+// [${frag.id}] ${frag.suggestedName}
+// Role: ${frag.role} | Returns: ${frag.returnType}
+// Uses: ${frag.builtins.join(', ') || 'none'}
+fn ${frag.suggestedName}(${frag.params.join(', ')}) -> ${frag.returnType} {
+  ${frag.code}
+}`);
+    }
+  }
+  
+  // Add main validator
+  sections.push(`\n// ========== MAIN VALIDATOR ==========`);
+  sections.push(`validator {
+  ${structure.type}(${structure.params.map((p, i) => {
+    const types = ['Option<Datum>', 'Redeemer', 'OutputReference', 'Transaction'];
+    return `${p}: ${types[i] || 'Data'}`;
+  }).join(', ')}) {
+    ${mainCode}
+  }
+}`);
+  
+  return {
+    fragments: fragmentOutputs,
+    mainCode,
+    fullOutput: sections.join('\n')
+  };
 }
