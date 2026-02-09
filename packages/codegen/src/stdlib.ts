@@ -89,20 +89,54 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   // Error
   error: { inline: 'fail' },
   
+  // Choose operations (polymorphic dispatch)
+  chooseUnit: { inline: '{1}' },  // Returns second arg when unit
+  chooseList: { inline: 'if list.is_empty({0}) { {1} } else { {2} }' },
+  chooseData: { inline: 'choose_data({0}, {1}, {2}, {3}, {4}, {5})' },  // constr, map, list, int, bytes branches
+  
+  // Data equality
+  equalsData: { inline: '{0} == {1}' },
+  
+  // Nil constructors
+  mkNilData: { inline: '[]' },
+  mkNilPairData: { inline: '[]' },
+  
   // Serialization
   serialiseData: { module: 'aiken/cbor', aikenName: 'serialise' },
+  
+  // Integer/ByteString conversion (Plutus V3)
+  integerToByteString: { module: 'aiken/bytearray', aikenName: 'from_int' },
+  byteStringToInteger: { module: 'aiken/bytearray', aikenName: 'to_int' },
+  
+  // Bitwise operations (Plutus V3)
+  andByteString: { module: 'aiken/bytearray', aikenName: 'and', inline: '{0} & {1}' },
+  orByteString: { module: 'aiken/bytearray', aikenName: 'or', inline: '{0} | {1}' },
+  xorByteString: { module: 'aiken/bytearray', aikenName: 'xor', inline: '{0} ^ {1}' },
+  complementByteString: { module: 'aiken/bytearray', aikenName: 'complement', inline: '~{0}' },
+  readBit: { module: 'aiken/bytearray', aikenName: 'test_bit' },
+  writeBits: { module: 'aiken/bytearray', aikenName: 'set_bit' },
+  replicateByte: { module: 'aiken/bytearray', aikenName: 'replicate' },
+  shiftByteString: { module: 'aiken/bytearray', aikenName: 'shift' },
+  rotateByteString: { module: 'aiken/bytearray', aikenName: 'rotate' },
+  countSetBits: { module: 'aiken/bytearray', aikenName: 'popcount' },
+  findFirstSetBit: { module: 'aiken/bytearray', aikenName: 'first_set_bit' },
+  
+  // Additional crypto
+  ripemd_160: { module: 'aiken/crypto', aikenName: 'ripemd_160' },
   
   // BLS (Plutus V3)
   bls12_381_G1_add: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_add' },
   bls12_381_G1_neg: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_neg' },
   bls12_381_G1_scalarMul: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_scalar_mul' },
   bls12_381_G1_equal: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_equal' },
+  bls12_381_G1_hashToGroup: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_hash_to_group' },
   bls12_381_G1_compress: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_compress' },
   bls12_381_G1_uncompress: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_uncompress' },
   bls12_381_G2_add: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_add' },
   bls12_381_G2_neg: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_neg' },
   bls12_381_G2_scalarMul: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_scalar_mul' },
   bls12_381_G2_equal: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_equal' },
+  bls12_381_G2_hashToGroup: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_hash_to_group' },
   bls12_381_G2_compress: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_compress' },
   bls12_381_G2_uncompress: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_uncompress' },
   bls12_381_millerLoop: { module: 'aiken/crypto/bls12_381', aikenName: 'miller_loop' },
