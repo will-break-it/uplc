@@ -537,15 +537,26 @@ function dataToExpression(data: any): string {
 }
 
 /**
+ * Unwrap force/delay wrappers to get the underlying term
+ */
+function unwrapForceDelay(term: any): any {
+  while (term && (term.tag === 'force' || term.tag === 'delay')) {
+    term = term.term;
+  }
+  return term;
+}
+
+/**
  * Convert function application to expression
  */
 function appToExpression(term: any, params: string[], depth: number): string {
   // CRITICAL: Check for let-binding pattern ((lam x body) value)
-  // These should be skipped since we already have bindings captured
-  if (term.func?.tag === 'lam') {
-    // This is a let-binding: ((lam x body) value)
+  // Need to unwrap force/delay first: app(force(lam x body), delay(value))
+  const unwrappedFunc = unwrapForceDelay(term.func);
+  if (unwrappedFunc?.tag === 'lam') {
+    // This is a let-binding: ((lam x body) value) or with force/delay wrappers
     // Just emit the body - the binding environment already knows about x
-    return termToExpression(term.func.body, params, depth + 1);
+    return termToExpression(unwrappedFunc.body, params, depth + 1);
   }
   
   // Flatten nested applications

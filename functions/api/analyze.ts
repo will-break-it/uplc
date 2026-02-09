@@ -5,7 +5,7 @@
  * All stages cached in KV (immutable once computed)
  */
 
-import { UPLCDecoder, builtinTagToString } from '@harmoniclabs/uplc';
+import { UPLCDecoder, builtinTagToString, prettyUPLC } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
 import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
@@ -29,6 +29,7 @@ interface AnalysisResult {
   bytes: string;  // CBOR hex
   version: string;
   aikenCode: string;
+  uplcText: string;  // Pretty-printed UPLC
   scriptPurpose: string;
   builtins: Record<string, number>;
   traceStrings: string[];
@@ -122,6 +123,7 @@ function bufferToHex(buffer: Uint8Array): string {
 function decodeAndAnalyze(bytes: string): {
   version: string;
   aikenCode: string;
+  uplcText: string;
   scriptPurpose: string;
   builtins: Record<string, number>;
   traceStrings: string[];
@@ -152,6 +154,9 @@ function decodeAndAnalyze(bytes: string): {
   
   // Generate Aiken code
   const aikenCode = generate(structure);
+  
+  // Generate pretty-printed UPLC text
+  const uplcText = prettyUPLC(program.body);
   
   // Extract stats from AST
   const builtins: Record<string, number> = {};
@@ -316,6 +321,7 @@ function decodeAndAnalyze(bytes: string): {
   return {
     version,
     aikenCode,
+    uplcText,
     scriptPurpose: structure.type,
     builtins,
     traceStrings,
@@ -363,7 +369,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       );
     }
 
-    const cacheKey = `analysis:v4:${scriptHash}`;  // v4: added cost estimation
+    const cacheKey = `analysis:v5:${scriptHash}`;  // v5: added uplcText
 
     // Check cache
     if (context.env.UPLC_CACHE) {
@@ -427,6 +433,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       bytes: script.bytes,
       version: decoded.version,
       aikenCode: decoded.aikenCode,
+      uplcText: decoded.uplcText,
       scriptPurpose: decoded.scriptPurpose,
       builtins: decoded.builtins,
       traceStrings: decoded.traceStrings,

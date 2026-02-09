@@ -520,7 +520,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           classification: serverResult.scriptPurpose,
           version: serverResult.version,
           stats: serverResult.stats,
-          uplcPreview: serverResult.aikenCode, // Use Aiken code as preview (no UPLC text anymore)
+          uplcPreview: serverResult.uplcText, // Actual UPLC text from harmoniclabs
           analysis: serverResult.analysis,
         };
         
