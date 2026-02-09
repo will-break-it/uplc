@@ -311,6 +311,43 @@ describe('@uplc/codegen', () => {
     });
   });
 
+  describe('partial builtin applications', () => {
+    it('handles partial application without unfilled placeholders', () => {
+      // When equalsByteString is applied to only 1 arg, should show function call not {1}
+      const uplc = `(lam a (lam b (lam c 
+        [[(force (force (builtin equalsByteString))) 
+          (con bytestring #deadbeef)] 
+          (con bytestring #cafebabe)])))`;
+      
+      const ast = parseUplc(uplc);
+      const structure = analyzeContract(ast);
+      const code = generate(structure);
+      
+      // Should NOT contain unfilled placeholder
+      expect(code).not.toContain('{1}');
+      expect(code).not.toContain('{2}');
+      // Should contain the comparison
+      expect(code).toContain('deadbeef');
+      expect(code).toContain('cafebabe');
+    });
+
+    it('uses function call for partial applications', () => {
+      // Partial application of binary builtin
+      const uplc = `(lam a (lam b (lam c 
+        [(force (force (builtin equalsByteString))) 
+          (con bytestring #deadbeef)])))`;
+      
+      const ast = parseUplc(uplc);
+      const structure = analyzeContract(ast);
+      const code = generate(structure);
+      
+      // Should show function call syntax for partial app
+      expect(code).toContain('equalsByteString');
+      expect(code).toContain('deadbeef');
+      expect(code).not.toContain('{1}');
+    });
+  });
+
   describe('full pipeline - bytestring constant preservation', () => {
     it('preserves bytestring constants in generated code', () => {
       // UPLC with bytestring constants (simulating policy IDs / script hashes)
