@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { generate, postProcess, extractConstants, extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from '../src/index.js';
+import { parseUplc } from '@uplc/parser';
+import { analyzeContract } from '@uplc/patterns';
 import type { ContractStructure } from '@uplc/patterns';
 import type { UplcTerm } from '@uplc/parser';
 
@@ -306,6 +308,87 @@ describe('@uplc/codegen', () => {
       expect(TX_FIELD_MAP[2]).toBe('outputs');
       expect(TX_FIELD_MAP[7]).toBe('validity_range');
       expect(TX_FIELD_MAP[8]).toBe('extra_signatories');
+    });
+  });
+
+  describe('full pipeline - bytestring constant preservation', () => {
+    it('preserves bytestring constants in generated code', () => {
+      // UPLC with bytestring constants (simulating policy IDs / script hashes)
+      const uplc = `(lam a (lam b (lam c 
+        [[[(force (force (builtin ifThenElse))) 
+          [[(force (force (builtin equalsByteString))) 
+            (con bytestring #e0fccbbfb75923bff6dac5f23805dcf6cecfaae8aa3a6d3e474ee670)] 
+            (con bytestring #6d9d7acac59a4469ec52bb207106167c5cbfa689008ffa6ee92acc50)]]
+          (delay (con unit ()))]
+          (delay (error))])))`;
+      
+      const ast = parseUplc(uplc);
+      const structure = analyzeContract(ast);
+      const code = generate(structure);
+      
+      // Verify the bytestring constants appear in the output
+      expect(code).toContain('e0fccbbfb75923bff6dac5f23805dcf6cecfaae8aa3a6d3e474ee670');
+      expect(code).toContain('6d9d7acac59a4469ec52bb207106167c5cbfa689008ffa6ee92acc50');
+    });
+
+    it('preserves integer constants in generated code', () => {
+      // UPLC with integer constants
+      const uplc = `(lam a (lam b (lam c 
+        [[[(force (force (builtin ifThenElse))) 
+          [[(force (builtin lessThanInteger)) 
+            (con integer 1000000)] 
+            (con integer 500000)]]
+          (delay (con unit ()))]
+          (delay (error))])))`;
+      
+      const ast = parseUplc(uplc);
+      const structure = analyzeContract(ast);
+      const code = generate(structure);
+      
+      // Verify the integer constants appear
+      expect(code).toContain('1000000');
+      expect(code).toContain('500000');
+    });
+
+    it('preserves trace strings in generated code', () => {
+      // UPLC with trace builtin and string constant
+      const uplc = `(lam a (lam b (lam c 
+        [[(force (builtin trace)) 
+          (con string "Validation failed: insufficient funds")]
+          (error)])))`;
+      
+      const ast = parseUplc(uplc);
+      const structure = analyzeContract(ast);
+      const code = generate(structure);
+      
+      // Verify trace string appears
+      expect(code).toContain('Validation failed: insufficient funds');
+    });
+
+    it('handles minting policy with multiple bytestring comparisons', () => {
+      // Simulates a minting policy checking multiple hashes
+      const uplc = `(lam redeemer (lam policy_id (lam ctx
+        [[[(force (force (builtin ifThenElse)))
+          [[(force (force (builtin equalsByteString)))
+            (con bytestring #deadbeef01234567890abcdef0123456789abcdef0123456789abcde)]
+            (con bytestring #cafebabe01234567890abcdef0123456789abcdef0123456789abcde)]]
+          (delay [[[(force (force (builtin ifThenElse)))
+            [[(force (force (builtin equalsByteString)))
+              (con bytestring #feedface01234567890abcdef0123456789abcdef0123456789abcde)]
+              (con bytestring #baadf00d01234567890abcdef0123456789abcdef0123456789abcde)]]
+            (delay (con unit ()))]
+            (delay (error))])]
+          (delay (error))])))`;
+      
+      const ast = parseUplc(uplc);
+      const structure = analyzeContract(ast);
+      const code = generate(structure);
+      
+      // All 4 bytestring constants should be preserved
+      expect(code).toContain('deadbeef01234567890abcdef0123456789abcdef0123456789abcde');
+      expect(code).toContain('cafebabe01234567890abcdef0123456789abcdef0123456789abcde');
+      expect(code).toContain('feedface01234567890abcdef0123456789abcdef0123456789abcde');
+      expect(code).toContain('baadf00d01234567890abcdef0123456789abcdef0123456789abcde');
     });
   });
 });
