@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { generate, postProcess, extractConstants } from '../src/index.js';
+import { generate, postProcess, extractConstants, extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from '../src/index.js';
 import type { ContractStructure } from '@uplc/patterns';
+import type { UplcTerm } from '@uplc/parser';
 
 describe('@uplc/codegen', () => {
   describe('generate', () => {
@@ -207,6 +208,104 @@ describe('@uplc/codegen', () => {
       
       expect(constants.length).toBe(0);
       expect(code).toBe(input);
+    });
+  });
+
+  describe('extractHelpers', () => {
+    it('detects identity function: fn(x) { x }', () => {
+      const term: UplcTerm = {
+        tag: 'app',
+        func: {
+          tag: 'lam',
+          param: 'myId',
+          body: { tag: 'var', name: 'y' }
+        },
+        arg: {
+          tag: 'lam',
+          param: 'x',
+          body: { tag: 'var', name: 'x' }
+        }
+      };
+      
+      const helpers = extractHelpers(term);
+      expect(helpers.has('myId')).toBe(true);
+      expect(helpers.get('myId')?.pattern).toBe('identity');
+      expect(helpers.get('myId')?.helperName).toBe('id');
+      expect(helpers.get('myId')?.canInline).toBe(true);
+    });
+
+    it('detects apply function: fn(f, x) { f(x) }', () => {
+      const term: UplcTerm = {
+        tag: 'app',
+        func: {
+          tag: 'lam',
+          param: 'apply',
+          body: { tag: 'var', name: 'y' }
+        },
+        arg: {
+          tag: 'lam',
+          param: 'f',
+          body: {
+            tag: 'lam',
+            param: 'x',
+            body: {
+              tag: 'app',
+              func: { tag: 'var', name: 'f' },
+              arg: { tag: 'var', name: 'x' }
+            }
+          }
+        }
+      };
+      
+      const helpers = extractHelpers(term);
+      expect(helpers.has('apply')).toBe(true);
+      expect(helpers.get('apply')?.pattern).toBe('apply');
+    });
+
+    it('detects compose function: fn(f, g, x) { f(g(x)) }', () => {
+      const term: UplcTerm = {
+        tag: 'app',
+        func: {
+          tag: 'lam',
+          param: 'compose',
+          body: { tag: 'var', name: 'unused' }
+        },
+        arg: {
+          tag: 'lam',
+          param: 'f',
+          body: {
+            tag: 'lam',
+            param: 'g',
+            body: {
+              tag: 'lam',
+              param: 'x',
+              body: {
+                tag: 'app',
+                func: { tag: 'var', name: 'f' },
+                arg: {
+                  tag: 'app',
+                  func: { tag: 'var', name: 'g' },
+                  arg: { tag: 'var', name: 'x' }
+                }
+              }
+            }
+          }
+        }
+      };
+      
+      const helpers = extractHelpers(term);
+      expect(helpers.has('compose')).toBe(true);
+      expect(helpers.get('compose')?.pattern).toBe('compose');
+    });
+  });
+
+  describe('TX_FIELD_MAP', () => {
+    it('maps transaction field indices to names', () => {
+      expect(TX_FIELD_MAP[0]).toBe('inputs');
+      expect(TX_FIELD_MAP[1]).toBe('reference_inputs');
+      expect(TX_FIELD_MAP[2]).toBe('outputs');
+      expect(TX_FIELD_MAP[7]).toBe('validity_range');
+      expect(TX_FIELD_MAP[8]).toBe('extra_signatories');
     });
   });
 });

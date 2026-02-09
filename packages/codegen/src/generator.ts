@@ -13,9 +13,16 @@ import type {
   ParameterInfo 
 } from './types.js';
 import { BUILTIN_MAP, getRequiredImports } from './stdlib.js';
+import { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP, type ExtractedHelper } from './helpers.js';
 
 // Track builtins used during code generation (reset per generateValidator call)
 let usedBuiltins: Set<string> = new Set();
+
+// Track extracted helpers during code generation
+let extractedHelpers: Map<string, ExtractedHelper> = new Map();
+
+// Track which parameters are the transaction context
+let txContextParam: string | null = null;
 
 const DEFAULT_OPTIONS: GeneratorOptions = {
   comments: true,
@@ -63,8 +70,17 @@ export function generateValidator(
 ): GeneratedCode {
   const opts = { ...DEFAULT_OPTIONS, ...options };
   
-  // Reset builtin tracking
+  // Reset tracking state
   usedBuiltins = new Set();
+  extractedHelpers = new Map();
+  
+  // Extract helper functions from the raw body
+  if (structure.rawBody) {
+    extractedHelpers = extractHelpers(structure.rawBody);
+  }
+  
+  // Determine transaction context parameter
+  txContextParam = structure.params[structure.params.length - 1] || null;
   
   const types: TypeDefinition[] = [];
   
@@ -330,6 +346,11 @@ function termToExpression(term: any, params: string[], depth: number): string {
         }
         return `builtin::${binding}`;
       }
+      // Check if this is an extracted helper that should be renamed
+      const helper = extractedHelpers.get(term.name);
+      if (helper && helper.helperName !== term.name) {
+        return helper.helperName;
+      }
       return term.name;
       
     case 'builtin':
@@ -413,6 +434,31 @@ function appToExpression(term: any, params: string[], depth: number): string {
   }
   parts.unshift(current);
   
+  // Check for transaction field access pattern (headList(tailList^n(sndPair(unConstrData(tx)))))
+  if (txContextParam && parts[0]?.tag === 'builtin' && parts[0].name === 'headList') {
+    const txField = detectTxFieldAccess(term, txContextParam);
+    if (txField) {
+      return `tx.${txField.name}`;
+    }
+  }
+  
+  // Check if function is an extracted helper that can be inlined
+  if (parts[0]?.tag === 'var') {
+    const helper = extractedHelpers.get(parts[0].name);
+    if (helper) {
+      // Inline identity function: id(x) → x
+      if (helper.pattern === 'identity' && parts.length === 2) {
+        return termToExpression(parts[1], params, depth + 1);
+      }
+      // Inline apply function: apply(f, x) → f(x)
+      if (helper.pattern === 'apply' && parts.length === 3) {
+        const f = termToExpression(parts[1], params, depth + 1);
+        const x = termToExpression(parts[2], params, depth + 1);
+        return `${f}(${x})`;
+      }
+    }
+  }
+  
   // Check if it's a builtin call
   if (parts[0]?.tag === 'builtin') {
     return builtinCallToExpression(parts[0].name, parts.slice(1), params, depth);
@@ -431,12 +477,19 @@ function appToExpression(term: any, params: string[], depth: number): string {
     return builtinCallToExpression(bindingName, parts.slice(1), params, depth);
   }
   
-  // Regular function call
-  const func = termToExpression(parts[0], params, depth + 1);
+  // Regular function call - use helper name if available
+  let funcName: string;
+  if (parts[0]?.tag === 'var') {
+    const helper = extractedHelpers.get(parts[0].name);
+    funcName = helper?.helperName || parts[0].name;
+  } else {
+    funcName = termToExpression(parts[0], params, depth + 1);
+  }
+  
   const args = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
   
-  if (args.length === 0) return func;
-  return `${func}(${args.join(', ')})`;
+  if (args.length === 0) return funcName;
+  return `${funcName}(${args.join(', ')})`;
 }
 
 /**
