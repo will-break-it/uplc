@@ -87,6 +87,7 @@ export function analyzeContract(ast: UplcTerm): ContractStructure {
     redeemer,
     checks,
     rawBody: validator.body,
+    fullAst: ast,  // Include full AST for BindingEnvironment
     utilities: validator.utilities,
     utilityBindings: validator.utilityBindings,
     scriptParams: validator.scriptParams

@@ -85,9 +85,12 @@ export function generateValidator(
   bindingEnv = null;
   inliningStack = new Set();
   
-  // Build binding environment and extract helpers from the raw body
+  // Build binding environment from full AST (includes all let-bindings)
+  // Extract helpers from raw body (the validator body after stripping params)
+  if (structure.fullAst) {
+    bindingEnv = BindingEnvironment.build(structure.fullAst);
+  }
   if (structure.rawBody) {
-    bindingEnv = BindingEnvironment.build(structure.rawBody);
     extractedHelpers = extractHelpers(structure.rawBody);
   }
   
@@ -384,7 +387,9 @@ function termToExpression(term: any, params: string[], depth: number): string {
             }
           }
           
-          // For 'keep' bindings: inline simple terms (limit depth to prevent blowup)
+          // For 'keep' bindings: inline based on context
+          // At depth 0-5, allow larger inlining (top-level main logic)
+          // At deeper levels, limit size to prevent blowup
           if (resolved.category === 'keep' && 
               resolved.pattern !== 'list_fold' && 
               depth < 50) {
@@ -392,8 +397,10 @@ function termToExpression(term: any, params: string[], depth: number): string {
             inliningStack.add(term.name);
             try {
               const inlined = termToExpression(resolved.value, params, depth + 1);
-              // Only use inlined version if it's reasonably short
-              if (inlined.length < 200) {
+              // At shallow depth, allow larger functions (e.g. main validator logic)
+              // At deeper depth, be more conservative
+              const maxLen = depth < 5 ? 10000 : 200;
+              if (inlined.length < maxLen) {
                 return inlined;
               }
             } finally {
@@ -840,8 +847,8 @@ export function generateFragmented(structure: ContractStructure): FragmentedOutp
     return { fragments: [], mainCode: '', fullOutput: '' };
   }
   
-  // Build binding environment
-  bindingEnv = BindingEnvironment.build(structure.rawBody);
+  // Build binding environment from full AST (includes all let-bindings)
+  bindingEnv = BindingEnvironment.build(structure.fullAst || structure.rawBody);
   currentUtilityBindings = structure.utilityBindings || {};
   
   // Extract fragments

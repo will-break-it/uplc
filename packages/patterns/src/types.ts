@@ -37,6 +37,7 @@ export interface ContractStructure {
   redeemer: RedeemerInfo;     // Redeemer structure - used for type generation
   checks: ValidationCheck[];  // Validation checks - metadata for analysis
   rawBody: UplcTerm;          // Original AST body - used for code generation
+  fullAst: UplcTerm;          // Full AST including all let-bindings - for BindingEnvironment
   utilities?: UplcTerm;       // Utility functions from V3 wrapper
   utilityBindings?: Record<string, string>;  // Map param names to builtin names (V3)
   scriptParams?: ScriptParameter[];  // Top-level parameterized constants
