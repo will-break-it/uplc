@@ -16,6 +16,7 @@ import { BUILTIN_MAP, getRequiredImports } from './stdlib.js';
 import { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP, type ExtractedHelper } from './helpers.js';
 import { BindingEnvironment } from './bindings.js';
 import { extractFragments, type CodeFragment } from './fragments.js';
+import { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch } from './patterns.js';
 
 // Track builtins used during code generation (reset per generateValidator call)
 let usedBuiltins: Set<string> = new Set();
@@ -401,10 +402,12 @@ function termToExpression(term: any, params: string[], depth: number): string {
       return appToExpression(term, params, depth);
       
     case 'force':
+      // Force just unwraps delay - invisible in Aiken
       return termToExpression(term.term, params, depth + 1);
       
     case 'delay':
-      return `delay { ${termToExpression(term.term, params, depth + 1)} }`;
+      // Delay is for lazy evaluation - Aiken is strict, so just emit the inner term
+      return termToExpression(term.term, params, depth + 1);
       
     case 'error':
       return 'fail';
@@ -507,11 +510,40 @@ function appToExpression(term: any, params: string[], depth: number): string {
   }
   parts.unshift(current);
   
-  // Check for transaction field access pattern (headList(tailList^n(sndPair(unConstrData(tx)))))
+  // Check for transaction field access using new pattern detection
   if (txContextParam && parts[0]?.tag === 'builtin' && parts[0].name === 'headList') {
-    const txField = detectTxFieldAccess(term, txContextParam);
+    const txField = detectTxField(term, txContextParam);
     if (txField) {
-      return `tx.${txField.name}`;
+      return `tx.${txField}`;
+    }
+    
+    // Also try legacy detection
+    const txFieldLegacy = detectTxFieldAccess(term, txContextParam);
+    if (txFieldLegacy) {
+      return `tx.${txFieldLegacy.name}`;
+    }
+  }
+  
+  // Check for constructor match pattern → when/is
+  if (parts[0]?.tag === 'builtin' && parts[0].name === 'ifThenElse') {
+    const match = detectConstrMatch(term);
+    if (match && match.branches.length >= 2) {
+      const scrutinee = termToExpression(match.scrutinee, params, depth + 1);
+      const branches = match.branches.map(b => 
+        `    ${b.index} -> ${termToExpression(b.body, params, depth + 1)}`
+      ).join('\n');
+      const defaultBr = match.default 
+        ? `\n    _ -> ${termToExpression(match.default, params, depth + 1)}`
+        : '';
+      return `when ${scrutinee} is {\n${branches}${defaultBr}\n  }`;
+    }
+    
+    // Check for boolean chain → a && b && c
+    const boolChain = detectBooleanChain(term);
+    if (boolChain && boolChain.operands.length >= 2) {
+      const op = boolChain.kind === 'and' ? ' && ' : ' || ';
+      const operandStrs = boolChain.operands.map(o => termToExpression(o, params, depth + 1));
+      return `(${operandStrs.join(op)})`;
     }
   }
   

@@ -23,6 +23,8 @@ export { BindingEnvironment } from './bindings.js';
 export type { ResolvedBinding, BindingPattern } from './bindings.js';
 export { extractFragments, formatFragmentsForAI } from './fragments.js';
 export type { CodeFragment, FragmentRole, FragmentedCode } from './fragments.js';
+export { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch, TX_FIELDS } from './patterns.js';
+export type { DetectedPattern, PatternKind } from './patterns.js';
 export { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from './helpers.js';
 export type { BuiltinMapping } from './stdlib.js';
 export type { ExtractedHelper, HelperPattern } from './helpers.js';
