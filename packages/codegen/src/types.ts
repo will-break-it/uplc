@@ -20,6 +20,15 @@ export interface GeneratorOptions {
 }
 
 /**
+ * A script-level parameter (hardcoded constant)
+ */
+export interface ScriptParameterDef {
+  name: string;
+  type: 'bytestring' | 'integer';
+  value: string;
+}
+
+/**
  * Generated code output
  */
 export interface GeneratedCode {
@@ -31,6 +40,9 @@ export interface GeneratedCode {
   
   /** Import statements */
   imports: string[];
+  
+  /** Script-level parameters (hardcoded constants) */
+  scriptParams?: ScriptParameterDef[];
 }
 
 /**

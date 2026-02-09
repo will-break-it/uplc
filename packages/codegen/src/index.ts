@@ -37,14 +37,17 @@ export function generate(structure: ContractStructure, options?: Partial<import(
   code = simplifyTailChains(code);
   code = postProcess(code);
   
-  // Extract constants if there are long hex strings
-  const { code: finalCode, constants } = extractConstants(code);
-  
-  // Prepend constants if any
-  if (constants.length > 0) {
-    code = constants.join('\n') + '\n\n' + finalCode;
-  } else {
-    code = finalCode;
+  // Extract constants from inline hex strings, but only if we don't already have scriptParams
+  // (scriptParams are extracted at the top-level and are authoritative)
+  if (!generated.scriptParams || generated.scriptParams.length === 0) {
+    const { code: finalCode, constants } = extractConstants(code);
+    
+    // Prepend constants if any
+    if (constants.length > 0) {
+      code = constants.join('\n') + '\n\n' + finalCode;
+    } else {
+      code = finalCode;
+    }
   }
   
   return code;

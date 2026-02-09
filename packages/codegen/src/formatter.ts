@@ -27,6 +27,19 @@ export function formatCode(code: GeneratedCode): string {
     parts.push('');
   }
   
+  // Format script-level parameters (hardcoded constants)
+  if (code.scriptParams && code.scriptParams.length > 0) {
+    parts.push('// Script parameters (hardcoded constants)');
+    for (const param of code.scriptParams) {
+      if (param.type === 'bytestring') {
+        parts.push(`const ${param.name} = #"${param.value}"`);
+      } else {
+        parts.push(`const ${param.name} = ${param.value}`);
+      }
+    }
+    parts.push('');
+  }
+  
   // Format type definitions
   for (const type of code.types) {
     parts.push(formatType(type));

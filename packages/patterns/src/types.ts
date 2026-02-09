@@ -16,6 +16,15 @@ export type ScriptPurpose =
   | 'unknown';
 
 /**
+ * A script parameter (hardcoded constant passed at script level)
+ */
+export interface ScriptParameter {
+  name: string;      // Generated name like PARAM_0 or SCRIPT_HASH
+  type: string;      // 'bytestring' | 'integer' | 'data'
+  value: string;     // Hex string or numeric value
+}
+
+/**
  * Overall contract structure analysis
  *
  * This represents the analyzed structure of a Plutus validator.
@@ -30,6 +39,7 @@ export interface ContractStructure {
   rawBody: UplcTerm;          // Original AST body - used for code generation
   utilities?: UplcTerm;       // Utility functions from V3 wrapper
   utilityBindings?: Record<string, string>;  // Map param names to builtin names (V3)
+  scriptParams?: ScriptParameter[];  // Top-level parameterized constants
 }
 
 /**

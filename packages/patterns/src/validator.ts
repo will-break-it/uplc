@@ -23,24 +23,126 @@ export type ScriptPurpose =
   | 'propose'         // 3 params: redeemer, proposal_procedure, tx
   | 'unknown';
 
+export interface ScriptParameter {
+  name: string;      // Generated name like PARAM_0 or SCRIPT_HASH
+  type: string;      // 'bytestring' | 'integer' | 'data'
+  value: string;     // Hex string or numeric value
+}
+
 export interface ValidatorInfo {
   type: ScriptPurpose;
   params: string[];
   body: UplcTerm;
   utilities?: UplcTerm;  // The constr with utility functions if detected
   utilityBindings?: Record<string, string>;  // Map param names to builtin names
+  scriptParams?: ScriptParameter[];  // Top-level parameterized constants
 }
 
 /**
  * Detect the validator entry point structure
  */
 export function detectValidator(ast: UplcTerm): ValidatorInfo {
-  // First try Plutus V3 pattern detection
-  const v3Result = detectV3Pattern(ast);
-  if (v3Result) return v3Result;
+  // First unwrap any top-level parameter applications
+  const { inner, params: scriptParams } = unwrapParameterApplications(ast);
+  
+  // Try Plutus V3 pattern detection
+  const v3Result = detectV3Pattern(inner);
+  if (v3Result) {
+    v3Result.scriptParams = scriptParams.length > 0 ? scriptParams : undefined;
+    return v3Result;
+  }
   
   // Fall back to simple lambda counting
-  return detectSimplePattern(ast);
+  const simpleResult = detectSimplePattern(inner);
+  simpleResult.scriptParams = scriptParams.length > 0 ? scriptParams : undefined;
+  return simpleResult;
+}
+
+/**
+ * Unwrap top-level applications that pass constants into the script.
+ * Pattern: [[script_body] const1] const2] ...
+ * Returns the inner script body and extracted parameters.
+ */
+function unwrapParameterApplications(ast: UplcTerm): { inner: UplcTerm; params: ScriptParameter[] } {
+  const params: ScriptParameter[] = [];
+  let current = ast;
+  let paramIndex = 0;
+  
+  // Unwrap applications where the arg is a constant
+  while (current.tag === 'app') {
+    const arg = current.arg;
+    
+    if (arg.tag === 'con') {
+      const param = extractConstantParam(arg, paramIndex);
+      if (param) {
+        params.unshift(param);  // Prepend since we're unwrapping inside-out
+        paramIndex++;
+      }
+      current = current.func;
+    } else {
+      // Not a constant arg - stop unwrapping
+      break;
+    }
+  }
+  
+  return { inner: current, params };
+}
+
+/**
+ * Extract a script parameter from a constant term
+ */
+function extractConstantParam(term: any, index: number): ScriptParameter | null {
+  if (term.tag !== 'con') return null;
+  
+  const type = term.type;
+  const value = term.value;
+  
+  if (type === 'bytestring' || value?.tag === 'bytestring') {
+    const bytes = value?.value || value;
+    const hex = bytesToHex(bytes);
+    const name = hex.length === 56 ? `SCRIPT_HASH_${index}` 
+               : hex.length === 64 ? `POLICY_ID_${index}`
+               : `PARAM_${index}`;
+    return { name, type: 'bytestring', value: hex };
+  }
+  
+  if (type === 'integer' || value?.tag === 'integer') {
+    const num = value?.value ?? value;
+    return { name: `PARAM_${index}`, type: 'integer', value: num.toString() };
+  }
+  
+  if (type === 'data' || value?.tag === 'data') {
+    // Handle Data-encoded values
+    const innerValue = value?.value || value;
+    if (innerValue?.tag === 'bytes') {
+      const hex = typeof innerValue.value === 'string' 
+        ? innerValue.value 
+        : bytesToHex(innerValue.value);
+      const name = hex.length === 56 ? `SCRIPT_HASH_${index}` 
+                 : hex.length === 64 ? `POLICY_ID_${index}`
+                 : `PARAM_${index}`;
+      return { name, type: 'bytestring', value: hex };
+    }
+    if (innerValue?.tag === 'int') {
+      return { name: `PARAM_${index}`, type: 'integer', value: innerValue.value.toString() };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Convert bytes to hex string
+ */
+function bytesToHex(bytes: any): string {
+  if (typeof bytes === 'string') return bytes;
+  if (bytes instanceof Uint8Array) {
+    return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  if (bytes && typeof bytes === 'object') {
+    return Array.from(Object.values(bytes) as number[]).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  return '';
 }
 
 /**

@@ -118,7 +118,14 @@ export function generateValidator(
   // Collect required imports from used builtins
   const imports = getRequiredImports(Array.from(usedBuiltins));
   
-  return { validator, types, imports };
+  // Convert script parameters to output format
+  const scriptParams = structure.scriptParams?.map(p => ({
+    name: p.name,
+    type: p.type as 'bytestring' | 'integer',
+    value: p.value
+  }));
+  
+  return { validator, types, imports, scriptParams };
 }
 
 // Common variant names for redeemer types
@@ -405,15 +412,59 @@ function constToExpression(term: any): string {
       return term.value.value ? 'True' : 'False';
     case 'unit':
       return '()';
-    case 'bytestring':
-      const hex = Array.from(term.value.value as Uint8Array)
+    case 'bytestring': {
+      const val = term.value.value;
+      // Handle both Uint8Array and plain object with numeric indices
+      const bytes = val instanceof Uint8Array ? val : (Array.isArray(val) ? val : Object.values(val));
+      const hex = Array.from(bytes as number[])
         .map((b: number) => b.toString(16).padStart(2, '0'))
         .join('');
       return `#"${hex}"`;
+    }
     case 'string':
       return `"${term.value.value}"`;
+    case 'data':
+      // Handle Data-encoded values (con data B #..., con data I ..., etc.)
+      return dataToExpression(term.value.value);
     default:
       return `<${term.type || 'data'}>`;
+  }
+}
+
+/**
+ * Convert a PlutusData value to expression
+ * Handles: B (bytes), I (integer), List, Constr, Map
+ */
+function dataToExpression(data: any): string {
+  if (!data) return '<data>';
+  
+  switch (data.tag) {
+    case 'bytes': {
+      // Data-encoded bytestring: B #hex
+      const hex = typeof data.value === 'string' 
+        ? data.value 
+        : Array.from(data.value as number[]).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+      return `#"${hex}"`;
+    }
+    case 'int':
+      return data.value.toString();
+    case 'list':
+      if (!data.value || data.value.length === 0) return '[]';
+      return `[${data.value.map(dataToExpression).join(', ')}]`;
+    case 'constr':
+      const fields = data.fields?.map(dataToExpression).join(', ') || '';
+      return `Constr(${data.index}${fields ? ', ' + fields : ''})`;
+    case 'map':
+      if (!data.value || data.value.length === 0) return '{}';
+      const entries = data.value.map(([k, v]: [any, any]) => 
+        `${dataToExpression(k)}: ${dataToExpression(v)}`
+      ).join(', ');
+      return `{ ${entries} }`;
+    default:
+      // Unknown data format - try to extract useful info
+      if (typeof data === 'string') return `#"${data}"`;
+      if (typeof data === 'bigint' || typeof data === 'number') return data.toString();
+      return '<data>';
   }
 }
 

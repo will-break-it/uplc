@@ -30,7 +30,8 @@ export type {
   ValidationCheck,
   FieldInfo,
   ScriptPurpose,
-  DatumInfo
+  DatumInfo,
+  ScriptParameter
 } from './types.js';
 
 // Re-export utilities for advanced usage
@@ -86,6 +87,7 @@ export function analyzeContract(ast: UplcTerm): ContractStructure {
     checks,
     rawBody: validator.body,
     utilities: validator.utilities,
-    utilityBindings: validator.utilityBindings
+    utilityBindings: validator.utilityBindings,
+    scriptParams: validator.scriptParams
   };
 }
