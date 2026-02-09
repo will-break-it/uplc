@@ -30,6 +30,9 @@ let txContextParam: string | null = null;
 // Binding environment for resolving let-bound variables
 let bindingEnv: BindingEnvironment | null = null;
 
+// Track bindings currently being inlined to prevent infinite recursion
+let inliningStack: Set<string> = new Set();
+
 const DEFAULT_OPTIONS: GeneratorOptions = {
   comments: true,
   namingStyle: 'generic',
@@ -80,6 +83,7 @@ export function generateValidator(
   usedBuiltins = new Set();
   extractedHelpers = new Map();
   bindingEnv = null;
+  inliningStack = new Set();
   
   // Build binding environment and extract helpers from the raw body
   if (structure.rawBody) {
@@ -352,17 +356,49 @@ function termToExpression(term: any, params: string[], depth: number): string {
       return constToExpression(term);
       
     case 'var':
-      // Check binding environment for resolved bindings first
-      if (bindingEnv) {
+      // Check binding environment for resolved bindings - AGGRESSIVE INLINING
+      if (bindingEnv && !inliningStack.has(term.name)) {
         const resolved = bindingEnv.get(term.name);
         if (resolved) {
-          // Inline constants and simple expressions
+          // Always inline constants
           if (resolved.category === 'inline' && resolved.inlineValue) {
             return resolved.inlineValue;
           }
-          // Use semantic name for renamed bindings
-          if (resolved.category === 'rename' && resolved.semanticName) {
-            return resolved.semanticName;
+          
+          // Inline renamed bindings as their semantic name for predicates
+          if (resolved.category === 'rename') {
+            // For is_constr_N, keep as function name (used as predicate)
+            if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
+              return resolved.semanticName;
+            }
+            // For builtin wrappers, use builtin name
+            if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
+              return resolved.semanticName;
+            }
+            // For boolean combinators, use operator name
+            if (resolved.pattern === 'boolean_and') return 'and';
+            if (resolved.pattern === 'boolean_or') return 'or';
+            // For partial builtins, use semantic name
+            if (resolved.semanticName) {
+              return resolved.semanticName;
+            }
+          }
+          
+          // For 'keep' bindings: inline simple terms (limit depth to prevent blowup)
+          if (resolved.category === 'keep' && 
+              resolved.pattern !== 'list_fold' && 
+              depth < 50) {
+            // Add to stack to prevent cycles
+            inliningStack.add(term.name);
+            try {
+              const inlined = termToExpression(resolved.value, params, depth + 1);
+              // Only use inlined version if it's reasonably short
+              if (inlined.length < 200) {
+                return inlined;
+              }
+            } finally {
+              inliningStack.delete(term.name);
+            }
           }
         }
       }
@@ -370,12 +406,12 @@ function termToExpression(term: any, params: string[], depth: number): string {
       // Check if this variable is a utility binding (substitute with builtin or predicate)
       if (currentUtilityBindings[term.name]) {
         const binding = currentUtilityBindings[term.name];
-        // is_constr_N predicates are not builtins, just use the name directly
         if (binding.startsWith('is_constr_')) {
           return binding;
         }
-        return `builtin::${binding}`;
+        return binding;
       }
+      
       // Check if this is an extracted helper that should be renamed
       const helper = extractedHelpers.get(term.name);
       if (helper && helper.helperName !== term.name) {
