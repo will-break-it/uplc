@@ -52,19 +52,6 @@ importers:
         specifier: ^4.63.0
         version: 4.63.0(@cloudflare/workers-types@4.20260206.0)
 
-  packages/cache:
-    dependencies:
-      '@uplc/parser':
-        specifier: workspace:*
-        version: link:../parser
-      '@uplc/patterns':
-        specifier: workspace:*
-        version: link:../patterns
-    devDependencies:
-      typescript:
-        specifier: ^5.3.3
-        version: 5.9.3
-
   packages/codegen:
     dependencies:
       '@uplc/parser':
@@ -81,20 +68,11 @@ importers:
         specifier: ^1.0.0
         version: 1.6.1
 
-  packages/ir:
-    dependencies:
-      '@uplc/parser':
-        specifier: workspace:*
-        version: link:../parser
-    devDependencies:
-      typescript:
-        specifier: ^5.3.3
-        version: 5.9.3
-      vitest:
-        specifier: ^2.0.0
-        version: 2.1.9
-
   packages/parser:
+    dependencies:
+      '@harmoniclabs/uplc':
+        specifier: ^1.4.1
+        version: 1.4.1(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6)(@harmoniclabs/crypto@0.3.0)(@harmoniclabs/pair@1.0.0)(@harmoniclabs/plutus-data@1.2.6(@harmoniclabs/bytestring@1.0.0)(@harmoniclabs/cbor@1.6.6))
     devDependencies:
       typescript:
         specifier: ^5.3.3
