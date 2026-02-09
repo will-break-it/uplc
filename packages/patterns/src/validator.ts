@@ -262,19 +262,71 @@ function extractUtilityName(term: UplcTerm): string | null {
 }
 
 /**
+ * Find the first lambda chain with at least minParams in a term
+ * Searches top-down to find validator params (not helper functions)
+ */
+function findFirstSignificantLambdaChain(
+  term: UplcTerm, 
+  minParams: number
+): { params: string[]; body: UplcTerm } {
+  let found: { params: string[]; body: UplcTerm } | null = null;
+  
+  function search(t: UplcTerm): boolean {
+    // Check if this is a significant lambda chain
+    if (t.tag === 'lam') {
+      const params: string[] = [];
+      let current: UplcTerm = t;
+      while (current.tag === 'lam') {
+        params.push(current.param);
+        current = current.body;
+      }
+      
+      // If this chain meets the minimum, we found it
+      if (params.length >= minParams) {
+        found = { params, body: current };
+        return true;  // Stop searching
+      }
+      
+      // Continue searching in the body
+      return search(current);
+    } else if (t.tag === 'app') {
+      // Search func first (top-down), then arg
+      return search(t.func) || search(t.arg);
+    } else if (t.tag === 'force') {
+      return search(t.term);
+    } else if (t.tag === 'delay') {
+      return search(t.term);
+    } else if (t.tag === 'case') {
+      if (search(t.scrutinee)) return true;
+      for (const b of t.branches) {
+        if (search(b)) return true;
+      }
+    } else if (t.tag === 'constr') {
+      for (const a of t.args || []) {
+        if (search(a)) return true;
+      }
+    }
+    return false;
+  }
+  
+  search(term);
+  return found || { params: [], body: term };
+}
+
+/**
  * Simple pattern: Detect Plutus-style utility binding pattern
  * Handles:
  * 1. Parameterized scripts: [[[lam a [lam b ...]] param1] param2] param3]
  * 2. Nested utility bindings: ((lam i_0 ((lam i_1 BODY) util1)) util0)
  * 3. Mixed utility/script params: [[[lam a [lam b ...]] builtin1] builtin2] data_param]
+ * 4. Deep nesting: utilities wrapping the actual validator params
  */
 function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
   const utilityBindings: Record<string, string> = {};
   const scriptParams: string[] = [];  // Pre-applied script parameters (actual data values)
-  const validatorParams: string[] = [];  // Runtime validator parameters (datum, redeemer, ctx)
+  let validatorParams: string[] = [];  // Runtime validator parameters (datum, redeemer, ctx)
   
   // Step 1: Unwrap outer applications to find the core lambda
-  // Collect all applied args and their corresponding lambda params
   let current: UplcTerm = ast;
   const appliedArgs: UplcTerm[] = [];
   
@@ -283,31 +335,51 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     current = current.func;
   }
   
-  // Now 'current' should be a lambda (if script is parameterized)
-  // 'appliedArgs' contains applied values (builtins for utilities, data for params)
-  
   // Match outer lambdas to applied args - distinguish utilities from script params
-  const lambdaParamsMatched: string[] = [];
   for (let i = 0; i < appliedArgs.length && current.tag === 'lam'; i++) {
     const param = current.param;
     const arg = appliedArgs[i];
     const utilityName = extractUtilityName(arg);
     
     if (utilityName) {
-      // This is a utility binding (builtin or partial app applied to lambda)
       utilityBindings[param] = utilityName;
     } else {
-      // This is a script parameter (data value applied to lambda)
       scriptParams.push(param);
     }
     
-    lambdaParamsMatched.push(param);
     current = current.body;
     
     // Continue unwrapping if body is also an application
     while (current.tag === 'app') {
-      appliedArgs.splice(i + 1, 0, current.arg);  // Insert new args after current position
+      appliedArgs.splice(i + 1, 0, current.arg);
       current = current.func;
+    }
+  }
+  
+  // Step 2: Try to find validator params at current level
+  // First, check immediate lambda chain (after utility unwrapping)
+  if (current.tag === 'lam') {
+    let temp: UplcTerm = current;
+    while (temp.tag === 'lam') {
+      if (!utilityBindings[temp.param] && !scriptParams.includes(temp.param)) {
+        validatorParams.push(temp.param);
+      }
+      temp = temp.body;
+    }
+    if (validatorParams.length >= 2) {
+      current = temp;
+    } else {
+      validatorParams = [];  // Reset if not enough params
+    }
+  }
+  
+  // If no immediate params found, search for the first lambda chain of 3+ params
+  // (This handles deeply wrapped validators like Minswap Pool)
+  if (validatorParams.length < 2) {
+    const chain = findFirstSignificantLambdaChain(current, 3);
+    if (chain.params.length >= 2) {
+      validatorParams = chain.params;
+      current = chain.body;
     }
   }
   
@@ -382,26 +454,14 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
  * Infer script purpose from parameter count and body analysis
  */
 function inferPurposeFromParams(params: string[], body: UplcTerm): ScriptPurpose {
-  // Plutus V3 handlers in Aiken have these signatures:
-  // spend: (datum?, redeemer, output_ref, tx) - 4 params (or 3 with inline datum)
-  // mint:  (redeemer, policy_id, tx) - 3 params
-  // withdraw: (redeemer, credential, tx) - 3 params  
-  // publish: (redeemer, certificate, tx) - 3 params
-  // vote: (redeemer, voter, governance_action_id, tx) - 4 params
-  // propose: (redeemer, proposal_procedure, tx) - 3 params
-  
-  // Simple validators (not V3-wrapped) often have 3 params: datum, redeemer, ctx
-  // V3-wrapped validators extract more params from ScriptContext
-  
-  // Use naming hints if available
+  // Use naming hints if available (works when params have meaningful names)
   const paramNames = params.map(p => p.toLowerCase());
   
-  // Check for explicit naming hints
   if (paramNames.some(p => p.includes('datum'))) {
-    return 'spend';  // Has datum → spend
+    return 'spend';
   }
   if (paramNames.some(p => p.includes('policy') || p === 'pid')) {
-    return 'mint';  // Has policy → mint
+    return 'mint';
   }
   if (paramNames.some(p => p.includes('credential') || p.includes('stake'))) {
     return 'withdraw';
@@ -416,43 +476,170 @@ function inferPurposeFromParams(params: string[], body: UplcTerm): ScriptPurpose
     return 'propose';
   }
   
-  // Fall back to param count heuristics
-  if (params.length >= 5) {
-    return analyzeBodyForPurpose(body, params);
+  // Analyze body usage patterns (works even with a, b, c names)
+  return analyzeBodyForPurpose(body, params);
+}
+
+/**
+ * Analyze the body to determine script purpose based on how parameters are used
+ */
+function analyzeBodyForPurpose(body: UplcTerm, params: string[]): ScriptPurpose {
+  if (params.length === 0) return 'unknown';
+  
+  // Check first param (datum in spend validators)
+  const firstParamUsage = analyzeParamUsage(body, params[0]);
+  
+  // Check second param if exists (redeemer in spend, or first user param in mint)
+  const secondParamUsage = params.length >= 2 ? analyzeParamUsage(body, params[1]) : null;
+  
+  // Strong spend indicator: first param has structured data access
+  if (firstParamUsage.hasUnConstrData && 
+      (firstParamUsage.hasFieldAccess || firstParamUsage.hasSndPair)) {
+    return 'spend';
   }
   
-  if (params.length >= 3) {
-    // 3-4 params is most commonly spend (datum, redeemer, ctx or output_ref, tx)
+  // If first param is unused/simple but second has complex access → likely spend with unit datum
+  if (secondParamUsage && 
+      secondParamUsage.hasUnConstrData && 
+      secondParamUsage.hasFieldAccess) {
+    return 'spend';
+  }
+  
+  // Param count heuristics as fallback
+  if (params.length >= 4) {
+    return 'spend';  // 4+ params usually spend (datum, redeemer, out_ref, tx)
+  }
+  
+  if (params.length === 3) {
+    // 3 params: could be spend (datum, redeemer, ctx) or mint (redeemer, policy, ctx)
+    // If first param has any data extraction, lean toward spend
+    if (firstParamUsage.dataExtractionCount > 0) {
+      return 'spend';
+    }
+    // Default 3-param to spend (most common)
     return 'spend';
   }
   
   if (params.length === 2) {
-    // 2 params without datum hint → likely mint (redeemer, ctx)
+    // 2 params: typically mint (redeemer, ctx)
+    return 'mint';
+  }
+  
+  if (params.length === 1) {
+    // 1 param: minting policy with simple redeemer
     return 'mint';
   }
   
   return 'unknown';
 }
 
+interface ParamUsageInfo {
+  hasUnConstrData: boolean;
+  hasFieldAccess: boolean;
+  hasSndPair: boolean;
+  dataExtractionCount: number;
+}
+
 /**
- * Analyze the body to determine script purpose
- * TODO: Look for specific patterns like:
- * - OutputReference access -> spend
- * - PolicyId access -> mint
- * - StakeCredential access -> withdraw
- * - Certificate access -> publish
- * - Voter access -> vote
- * - ProposalProcedure access -> propose
+ * Analyze how a parameter is used in the body
  */
-function analyzeBodyForPurpose(body: UplcTerm, params: string[]): ScriptPurpose {
-  // For now, just return based on common patterns
-  // A full implementation would trace how parameters are used
+function analyzeParamUsage(body: UplcTerm, param: string): ParamUsageInfo {
+  const usage: ParamUsageInfo = {
+    hasUnConstrData: false,
+    hasFieldAccess: false,
+    hasSndPair: false,
+    dataExtractionCount: 0
+  };
   
-  if (params.length >= 4) {
-    return 'spend';  // Most common
+  traverseForUsage(body, param, usage);
+  return usage;
+}
+
+/**
+ * Traverse AST to find parameter usage patterns
+ */
+function traverseForUsage(term: UplcTerm, param: string, usage: ParamUsageInfo): void {
+  if (!term) return;
+  
+  switch (term.tag) {
+    case 'app': {
+      // Check if this is a builtin application on our param
+      let funcTerm = term.func;
+      while (funcTerm.tag === 'app' || funcTerm.tag === 'force') {
+        if (funcTerm.tag === 'force') funcTerm = funcTerm.term;
+        else funcTerm = funcTerm.func;
+      }
+      
+      if (funcTerm.tag === 'builtin') {
+        const builtin = funcTerm.name;
+        
+        // Check if arg references our param (directly or indirectly)
+        if (termReferencesParam(term.arg, param) || termReferencesParam(term, param)) {
+          switch (builtin) {
+            case 'unConstrData':
+              usage.hasUnConstrData = true;
+              usage.dataExtractionCount++;
+              break;
+            case 'sndPair':
+              usage.hasSndPair = true;
+              break;
+            case 'headList':
+            case 'tailList':
+              usage.hasFieldAccess = true;
+              break;
+            case 'unIData':
+            case 'unBData':
+            case 'unListData':
+            case 'unMapData':
+              usage.dataExtractionCount++;
+              break;
+          }
+        }
+      }
+      
+      traverseForUsage(term.func, param, usage);
+      traverseForUsage(term.arg, param, usage);
+      break;
+    }
+    case 'lam':
+      if (term.param !== param) { // Don't cross shadowing
+        traverseForUsage(term.body, param, usage);
+      }
+      break;
+    case 'force':
+      traverseForUsage(term.term, param, usage);
+      break;
+    case 'delay':
+      traverseForUsage(term.term, param, usage);
+      break;
+    case 'case':
+      traverseForUsage(term.scrutinee, param, usage);
+      term.branches.forEach(b => traverseForUsage(b, param, usage));
+      break;
+    case 'constr':
+      term.args?.forEach(a => traverseForUsage(a, param, usage));
+      break;
   }
+}
+
+/**
+ * Check if a term references a parameter (direct or through applications)
+ */
+function termReferencesParam(term: UplcTerm, param: string): boolean {
+  if (!term) return false;
   
-  return 'mint';
+  switch (term.tag) {
+    case 'var':
+      return term.name === param;
+    case 'app':
+      return termReferencesParam(term.func, param) || termReferencesParam(term.arg, param);
+    case 'force':
+      return termReferencesParam(term.term, param);
+    case 'lam':
+      return term.param !== param && termReferencesParam(term.body, param);
+    default:
+      return false;
+  }
 }
 
 /**

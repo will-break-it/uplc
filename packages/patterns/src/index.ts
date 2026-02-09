@@ -40,6 +40,7 @@ export type { ValidatorInfo } from './validator.js';
 export { analyzeDatum } from './datum.js';
 export { analyzeRedeemer } from './redeemer.js';
 export { findValidationChecks } from './checks.js';
+export { inferPurpose, hasMintingPatterns } from './purpose-inference.js';
 export * from './traversal.js';
 export * from './dataflow.js';
 

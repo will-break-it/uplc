@@ -90,9 +90,19 @@ export interface FieldInfo {
 
 /**
  * A validation check found in the contract
+ * 
+ * Types:
+ * - signer: Checking signatories or verifying signatures
+ * - deadline: Time-based checks on validity range
+ * - token: Policy ID or token amount checks
+ * - value: ADA or native token value comparisons
+ * - owner: Owner/authority checks (PKH comparisons)
+ * - signature: Cryptographic signature verification (legacy, maps to signer)
+ * - equality: General equality checks
+ * - comparison: General numeric comparisons
  */
 export interface ValidationCheck {
-  type: 'signature' | 'deadline' | 'value' | 'equality' | 'comparison' | 'unknown';
+  type: 'signer' | 'deadline' | 'token' | 'value' | 'owner' | 'signature' | 'equality' | 'comparison' | 'unknown';
   builtin: string;            // The builtin used
   description: string;        // Human-readable description
   location: UplcTerm;         // The AST node

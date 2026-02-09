@@ -38,12 +38,13 @@ describe('Validator Detection', () => {
     expect(result.params).toEqual(['redeemer', 'ctx']);
   });
 
-  it('detects unknown type for single param', () => {
+  it('detects mint type for single param', () => {
+    // Single param scripts are typically minting policies
     const source = '(lam x (var x))';
     const ast = parseUplc(source);
     const result = analyzeContract(ast);
     
-    expect(result.type).toBe('unknown');
+    expect(result.type).toBe('mint');
     expect(result.params).toEqual(['x']);
   });
 
@@ -182,7 +183,8 @@ describe('Validation Check Detection', () => {
 
     const equalityChecks = result.checks.filter(c => c.builtin === 'equalsInteger');
     expect(equalityChecks.length).toBeGreaterThan(0);
-    expect(equalityChecks[0].type).toBe('equality');
+    // equalsInteger is now classified as 'comparison' (semantic improvement)
+    expect(equalityChecks[0].type).toBe('comparison');
   });
 
   it('detects equalsByteString check', () => {
@@ -201,7 +203,8 @@ describe('Validation Check Detection', () => {
     
     const sigChecks = result.checks.filter(c => c.builtin === 'equalsByteString');
     expect(sigChecks.length).toBeGreaterThan(0);
-    expect(sigChecks[0].type).toBe('signature');
+    // equalsByteString without signatory context is classified as 'equality'
+    expect(sigChecks[0].type).toBe('equality');
   });
 
   it('detects lessThanInteger comparison', () => {
@@ -239,7 +242,8 @@ describe('Validation Check Detection', () => {
     
     const sigChecks = result.checks.filter(c => c.builtin === 'verifyEd25519Signature');
     expect(sigChecks.length).toBeGreaterThan(0);
-    expect(sigChecks[0].type).toBe('signature');
+    // verifyEd25519Signature is now classified as 'signer' (more semantic)
+    expect(sigChecks[0].type).toBe('signer');
   });
 
   it('detects multiple checks in complex validator', () => {
