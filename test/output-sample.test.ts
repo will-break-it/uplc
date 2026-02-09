@@ -42,10 +42,17 @@ describe('Output Sample', () => {
     console.log(code);
   });
   
-  it.only('shows JPG Store code (spend validator)', () => {
+  it('shows JPG Store code (spend validator)', () => {
     const cbor = readFileSync(join(__dirname, '../fixtures/mainnet/jpg-store-v3-ask.cbor'), 'utf-8').trim();
     const { code } = decompile(cbor);
     console.log('\n=== JPG STORE V3 ASK (spend) ===\n');
+    console.log(code);
+  });
+  
+  it.only('shows Minswap V2 Pool code', () => {
+    const cbor = readFileSync(join(__dirname, '../fixtures/mainnet/minswap-v2-pool.cbor'), 'utf-8').trim();
+    const { code } = decompile(cbor);
+    console.log('\n=== MINSWAP V2 POOL (largest) ===\n');
     console.log(code);
   });
 });

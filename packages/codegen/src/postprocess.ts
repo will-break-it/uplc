@@ -44,23 +44,45 @@ export function simplifyComparisons(code: string): string {
 
 /**
  * Simplify nested conditionals into && and ||
- * - if A { if B { True } else { False } } else { False } → A && B
- * - if A { True } else { if B { True } else { False } } → A || B
+ * - if A { B } else { False } → A && B (when B is truthy-ish)
+ * - if A { True } else { B } → A || B
  */
 export function simplifyLogicalOps(code: string): string {
-  // Pattern: if A { if B { X } else { Y } } else { Y }
-  // When Y is False and X is True: A && B
-  code = code.replace(
-    /if\s+(.+?)\s*\{\s*if\s+(.+?)\s*\{\s*True\s*\}\s*else\s*\{\s*False\s*\}\s*\}\s*else\s*\{\s*False\s*\}/g,
-    '$1 && $2'
-  );
+  let prev = '';
+  let iterations = 0;
   
-  // Pattern: if A { True } else { if B { True } else { False } }
-  // → A || B
-  code = code.replace(
-    /if\s+(.+?)\s*\{\s*True\s*\}\s*else\s*\{\s*if\s+(.+?)\s*\{\s*True\s*\}\s*else\s*\{\s*False\s*\}\s*\}/g,
-    '$1 || $2'
-  );
+  // Iterate until no more changes (handles nested patterns)
+  while (code !== prev && iterations < 10) {
+    prev = code;
+    iterations++;
+    
+    // Pattern: if A { B } else { False } → (A && B)
+    // where B is not a block with fail or complex expressions
+    code = code.replace(
+      /if\s+([a-z0-9_]+)\s*\{\s*([a-z0-9_]+)\s*\}\s*else\s*\{\s*False\s*\}/gi,
+      '($1 && $2)'
+    );
+    
+    // Pattern: if A { True } else { B } → (A || B)
+    code = code.replace(
+      /if\s+([a-z0-9_]+)\s*\{\s*True\s*\}\s*else\s*\{\s*([a-z0-9_]+)\s*\}/gi,
+      '($1 || $2)'
+    );
+    
+    // Pattern: if EXPR { VAR } else { False } for simple expressions
+    code = code.replace(
+      /if\s+([^{}]+?)\s*\{\s*([a-z0-9_]+)\s*\}\s*else\s*\{\s*False\s*\}/gi,
+      '($1 && $2)'
+    );
+  }
+  
+  // Clean up excessive parentheses from && chains
+  // ((a && b) && c) → (a && b && c)
+  code = code.replace(/\(\(([^()]+)\s*&&\s*([^()]+)\)\s*&&\s*([^()]+)\)/g, '($1 && $2 && $3)');
+  code = code.replace(/\(([^()]+)\s*&&\s*\(([^()]+)\s*&&\s*([^()]+)\)\)/g, '($1 && $2 && $3)');
+  
+  // Clean up double spaces
+  code = code.replace(/  +/g, ' ');
   
   return code;
 }
@@ -178,6 +200,21 @@ export function detectRecursion(code: string): string {
 }
 
 /**
+ * Fix malformed if expressions
+ * - `if X)` → `X`  (broken partial application)
+ * - `if if X { Y } else { if Z) }` → `if X { Y } else { Z }`
+ */
+export function fixMalformedIf(code: string): string {
+  // Pattern: `if VAR)` - broken partial ifThenElse, replace with just the var
+  code = code.replace(/if\s+([a-z0-9_]+)\)/gi, '$1');
+  
+  // Pattern: `{ if VAR) }` - inside braces
+  code = code.replace(/\{\s*if\s+([a-z0-9_]+)\)\s*\}/gi, '{ $1 }');
+  
+  return code;
+}
+
+/**
  * Run all post-processing transformations
  */
 export function postProcess(code: string): string {
@@ -187,6 +224,7 @@ export function postProcess(code: string): string {
   code = simplifyTailChains(code);
   code = formatArithmetic(code);
   code = detectRecursion(code);
+  code = fixMalformedIf(code);
   
   return code;
 }

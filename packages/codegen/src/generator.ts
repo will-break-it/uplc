@@ -712,6 +712,7 @@ function builtinCallToExpression(name: string, args: any[], params: string[], de
       });
       return result;
     }
+    
     // Fall through to function call for partial applications
   }
   
