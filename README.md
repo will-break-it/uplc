@@ -13,37 +13,51 @@
 ```mermaid
 flowchart LR
     A[Script Hash] --> B[CBOR]
-    B --> C[UPLC]
-    C --> D[AST]
-    D --> E[Structure]
-    E --> F[Aiken]
-    F --> G[Clean Aiken]
+    B --> C[AST]
+    C --> D[Structure]
+    D --> E[Aiken]
+    E --> F[Clean Aiken]
     
     style A fill:#4a5568,stroke:#2d3748,color:#fff
     style B fill:#4a5568,stroke:#2d3748,color:#fff
     style C fill:#4a5568,stroke:#2d3748,color:#fff
     style D fill:#4a5568,stroke:#2d3748,color:#fff
     style E fill:#4a5568,stroke:#2d3748,color:#fff
-    style F fill:#4a5568,stroke:#2d3748,color:#fff
-    style G fill:#2b6cb0,stroke:#2c5282,color:#fff
+    style F fill:#2b6cb0,stroke:#2c5282,color:#fff
 ```
 
 | Step | Input | Output | How |
 |------|-------|--------|-----|
 | Fetch | Script Hash | CBOR | Koios API |
-| Decode | CBOR | UPLC | `@harmoniclabs/uplc` |
-| Parse | UPLC text | AST | [`@uplc/parser`](packages/parser) |
+| Decode | CBOR | AST | `@harmoniclabs/uplc` → [`@uplc/parser`](packages/parser) |
 | Analyze | AST | Structure | [`@uplc/patterns`](packages/patterns) |
 | Generate | Structure | Aiken | [`@uplc/codegen`](packages/codegen) |
 | Enhance | Aiken | Clean Aiken | LLM |
+
+### Pipeline Details
+
+```typescript
+import { UPLCDecoder } from '@harmoniclabs/uplc';
+import { convertFromHarmoniclabs } from '@uplc/parser';
+import { analyzeContract } from '@uplc/patterns';
+import { generate } from '@uplc/codegen';
+
+// CBOR → AST (direct conversion, no text serialization)
+const program = UPLCDecoder.parse(cborBytes, 'flat');
+const ast = convertFromHarmoniclabs(program.body);
+
+// AST → Aiken code
+const structure = analyzeContract(ast);
+const code = generate(structure);
+```
 
 ## Packages
 
 | Package | Purpose |
 |---------|---------|
-| [`@uplc/parser`](packages/parser) | UPLC text → AST (Plutus V1-V3) |
-| [`@uplc/patterns`](packages/patterns) | AST → Contract structure |
-| [`@uplc/codegen`](packages/codegen) | Structure → Aiken code |
+| [`@uplc/parser`](packages/parser) | CBOR → AST converter + UPLC text parser |
+| [`@uplc/patterns`](packages/patterns) | AST → Contract structure (purpose, params, checks) |
+| [`@uplc/codegen`](packages/codegen) | Structure → Aiken pseudocode |
 
 ## Development
 
@@ -61,9 +75,11 @@ src/
   components/   # React UI
   lib/          # Frontend decompiler wrapper
 packages/
-  parser/       # UPLC parser
+  parser/       # UPLC decoder + text parser
   patterns/     # Pattern recognition
   codegen/      # Code generation
+fixtures/
+  mainnet/      # Real contract fixtures for testing
 functions/
   api/          # Cloudflare Functions
     analyze.ts  # Full analysis endpoint (cached)
