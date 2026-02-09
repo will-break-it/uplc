@@ -34,25 +34,28 @@ function decompile(cbor: string) {
   return { ast, structure, code };
 }
 
-describe('Output Sample', () => {
-  it('shows Minswap V2 Authen code (smallest)', () => {
+describe('Output Sample - Decompiled Contracts', () => {
+  it('Minswap V2 Authen (minting policy)', () => {
     const cbor = readFileSync(join(__dirname, '../fixtures/mainnet/minswap-v2-authen.cbor'), 'utf-8').trim();
     const { code } = decompile(cbor);
-    console.log('\n=== MINSWAP V2 AUTHEN MINTING ===\n');
+    console.log('\n=== MINSWAP V2 AUTHEN MINTING ===');
+    console.log(`Code length: ${code.length} chars\n`);
     console.log(code);
   });
   
-  it('shows JPG Store code (spend validator)', () => {
+  it('JPG Store V3 Ask (spend validator)', () => {
     const cbor = readFileSync(join(__dirname, '../fixtures/mainnet/jpg-store-v3-ask.cbor'), 'utf-8').trim();
     const { code } = decompile(cbor);
-    console.log('\n=== JPG STORE V3 ASK (spend) ===\n');
+    console.log('\n=== JPG STORE V3 ASK ===');
+    console.log(`Code length: ${code.length} chars\n`);
     console.log(code);
   });
   
-  it.only('shows Minswap V2 Pool code', () => {
-    const cbor = readFileSync(join(__dirname, '../fixtures/mainnet/minswap-v2-pool.cbor'), 'utf-8').trim();
+  it('SundaeSwap V3 Order (minting policy)', () => {
+    const cbor = readFileSync(join(__dirname, '../fixtures/mainnet/sundaeswap-v3-order.cbor'), 'utf-8').trim();
     const { code } = decompile(cbor);
-    console.log('\n=== MINSWAP V2 POOL (largest) ===\n');
+    console.log('\n=== SUNDAESWAP V3 ORDER ===');
+    console.log(`Code length: ${code.length} chars\n`);
     console.log(code);
   });
 });
