@@ -1151,6 +1151,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                   {result.cost?.breakdown && result.cost.breakdown.length > 0 && (() => {
                     // Flat, muted colors
                     const categoryColors: Record<string, string> = {
+                      Machine: '#4a5568',
                       Data: '#7c6dab',
                       List: '#5a9bad',
                       Crypto: '#b06878',

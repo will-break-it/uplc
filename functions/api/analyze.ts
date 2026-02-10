@@ -40,6 +40,10 @@ interface AnalysisResult {
     forceCount: number;
     delayCount: number;
     applicationCount: number;
+    variableCount: number;
+    constantCount: number;
+    constrCount: number;
+    caseCount: number;
   };
   cost: {
     cpu: string;
@@ -101,7 +105,10 @@ function decodeAndAnalyze(bytes: string): {
   builtins: Record<string, number>;
   traceStrings: string[];
   constants: { bytestrings: string[]; integers: string[] };
-  stats: { lambdaCount: number; forceCount: number; delayCount: number; applicationCount: number };
+  stats: {
+    lambdaCount: number; forceCount: number; delayCount: number; applicationCount: number;
+    variableCount: number; constantCount: number; constrCount: number; caseCount: number;
+  };
   analysis: {
     datumUsed: boolean;
     datumOptional: boolean;
@@ -137,6 +144,7 @@ function decodeAndAnalyze(bytes: string): {
   const bytestrings: string[] = [];
   const integers: string[] = [];
   let lambdaCount = 0, forceCount = 0, delayCount = 0, applicationCount = 0;
+  let variableCount = 0, constantCount = 0, constrCount = 0, caseCount = 0;
   
   function traverseAst(term: any) {
     if (!term) return;
@@ -177,10 +185,14 @@ function decodeAndAnalyze(bytes: string): {
         forceCount++;
         traverseAst(term.term);
         break;
+      case 'var':
+        variableCount++;
+        break;
       case 'builtin':
         builtins[term.name] = (builtins[term.name] || 0) + 1;
         break;
       case 'con':
+        constantCount++;
         if (term.value) {
           const val = term.value;
           if (val.tag === 'integer') {
@@ -197,10 +209,12 @@ function decodeAndAnalyze(bytes: string): {
         }
         break;
       case 'case':
+        caseCount++;
         traverseAst(term.scrutinee);
         term.branches?.forEach(traverseAst);
         break;
       case 'constr':
+        constrCount++;
         term.args?.forEach(traverseAst);
         break;
     }
@@ -302,7 +316,7 @@ function decodeAndAnalyze(bytes: string): {
       bytestrings: bytestrings.slice(0, 50),
       integers: integers.slice(0, 50),
     },
-    stats: { lambdaCount, forceCount, delayCount, applicationCount },
+    stats: { lambdaCount, forceCount, delayCount, applicationCount, variableCount, constantCount, constrCount, caseCount },
     analysis: {
       datumUsed: structure.datum.isUsed,
       datumOptional: structure.datum.isOptional,
@@ -338,7 +352,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonError('Invalid script hash. Must be 56 hex characters.', 400, corsOrigin);
     }
 
-    const cacheKey = `analysis:v8:${scriptHash}`;  // v8: Blockfrost + dynamic cost model
+    const cacheKey = `analysis:v9:${scriptHash}`;  // v9: CEK machine costs
 
     // Check cache
     if (context.env.UPLC_CACHE) {
@@ -374,6 +388,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       decoded.builtins,
       costMaps?.cpuCosts,
       costMaps?.memCosts,
+      decoded.stats,
     );
     const costWarnings = getCostWarnings(decoded.builtins);
 

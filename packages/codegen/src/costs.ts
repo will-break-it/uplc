@@ -1,22 +1,29 @@
 /**
  * Plutus Cost Model
  * 
- * Estimates execution costs based on builtin usage.
- * Uses actual Plutus V3 mainnet cost model parameters from
- * github.com/IntersectMBO/plutus/plutus-core/cost-model/data/builtinCostModelA.json
+ * Estimates execution costs from:
+ *   1. Builtin invocations (variable-cost builtins use typical argument sizes)
+ *   2. CEK machine step costs (lambda, apply, force, delay, var, const, etc.)
  * 
- * For variable-cost builtins (linear/quadratic models), we use
- * intercept + slope × typical_size to estimate realistic costs.
+ * Uses actual Plutus V3 mainnet cost model parameters.
+ * For variable-cost builtins: intercept + slope × typical_size.
  * 
  * Typical argument sizes:
- *   Integer: 1 word (small numbers common in contracts)
- *   ByteString: 4 words (32 bytes — hashes, policy IDs)
- *   Data: 20 words (typical datum/redeemer structure)
- *   String: 2 words (trace messages)
- * 
- * Note: This covers builtin costs only. CEK machine overhead
- * (closures, environments, stack frames) is not included.
+ *   Integer: 1 word | ByteString: 4 words (32 bytes)
+ *   Data: 20 words  | String: 2 words
  */
+
+/** AST node counts for CEK machine cost estimation */
+export interface AstStats {
+  lambdaCount: number;
+  applicationCount: number;
+  forceCount: number;
+  delayCount: number;
+  variableCount: number;
+  constantCount: number;
+  constrCount: number;
+  caseCount: number;
+}
 
 export interface CostEstimate {
   cpu: bigint;
@@ -278,14 +285,41 @@ export const TX_BUDGET = {
 };
 
 /**
- * Estimate execution cost from builtin counts.
- * If dynamic cost maps are provided (from on-chain cost model), uses those.
- * Otherwise falls back to hardcoded estimates.
+ * CEK machine step costs (Plutus V3 mainnet).
+ * Every AST node traversal has a fixed CPU + memory cost.
+ * Source: cardano-ledger Conway era protocol parameters.
+ */
+const CEK_STEP_CPU = 23_000n;
+const CEK_STEP_MEM = 100n;
+const CEK_STARTUP_CPU = 100n;
+const CEK_STARTUP_MEM = 100n;
+
+/**
+ * Estimate CEK machine overhead from AST statistics.
+ * This is the cost of the VM traversing the AST — independent of builtin costs.
+ */
+function estimateMachineCost(stats: AstStats): { cpu: bigint; memory: bigint; steps: number } {
+  const steps = stats.lambdaCount + stats.applicationCount +
+    stats.forceCount + stats.delayCount +
+    stats.variableCount + stats.constantCount +
+    stats.constrCount + stats.caseCount;
+
+  return {
+    cpu: CEK_STARTUP_CPU + CEK_STEP_CPU * BigInt(steps),
+    memory: CEK_STARTUP_MEM + CEK_STEP_MEM * BigInt(steps),
+    steps,
+  };
+}
+
+/**
+ * Estimate execution cost from builtin counts + AST stats.
+ * Includes both builtin costs and CEK machine overhead.
  */
 export function estimateCost(
   builtinCounts: Record<string, number>,
   dynamicCpuCosts?: Record<string, bigint>,
   dynamicMemCosts?: Record<string, bigint>,
+  astStats?: AstStats,
 ): CostEstimate {
   const cpuMap = dynamicCpuCosts ?? BUILTIN_CPU_COSTS;
   const memMap = dynamicMemCosts ?? BUILTIN_MEMORY_COSTS;
@@ -332,6 +366,21 @@ export function estimateCost(
         builtins: data.builtins,
       });
     }
+  }
+
+  // Add CEK machine overhead if AST stats available
+  if (astStats) {
+    const machine = estimateMachineCost(astStats);
+    totalCpu += machine.cpu;
+    totalMemory += machine.memory;
+
+    breakdown.push({
+      category: 'Machine',
+      cpu: machine.cpu,
+      memory: machine.memory,
+      count: machine.steps,
+      builtins: ['CEK steps'],
+    });
   }
 
   breakdown.sort((a, b) => Number(b.cpu - a.cpu));
