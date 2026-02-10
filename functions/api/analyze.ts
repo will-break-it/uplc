@@ -5,7 +5,7 @@
  * All stages cached in KV (immutable once computed)
  */
 
-import { UPLCDecoder, builtinTagToString, prettyUPLC } from '@harmoniclabs/uplc';
+import { UPLCDecoder, builtinTagToString, showUPLC } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
 import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
@@ -155,8 +155,8 @@ function decodeAndAnalyze(bytes: string): {
   // Generate Aiken code
   const aikenCode = generate(structure);
   
-  // Generate pretty-printed UPLC text
-  const uplcText = prettyUPLC(program.body);
+  // Generate compact UPLC text
+  const uplcText = showUPLC(program.body);
   
   // Extract stats from AST
   const builtins: Record<string, number> = {};
@@ -369,7 +369,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       );
     }
 
-    const cacheKey = `analysis:v5:${scriptHash}`;  // v5: added uplcText
+    const cacheKey = `analysis:v6:${scriptHash}`;  // v6: compact uplcText via showUPLC
 
     // Check cache
     if (context.env.UPLC_CACHE) {
