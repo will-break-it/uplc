@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
-import type { AnalysisResult } from '../lib/analyzer';
+import type { AnalysisResult, VerificationResult } from '../lib/analyzer';
 import { analyzeScriptCore } from '../lib/analyzer';
 import { decompileUplc, type DecompilerResult } from '../lib/decompiler';
 
@@ -363,12 +363,91 @@ function MermaidDiagram({ chart }: { chart: string }) {
   );
 }
 
+// Confidence Badge component
+function ConfidenceBadge({ verification, compact = false }: { 
+  verification: VerificationResult | null; 
+  compact?: boolean;
+}) {
+  if (!verification) return null;
+  
+  const { confidence, constantScore, totalConstants, foundConstants, missingConstants } = verification;
+  
+  const styles: Record<'high' | 'medium' | 'low', { bg: string; color: string; label: string; tooltip: string }> = {
+    high: {
+      bg: 'rgba(34, 197, 94, 0.15)',
+      color: '#22c55e',
+      label: 'Verified',
+      tooltip: 'All bytecode constants preserved',
+    },
+    medium: {
+      bg: 'rgba(234, 179, 8, 0.15)',
+      color: '#eab308',
+      label: 'Partial',
+      tooltip: `${totalConstants - foundConstants} constant(s) not found in decompiled code`,
+    },
+    low: {
+      bg: 'rgba(239, 68, 68, 0.15)',
+      color: '#ef4444',
+      label: 'Low confidence',
+      tooltip: `Score: ${(constantScore * 100).toFixed(0)}% constants preserved. ${verification.issues.join('. ')}`,
+    },
+  };
+  
+  const style = styles[confidence];
+  
+  if (compact) {
+    // Just show a colored dot for tab
+    return (
+      <span
+        title={style.tooltip}
+        style={{
+          display: 'inline-block',
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          backgroundColor: style.color,
+          marginLeft: '6px',
+          verticalAlign: 'middle',
+        }}
+      />
+    );
+  }
+  
+  // Full badge with text
+  return (
+    <span
+      title={style.tooltip}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '2px 8px',
+        borderRadius: '4px',
+        fontSize: '0.7rem',
+        fontWeight: 500,
+        background: style.bg,
+        color: style.color,
+      }}
+    >
+      <span style={{
+        display: 'inline-block',
+        width: '6px',
+        height: '6px',
+        borderRadius: '50%',
+        backgroundColor: style.color,
+      }} />
+      {style.label}
+    </span>
+  );
+}
+
 // Enhancement result interface
 interface EnhancementResult {
   naming?: Record<string, string>;
   annotations?: string[];
   diagram?: string;
   rewrite?: string;
+  verification?: VerificationResult;
   cached?: boolean;
 }
 
@@ -392,6 +471,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   // AI Enhancement state (now from unified API)
   const [enhancement, setEnhancement] = useState<EnhancementResult | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
+  
+  // Verification state
+  const [rawVerification, setRawVerification] = useState<VerificationResult | null>(null);
   
   // Line highlight state for code view
   const [highlightedLines, setHighlightedLines] = useState<Set<number>>(new Set());
@@ -639,6 +721,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     setResult(null);
     setDecompiled(null);
     setEnhancement(null);
+    setRawVerification(null);
     setScriptHash(targetHash);
     // Don't reset contractView - preserve current state (may be from URL)
 
@@ -670,9 +753,15 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           cost: serverResult.cost,
           executionCosts: serverResult.executionCosts,
           verifiedScriptHashes: serverResult.verifiedScriptHashes,
+          verification: serverResult.verification,
         };
         
         setResult(coreResult);
+        
+        // Store raw verification for display
+        if (serverResult.verification) {
+          setRawVerification(serverResult.verification);
+        }
         
         // Decompiled code comes from server with analysis data
         const analysis = serverResult.analysis || {};
@@ -767,6 +856,20 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
       if (response.ok) {
         const data = await response.json() as EnhancementResult;
         setEnhancement(data);
+        
+        // Fire background issue report if verification not high (don't block UI)
+        if (data.verification && data.verification.confidence !== 'high') {
+          fetch('/api/report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              scriptHash: result.scriptInfo.scriptHash,
+              stage: 'ai',
+              verification: data.verification,
+              staticVerification: result.verification,
+            }),
+          }).catch(() => {}); // Silently ignore errors
+        }
       }
       // Silently fail - enhancements are optional
     } catch (err) {
@@ -774,6 +877,14 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
       console.warn('AI enhancement failed:', err);
     }
   };
+  
+  // Get the current verification based on which code is displayed
+  const getCurrentVerification = useCallback((): VerificationResult | null => {
+    if (showOriginal || !enhancement?.verification) {
+      return rawVerification;
+    }
+    return enhancement.verification;
+  }, [showOriginal, enhancement, rawVerification]);
 
 
   // Apply enhancements to code
@@ -1099,6 +1210,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           {decompiled && !enhancement && (
                             <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', margin: 0, flexShrink: 0, display: 'block', verticalAlign: 'middle' }} />
                           )}
+                          {enhancement && <ConfidenceBadge verification={getCurrentVerification()} compact />}
                         </button>
                       </div>
                       <button
@@ -1120,29 +1232,38 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                     </div>
                     
                     <div className="code-block" style={{ position: 'relative' }}>
-                      {contractView === 'aiken' && enhancement?.rewrite && (
-                        <button
-                          onClick={() => setShowOriginal(!showOriginal)}
-                          style={{
-                            position: 'sticky',
-                            top: '0',
-                            float: 'right',
-                            marginTop: '-0.25rem',
-                            padding: '0.25rem 0.5rem',
-                            fontSize: '0.7rem',
-                            background: 'rgba(0,0,0,0.8)',
-                            border: '1px solid rgba(255,255,255,0.2)',
-                            borderRadius: '4px',
-                            color: 'var(--text-code)',
-                            cursor: 'pointer',
-                            zIndex: 20,
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.95)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.8)'}
-                          title={showOriginal ? 'Show AI-enhanced code' : 'Show raw decompilation'}
-                        >
-                          {showOriginal ? 'AI' : 'Raw'}
-                        </button>
+                      {contractView === 'aiken' && (
+                        <div style={{
+                          position: 'sticky',
+                          top: '0',
+                          float: 'right',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          zIndex: 20,
+                          marginTop: '-0.25rem',
+                        }}>
+                          <ConfidenceBadge verification={getCurrentVerification()} />
+                          {enhancement?.rewrite && (
+                            <button
+                              onClick={() => setShowOriginal(!showOriginal)}
+                              style={{
+                                padding: '0.25rem 0.5rem',
+                                fontSize: '0.7rem',
+                                background: 'rgba(0,0,0,0.8)',
+                                border: '1px solid rgba(255,255,255,0.2)',
+                                borderRadius: '4px',
+                                color: 'var(--text-code)',
+                                cursor: 'pointer',
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.95)'}
+                              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.8)'}
+                              title={showOriginal ? 'Show AI-enhanced code' : 'Show raw decompilation'}
+                            >
+                              {showOriginal ? 'AI' : 'Raw'}
+                            </button>
+                          )}
+                        </div>
                       )}
                         {contractView === 'cbor' && (
                           <pre className="cbor-hex">{result.scriptInfo.bytes}</pre>

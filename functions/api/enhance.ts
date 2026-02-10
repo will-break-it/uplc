@@ -7,6 +7,8 @@
  * 3. Architecture diagram generation (Mermaid)
  */
 
+import { verifyCode, type VerificationResult } from '@uplc/codegen';
+
 export interface Env {
   ANTHROPIC_API_KEY: string;
   UPLC_CACHE: KVNamespace;
@@ -29,6 +31,18 @@ export interface EnhanceResponse {
   annotations?: string[];
   diagram?: string;
   rewrite?: string;
+  verification?: {
+    confidence: 'high' | 'medium' | 'low';
+    constantScore: number;
+    referenceScore: number;
+    placeholderScore: number;
+    abstractionScore: number;
+    missingConstants: string[];
+    undefinedFunctions: string[];
+    totalConstants: number;
+    foundConstants: number;
+    issues: string[];
+  };
   cached?: boolean;
   error?: string;
 }
@@ -132,6 +146,26 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           break;
         case 'rewrite':
           result.rewrite = await rewriteCode(input, context.env);
+          // Verify the rewritten code quality
+          if (result.rewrite && input.constants) {
+            const verification = verifyCode(
+              result.rewrite,
+              { bytestrings: input.constants.bytestrings || [], integers: input.constants.integers || [] },
+              input.traces || []
+            );
+            result.verification = {
+              confidence: verification.confidence,
+              constantScore: verification.constantScore,
+              referenceScore: verification.referenceScore,
+              placeholderScore: verification.placeholderScore,
+              abstractionScore: verification.abstractionScore,
+              missingConstants: verification.missingConstants,
+              undefinedFunctions: verification.undefinedFunctions,
+              totalConstants: verification.totalConstants,
+              foundConstants: verification.foundConstants,
+              issues: verification.issues,
+            };
+          }
           break;
       }
     }

@@ -21,6 +21,19 @@ export interface PatternAnalysis {
   scriptParams: Array<{ name: string; type: string; value: string }>;
 }
 
+export interface VerificationResult {
+  confidence: 'high' | 'medium' | 'low';
+  constantScore: number;
+  referenceScore: number;
+  placeholderScore: number;
+  abstractionScore: number;
+  missingConstants: string[];
+  undefinedFunctions: string[];
+  totalConstants: number;
+  foundConstants: number;
+  issues: string[];
+}
+
 export interface AnalysisResult {
   scriptInfo: ScriptInfo;
   builtins: Record<string, number>;
@@ -70,6 +83,8 @@ export interface AnalysisResult {
     };
     purposes: string[];
   };
+  // Verification result for decompiled code quality
+  verification?: VerificationResult;
 }
 
 // Helper: Convert hex bytes to readable text (for protocol detection)

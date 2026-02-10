@@ -8,8 +8,8 @@
 import { UPLCDecoder, builtinTagToString, showUPLC } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
-import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
-import type { MachineCostParams } from '@uplc/codegen';
+import { generate, estimateCost, getCostWarnings, verifyCode } from '@uplc/codegen';
+import type { MachineCostParams, VerificationResult } from '@uplc/codegen';
 import {
   type BlockfrostEnv, type EpochCostData, type ExecutionStats,
   getCorsOrigin, corsHeaders, optionsResponse, jsonError, jsonOk,
@@ -73,6 +73,19 @@ interface AnalysisResult {
   executionCosts?: ExecutionStats;
   /** 56-char hex values confirmed as on-chain script hashes */
   verifiedScriptHashes?: string[];
+  /** Verification result for decompiled code quality */
+  verification?: {
+    confidence: 'high' | 'medium' | 'low';
+    constantScore: number;
+    referenceScore: number;
+    placeholderScore: number;
+    abstractionScore: number;
+    missingConstants: string[];
+    undefinedFunctions: string[];
+    totalConstants: number;
+    foundConstants: number;
+    issues: string[];
+  };
   cached: boolean;
 }
 
@@ -501,7 +514,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonError('Invalid script hash. Must be 56 hex characters.', 400, corsOrigin);
     }
 
-    const cacheKey = `analysis:v11:${scriptHash}`;  // v11: executionCosts fetched separately
+    const cacheKey = `analysis:v12:${scriptHash}`;  // v12: added verification
 
     // Check cache (static analysis only — executionCosts always fetched fresh)
     if (context.env.UPLC_CACHE) {
@@ -606,6 +619,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       executionCosts: executionStats ?? undefined,
       verifiedScriptHashes: verifiedHashes.length > 0 ? verifiedHashes : undefined,
       cached: false,
+    };
+
+    // Run verification on the decompiled code
+    const verification = verifyCode(decoded.aikenCode, decoded.constants, decoded.traceStrings);
+    result.verification = {
+      confidence: verification.confidence,
+      constantScore: verification.constantScore,
+      referenceScore: verification.referenceScore,
+      placeholderScore: verification.placeholderScore,
+      abstractionScore: verification.abstractionScore,
+      missingConstants: verification.missingConstants,
+      undefinedFunctions: verification.undefinedFunctions,
+      totalConstants: verification.totalConstants,
+      foundConstants: verification.foundConstants,
+      issues: verification.issues,
     };
 
     // Cache the static analysis (immutable) — execution costs are fetched separately
