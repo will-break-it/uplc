@@ -554,9 +554,37 @@ function appToExpression(term: any, params: string[], depth: number): string {
   // Need to unwrap force/delay first: app(force(lam x body), delay(value))
   const unwrappedFunc = unwrapForceDelay(term.func);
   if (unwrappedFunc?.tag === 'lam') {
-    // This is a let-binding: ((lam x body) value) or with force/delay wrappers
-    // Just emit the body - the binding environment already knows about x
-    return termToExpression(unwrappedFunc.body, params, depth + 1);
+    // This is a let-binding: ((lam x body) value)
+    const paramName = unwrappedFunc.param;
+    const value = unwrapForceDelay(term.arg) || term.arg;
+    
+    // Check if BindingEnvironment can resolve this binding
+    if (bindingEnv) {
+      const resolved = bindingEnv.get(paramName);
+      if (resolved && resolved.category === 'inline' && resolved.inlineValue) {
+        // Simple constant — BindingEnvironment handles it, skip the let
+        return termToExpression(unwrappedFunc.body, params, depth + 1);
+      }
+      if (resolved && resolved.category === 'rename' && resolved.semanticName) {
+        // Named builtin/predicate — BindingEnvironment handles it, skip the let
+        return termToExpression(unwrappedFunc.body, params, depth + 1);
+      }
+    }
+    
+    // For complex values: emit as let-binding to preserve constants
+    // Generate the value expression first
+    const valueExpr = termToExpression(value, params, depth + 1);
+    const bodyExpr = termToExpression(unwrappedFunc.body, params, depth + 1);
+    
+    // If the value is trivial (just a variable name or short), skip the let
+    if (valueExpr.length < 3 || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr)) {
+      return bodyExpr;
+    }
+    
+    // Get the semantic name if available
+    const name = bindingEnv?.getSemanticName(paramName) || paramName;
+    
+    return `let ${name} = ${valueExpr}\n${bodyExpr}`;
   }
   
   // Flatten nested applications
