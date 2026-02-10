@@ -25,6 +25,7 @@ function CodeBlock({ code, language = 'haskell', highlightLines, onLineClick }: 
                 id={`L${lineNum}`}
                 style={{
                   display: 'flex',
+                  alignItems: 'baseline',
                   background: isHighlighted ? 'rgba(6, 182, 212, 0.12)' : 'transparent',
                   margin: '0 -1rem',
                   padding: '0 1rem',
@@ -44,7 +45,6 @@ function CodeBlock({ code, language = 'haskell', highlightLines, onLineClick }: 
                     opacity: isHighlighted ? 1 : 0.4,
                     userSelect: 'none',
                     cursor: 'pointer',
-                    fontSize: '0.8em',
                     flexShrink: 0,
                   }}
                 >
@@ -399,7 +399,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   // Donut chart hover state
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   
-  // Handle line click: click to select, shift+click for range
+  // Handle line click: click to select/toggle, shift+click for range
   const handleLineClick = useCallback((line: number, e: React.MouseEvent) => {
     e.preventDefault();
     if (e.shiftKey && highlightedLines.size > 0) {
@@ -411,8 +411,12 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
       for (let i = start; i <= end; i++) newSet.add(i);
       setHighlightedLines(newSet);
       window.history.replaceState(null, '', `#L${start}-L${end}`);
+    } else if (highlightedLines.size === 1 && highlightedLines.has(line)) {
+      // Toggle off if clicking the same line
+      setHighlightedLines(new Set());
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
     } else {
-      // Single line
+      // Single line select
       setHighlightedLines(new Set([line]));
       window.history.replaceState(null, '', `#L${line}`);
     }
