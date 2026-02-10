@@ -954,7 +954,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           let text = '';
                           if (contractView === 'cbor') text = result.scriptInfo.bytes;
                           else if (contractView === 'uplc') {
-                            text = result.uplcPreview.replace(/\s+/g, ' ').trim();
+                            text = result.uplcPreview?.replace(/\s+/g, ' ').trim() || '';
                           } else if (contractView === 'aiken' && decompiled) {
                             text = getDisplayCode();
                           }
@@ -995,7 +995,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                         )}
                         {contractView === 'uplc' && (
                           <pre className="cbor-hex" style={{ wordBreak: 'break-all' }}>
-                            {result.uplcPreview.replace(/\s+/g, ' ').trim()}
+                            {result.uplcPreview?.replace(/\s+/g, ' ').trim() || 'UPLC text not available'}
                           </pre>
                         )}
                         {contractView === 'aiken' && (
