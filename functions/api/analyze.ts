@@ -82,6 +82,8 @@ interface AnalysisResult {
     abstractionScore: number;
     missingConstants: string[];
     undefinedFunctions: string[];
+    placeholders: string[];
+    builtinDensity: number;
     totalConstants: number;
     foundConstants: number;
     issues: string[];
@@ -631,6 +633,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       abstractionScore: verification.abstractionScore,
       missingConstants: verification.missingConstants,
       undefinedFunctions: verification.undefinedFunctions,
+      placeholders: verification.placeholders,
+      builtinDensity: verification.builtinDensity,
       totalConstants: verification.totalConstants,
       foundConstants: verification.foundConstants,
       issues: verification.issues,
