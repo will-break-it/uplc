@@ -354,20 +354,23 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonError('Invalid script hash. Must be 56 hex characters.', 400, corsOrigin);
     }
 
-    const cacheKey = `analysis:v10:${scriptHash}`;  // v10: on-chain execution stats
+    const cacheKey = `analysis:v11:${scriptHash}`;  // v11: executionCosts fetched separately
 
-    // Check cache
+    // Check cache (static analysis only — executionCosts always fetched fresh)
     if (context.env.UPLC_CACHE) {
       const cached = await context.env.UPLC_CACHE.get(cacheKey);
       if (cached) {
         const result = JSON.parse(cached) as AnalysisResult;
         result.cached = true;
+        // Always fetch fresh execution stats (has its own 1hr cache)
+        const executionStats = await fetchExecutionStats(scriptHash, context.env);
+        result.executionCosts = executionStats ?? undefined;
         return new Response(JSON.stringify(result), {
           status: 200,
           headers: {
             'Content-Type': 'application/json',
             'X-Cache': 'hit',
-            'Cache-Control': 'public, max-age=31536000, immutable',
+            'Cache-Control': 'public, max-age=3600',
             ...corsHeaders(corsOrigin),
           },
         });
@@ -449,10 +452,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       cached: false,
     };
 
-    // Cache the full analysis (immutable)
+    // Cache the static analysis (immutable) — execution costs are fetched separately
     if (context.env.UPLC_CACHE) {
+      const { executionCosts: _, ...cacheable } = result;
       context.waitUntil(
-        context.env.UPLC_CACHE.put(cacheKey, JSON.stringify(result))
+        context.env.UPLC_CACHE.put(cacheKey, JSON.stringify(cacheable))
       );
     }
 
@@ -461,7 +465,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       headers: {
         'Content-Type': 'application/json',
         'X-Cache': 'miss',
-        'Cache-Control': 'public, max-age=31536000, immutable',
+        'Cache-Control': 'public, max-age=3600',
         ...corsHeaders(corsOrigin),
       },
     });

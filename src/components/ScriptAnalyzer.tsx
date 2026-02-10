@@ -1321,8 +1321,12 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                     </div>
                   )}
 
-                  {/* 2. Cost Breakdown Donut Chart (SVG with hover) */}
+                  {/* 2. Builtin Usage Breakdown (structural, not cost) */}
                   {result.cost?.breakdown && result.cost.breakdown.length > 0 && (() => {
+                    // Filter out "Machine" — show only builtin categories
+                    const builtinBreakdown = result.cost!.breakdown.filter(b => b.category !== 'Machine');
+                    if (builtinBreakdown.length === 0) return null;
+                    
                     // Flat, muted colors
                     const categoryColors: Record<string, string> = {
                       Machine: '#4a5568',
@@ -1337,8 +1341,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                       Other: '#7a8494',
                     };
                     
-                    const totalCpu = result.cost!.breakdown.reduce((sum, b) => sum + parseInt(b.cpu), 0);
-                    const sortedBreakdown = [...result.cost!.breakdown].sort((a, b) => parseInt(b.cpu) - parseInt(a.cpu));
+                    const totalCpu = builtinBreakdown.reduce((sum, b) => sum + parseInt(b.cpu), 0);
+                    const sortedBreakdown = [...builtinBreakdown].sort((a, b) => parseInt(b.cpu) - parseInt(a.cpu));
                     
                     // SVG donut geometry
                     const size = 140;
@@ -1385,7 +1389,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                     return (
                       <div style={{ marginTop: '1.5rem' }}>
                         <h3 style={{ fontSize: '0.9rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>
-                          Cost Distribution by Category
+                          Builtin Usage by Category
                         </h3>
                         <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
                           {/* SVG Donut Chart */}
@@ -1405,9 +1409,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                               </path>
                             ))}
                             {/* Center label */}
-                            <text x={cx} y={cy - 6} textAnchor="middle" fill="var(--text-muted)" fontSize="8">CPU</text>
+                            <text x={cx} y={cy - 6} textAnchor="middle" fill="var(--text-muted)" fontSize="8">calls</text>
                             <text x={cx} y={cx + 8} textAnchor="middle" fill="var(--text)" fontSize="12" fontWeight="600">
-                              {(totalCpu / 1_000_000).toFixed(0)}M
+                              {sortedBreakdown.reduce((s, b) => s + b.count, 0)}
                             </text>
                           </svg>
                           
@@ -1433,12 +1437,15 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                   }} />
                                   <span style={{ color: 'var(--text)', flex: 1 }}>{b.category}</span>
                                   <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                                    {pct}% · {cpuM}M · {b.count} calls
+                                    {pct}% · {b.count} calls
                                   </span>
                                 </div>
                               );
                             })}
                           </div>
+                        </div>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '0.5rem', opacity: 0.6 }}>
+                          Distribution of builtin function calls in bytecode. Not a cost estimate.
                         </div>
                       </div>
                     );
