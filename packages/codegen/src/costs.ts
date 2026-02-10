@@ -467,26 +467,8 @@ function categorizeBuiltin(name: string): string {
 }
 
 export function getCostWarnings(builtinCounts: Record<string, number>): string[] {
-  const warnings: string[] = [];
-
-  for (const [name, count] of Object.entries(builtinCounts)) {
-    if (count === 0) continue;
-
-    if (name.includes('bls12')) {
-      warnings.push(`BLS12-381 operations detected (${name}: ${count}×) — very expensive`);
-    }
-    if (name === 'verifyEd25519Signature' && count > 3) {
-      warnings.push(`Multiple signature verifications (${count}×) — consider batching`);
-    }
-    if (name.includes('sha3') || name.includes('keccak')) {
-      warnings.push(`SHA3/Keccak hashing (${count}×) — Blake2b is cheaper`);
-    }
-    if (name === 'serialiseData' && count > 5) {
-      warnings.push(`Heavy data serialization (${count}×) — expensive in CPU`);
-    }
-  }
-
-  return warnings;
+  // No opinionated warnings — just report what's there
+  return [];
 }
 
 // ──────────────────────────────────────────────

@@ -790,6 +790,33 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
         // Store raw verification for display
         if (serverResult.verification) {
           setRawVerification(serverResult.verification);
+          
+          // Fire background report for static decompile issues
+          if (serverResult.verification.confidence !== 'high') {
+            fetch('/api/report', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                scriptHash: serverResult.scriptHash,
+                stage: 'static',
+                verification: serverResult.verification,
+              }),
+            })
+              .then(res => res.ok ? res.json() : null)
+              .then((reportData: any) => {
+                if (reportData) {
+                  const url = reportData.issueUrl || reportData.existingUrl;
+                  const num = reportData.issueNumber;
+                  if (url && num) {
+                    setIssueInfo({ url, number: num });
+                  } else if (url) {
+                    const match = url.match(/\/issues\/(\d+)$/);
+                    if (match) setIssueInfo({ url, number: parseInt(match[1]) });
+                  }
+                }
+              })
+              .catch(() => {}); // Silently fail
+          }
         }
         
         // Decompiled code comes from server with analysis data
