@@ -396,6 +396,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   // Line highlight state for code view
   const [highlightedLines, setHighlightedLines] = useState<Set<number>>(new Set());
   
+  // Donut chart hover state
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
+  
   // Handle line click: click to select, shift+click for range
   const handleLineClick = useCallback((line: number, e: React.MouseEvent) => {
     e.preventDefault();
@@ -1435,8 +1438,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                 stroke="var(--bg)"
                                 strokeWidth="1.5"
                                 style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
-                                onMouseEnter={(e) => { (e.target as SVGElement).style.opacity = '0.8'; }}
-                                onMouseLeave={(e) => { (e.target as SVGElement).style.opacity = '1'; }}
+                                onMouseEnter={(e) => { (e.target as SVGElement).style.opacity = '0.8'; setHoveredCategory(seg.category); }}
+                                onMouseLeave={(e) => { (e.target as SVGElement).style.opacity = '1'; setHoveredCategory(null); }}
                               >
                                 <title>{seg.title}</title>
                               </path>
@@ -1454,12 +1457,17 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                               const pct = ((parseInt(b.cpu) / totalCpu) * 100).toFixed(1);
                               const cpuM = (parseInt(b.cpu) / 1_000_000).toFixed(1);
                               const color = categoryColors[b.category] || categoryColors.Other;
+                              const isHovered = hoveredCategory === b.category;
                               return (
                                 <div key={i} style={{ 
                                   display: 'flex', 
                                   alignItems: 'center', 
                                   gap: '0.5rem',
                                   fontSize: '0.8rem',
+                                  transform: isHovered ? 'scale(1.05)' : 'scale(1)',
+                                  transformOrigin: 'left center',
+                                  transition: 'transform 0.15s ease',
+                                  opacity: hoveredCategory && !isHovered ? 0.5 : 1,
                                 }}>
                                   <div style={{ 
                                     width: '10px', 
