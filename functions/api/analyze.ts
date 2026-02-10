@@ -13,7 +13,7 @@ import type { MachineCostParams } from '@uplc/codegen';
 import {
   type BlockfrostEnv, type EpochCostData, type ExecutionStats,
   getCorsOrigin, corsHeaders, optionsResponse, jsonError, jsonOk,
-  fetchScript, fetchEpochCosts, fetchExecutionStats,
+  fetchScript, fetchEpochCosts, fetchExecutionStats, verifyScriptHashes,
 } from './_blockfrost';
 
 type Env = BlockfrostEnv;
@@ -71,6 +71,8 @@ interface AnalysisResult {
   };
   /** Actual on-chain execution costs from recent transactions */
   executionCosts?: ExecutionStats;
+  /** 56-char hex values confirmed as on-chain script hashes */
+  verifiedScriptHashes?: string[];
   cached: boolean;
 }
 
@@ -387,9 +389,17 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Decode, analyze, and estimate cost (+ fetch actual execution stats in parallel)
     const decoded = decodeAndAnalyze(scriptBytes);
-    const [epochCosts, executionStats] = await Promise.all([
+
+    // Collect 56-char hex candidates for script hash verification
+    const hashCandidates = [
+      ...decoded.constants.bytestrings.filter(bs => bs.length === 56),
+      ...decoded.analysis.scriptParams.filter(p => /^[a-f0-9]{56}$/i.test(p.value)).map(p => p.value),
+    ].filter((v, i, a) => a.indexOf(v) === i); // dedupe
+
+    const [epochCosts, executionStats, verifiedHashes] = await Promise.all([
       fetchEpochCosts(context.env),
       fetchExecutionStats(scriptHash, context.env),
+      verifyScriptHashes(hashCandidates, context.env),
     ]);
 
     // Convert Blockfrost epoch costs to bigint maps for estimateCost
@@ -449,6 +459,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       },
       analysis: decoded.analysis,
       executionCosts: executionStats ?? undefined,
+      verifiedScriptHashes: verifiedHashes.length > 0 ? verifiedHashes : undefined,
       cached: false,
     };
 

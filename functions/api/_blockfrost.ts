@@ -62,6 +62,50 @@ function blockfrostGet(path: string, projectId: string): Promise<Response> {
   });
 }
 
+// ── Script hash verification ───────────────
+
+/**
+ * Check which of the given 56-char hex values are actual script hashes.
+ * Returns the subset that exist as scripts on-chain.
+ * Uses KV cache (forever — scripts are immutable).
+ */
+export async function verifyScriptHashes(
+  candidates: string[],
+  env: BlockfrostEnv,
+): Promise<string[]> {
+  if (candidates.length === 0) return [];
+
+  const verified: string[] = [];
+  const toCheck: string[] = [];
+
+  // Check KV cache first
+  for (const hash of candidates) {
+    if (env.UPLC_CACHE) {
+      const cached = await env.UPLC_CACHE.get(`is-script:${hash}`);
+      if (cached === 'yes') { verified.push(hash); continue; }
+      if (cached === 'no') continue;
+    }
+    toCheck.push(hash);
+  }
+
+  // Batch-check uncached candidates (max 8 to limit API calls)
+  const checks = toCheck.slice(0, 8).map(async (hash) => {
+    try {
+      const res = await blockfrostGet(`/scripts/${hash}`, env.BLOCKFROST_PROJECT_ID);
+      const isScript = res.ok;
+      if (env.UPLC_CACHE) {
+        env.UPLC_CACHE.put(`is-script:${hash}`, isScript ? 'yes' : 'no').catch(() => {});
+      }
+      if (isScript) verified.push(hash);
+    } catch {
+      // Skip on error — don't cache failures
+    }
+  });
+
+  await Promise.all(checks);
+  return verified;
+}
+
 // ── Script data ────────────────────────────
 
 /**

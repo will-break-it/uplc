@@ -57,6 +57,8 @@ export interface AnalysisResult {
     }>;
     warnings: string[];
   };
+  // 56-char hex values confirmed as on-chain script hashes
+  verifiedScriptHashes?: string[];
   // Actual on-chain execution costs from recent transactions
   executionCosts?: {
     sampleCount: number;

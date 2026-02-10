@@ -665,6 +665,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           analysis: serverResult.analysis,
           cost: serverResult.cost,
           executionCosts: serverResult.executionCosts,
+          verifiedScriptHashes: serverResult.verifiedScriptHashes,
         };
         
         setResult(coreResult);
@@ -1539,8 +1540,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                               {result.analysis!.scriptParams.map((param, i) => {
-                                // Link 56-char hex values as potential script hashes
-                                const isScriptHash = /^[a-f0-9]{56}$/i.test(param.value);
+                                // Only link if verified as an on-chain script
+                                const isScriptHash = result.verifiedScriptHashes?.includes(param.value) ?? false;
                                 return (
                                   <div key={i} className="interactive-row" style={{ 
                                     display: 'flex', 
@@ -1621,7 +1622,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               {result.constants.bytestrings.slice(0, 8).map((bs: string, i: number) => {
-                                const isScriptHash = bs.length === 56 && /^[a-f0-9]+$/i.test(bs);
+                                const isScriptHash = result.verifiedScriptHashes?.includes(bs) ?? false;
                                 const decoded = hexToAscii(bs);
                                 const codeLines = findLinesForValue(bs);
                                 const clickable = codeLines.length > 0;
