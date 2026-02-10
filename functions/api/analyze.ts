@@ -85,6 +85,110 @@ function hexToBuffer(hex: string): Uint8Array {
   return bytes;
 }
 
+/**
+ * Recursively extract bytestrings and integers from a constant value.
+ * Handles: plain bytestring/integer, Data-encoded (Constr, List, Map, B, I).
+ */
+function extractConstantValues(val: any, bytestrings: string[], integers: string[]) {
+  if (!val) return;
+  
+  switch (val.tag) {
+    case 'integer':
+      const intStr = (val.value ?? val).toString();
+      if (!integers.includes(intStr)) integers.push(intStr);
+      break;
+    case 'bytestring': {
+      const raw = val.value;
+      if (raw instanceof Uint8Array) {
+        const hex = bufferToHex(raw);
+        if (hex.length >= 8 && !bytestrings.includes(hex)) bytestrings.push(hex);
+      }
+      break;
+    }
+    case 'data':
+      // Recurse into the Data payload
+      extractDataValues(val.value, bytestrings, integers);
+      break;
+    case 'list':
+      // List of values — check val.value, val.items, val.list (different AST formats)
+      for (const arr of [val.value, val.items, val.list]) {
+        if (Array.isArray(arr)) {
+          for (const item of arr) {
+            if (item && typeof item === 'object') {
+              extractConstantValues(item, bytestrings, integers);
+              extractDataValues(item, bytestrings, integers);
+            }
+          }
+        }
+      }
+      break;
+    case 'pair':
+      if (val.fst) extractConstantValues(val.fst, bytestrings, integers);
+      if (val.snd) extractConstantValues(val.snd, bytestrings, integers);
+      break;
+  }
+}
+
+/**
+ * Extract values from PlutusData structures (B, I, Constr, List, Map).
+ */
+function extractDataValues(data: any, bytestrings: string[], integers: string[]) {
+  if (!data) return;
+  
+  // Handle bytes (B #hex)
+  if (data.tag === 'bytes' || data.tag === 'B') {
+    const raw = data.value;
+    if (raw instanceof Uint8Array) {
+      const hex = bufferToHex(raw);
+      if (hex.length >= 8 && !bytestrings.includes(hex)) bytestrings.push(hex);
+    } else if (typeof raw === 'string' && raw.length >= 8) {
+      if (!bytestrings.includes(raw)) bytestrings.push(raw);
+    }
+    return;
+  }
+  
+  // Handle integer (I n)
+  if (data.tag === 'int' || data.tag === 'I') {
+    const intStr = (data.value ?? data).toString();
+    if (!integers.includes(intStr)) integers.push(intStr);
+    return;
+  }
+  
+  // Handle Constr (Constr idx [fields...])
+  if (data.tag === 'constr' || data.fields) {
+    const fields = data.fields || data.value?.fields || [];
+    if (Array.isArray(fields)) {
+      for (const field of fields) extractDataValues(field, bytestrings, integers);
+    }
+    return;
+  }
+  
+  // Handle List ([items...])
+  if (data.tag === 'list' || Array.isArray(data.value)) {
+    const items = Array.isArray(data.value) ? data.value : (data.list || []);
+    for (const item of items) extractDataValues(item, bytestrings, integers);
+    return;
+  }
+  
+  // Handle Map ({k: v, ...})
+  if (data.tag === 'map') {
+    const entries = data.value || [];
+    for (const entry of entries) {
+      if (Array.isArray(entry)) {
+        extractDataValues(entry[0], bytestrings, integers);
+        extractDataValues(entry[1], bytestrings, integers);
+      }
+    }
+    return;
+  }
+  
+  // Fallback: check for raw Uint8Array (harmoniclabs sometimes wraps differently)
+  if (data instanceof Uint8Array) {
+    const hex = bufferToHex(data);
+    if (hex.length >= 8 && !bytestrings.includes(hex)) bytestrings.push(hex);
+  }
+}
+
 // Strip CBOR wrapper from script bytes
 function stripCborWrapper(cbor: string): string {
   if (cbor.startsWith('59')) return cbor.slice(6);
@@ -198,18 +302,7 @@ function decodeAndAnalyze(bytes: string): {
       case 'con':
         constantCount++;
         if (term.value) {
-          const val = term.value;
-          if (val.tag === 'integer') {
-            const intStr = val.value.toString();
-            if (!integers.includes(intStr)) {
-              integers.push(intStr);
-            }
-          } else if (val.tag === 'bytestring' && val.value instanceof Uint8Array) {
-            const hex = bufferToHex(val.value);
-            if (hex.length >= 8 && !bytestrings.includes(hex)) {
-              bytestrings.push(hex);
-            }
-          }
+          extractConstantValues(term.value, bytestrings, integers);
         }
         break;
       case 'case':
@@ -256,11 +349,63 @@ function decodeAndAnalyze(bytes: string): {
       traverseRaw(term.delayedTerm);
     } else if (termType === 'Force') {
       traverseRaw(term.termToForce);
+    } else if (termType === 'UPLCConst') {
+      // Extract bytestrings/integers from raw constants (including Data-encoded)
+      extractRawConstValues(term.value, bytestrings, integers);
     } else if (termType === 'Constr') {
       term.terms?.forEach(traverseRaw);
     } else if (termType === 'Case') {
       traverseRaw(term.scrutinee);
       term.branches?.forEach(traverseRaw);
+    }
+  }
+  
+  /**
+   * Extract values from harmoniclabs raw constant values.
+   * Handles DataConstr ({constr, fields}), DataB ({bytes: {_bytes}}),
+   * DataI ({int}), plain arrays (list data), ByteString ({_bytes}).
+   */
+  function extractRawConstValues(val: any, bs: string[], ints: string[]) {
+    if (!val) return;
+    if (val instanceof Uint8Array) {
+      const hex = bufferToHex(val);
+      if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+      return;
+    }
+    if (typeof val === 'bigint') {
+      const s = val.toString();
+      if (!ints.includes(s)) ints.push(s);
+      return;
+    }
+    if (typeof val !== 'object') return;
+    
+    // ByteString wrapper: { _bytes: Uint8Array }
+    if (val._bytes instanceof Uint8Array) {
+      const hex = bufferToHex(val._bytes);
+      if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+      return;
+    }
+    // DataConstr: { constr: bigint, fields: [...] }
+    if (Array.isArray(val.fields)) {
+      for (const f of val.fields) extractRawConstValues(f, bs, ints);
+    }
+    // DataB: { bytes: { _bytes: Uint8Array } }
+    if (val.bytes && val.bytes._bytes instanceof Uint8Array) {
+      const hex = bufferToHex(val.bytes._bytes);
+      if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+    }
+    // DataI: { int: bigint }
+    if (val.int !== undefined) {
+      const s = val.int.toString();
+      if (!ints.includes(s)) ints.push(s);
+    }
+    // Plain array (list data constants)
+    if (Array.isArray(val)) {
+      for (const item of val) extractRawConstValues(item, bs, ints);
+    }
+    // DataList: { list: [...] }
+    if (Array.isArray(val.list)) {
+      for (const item of val.list) extractRawConstValues(item, bs, ints);
     }
   }
   
