@@ -378,6 +378,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         const result = JSON.parse(cached) as AnalysisResult;
         result.cached = true;
         return new Response(JSON.stringify(result), {
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             'X-Cache': 'hit',
@@ -468,6 +469,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     return new Response(JSON.stringify(result), {
+      status: 200,
       headers: {
         'Content-Type': 'application/json',
         'X-Cache': 'miss',
