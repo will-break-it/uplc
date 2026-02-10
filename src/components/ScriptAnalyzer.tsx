@@ -522,6 +522,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           stats: serverResult.stats,
           uplcPreview: serverResult.uplcText, // Actual UPLC text from harmoniclabs
           analysis: serverResult.analysis,
+          cost: serverResult.cost,
         };
         
         setResult(coreResult);
@@ -1079,6 +1080,101 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             <div key={i} className="error-item" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                               <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{param.name}</span>
                               <code style={{ fontSize: '0.75rem', wordBreak: 'break-all' }}>{param.value}</code>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Execution Cost */}
+                  {result.cost && (
+                    <div style={{ marginTop: '1.5rem' }}>
+                      <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                        Execution Cost Estimate
+                      </h3>
+                      <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
+                        <div className="stat-card">
+                          <div className="label">CPU Units</div>
+                          <div className="value small">{(parseInt(result.cost.cpu) / 1_000_000).toFixed(1)}M</div>
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <div style={{ 
+                              height: '6px', 
+                              background: 'var(--border)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${Math.min(result.cost.cpuBudgetPercent, 100)}%`, 
+                                height: '100%', 
+                                background: result.cost.cpuBudgetPercent > 80 ? '#ef4444' : result.cost.cpuBudgetPercent > 50 ? '#f59e0b' : '#10b981',
+                                borderRadius: '3px',
+                              }} />
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                              {result.cost.cpuBudgetPercent}% of budget
+                            </div>
+                          </div>
+                        </div>
+                        <div className="stat-card">
+                          <div className="label">Memory Units</div>
+                          <div className="value small">{(parseInt(result.cost.memory) / 1_000).toFixed(1)}K</div>
+                          <div style={{ marginTop: '0.5rem' }}>
+                            <div style={{ 
+                              height: '6px', 
+                              background: 'var(--border)', 
+                              borderRadius: '3px',
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ 
+                                width: `${Math.min(result.cost.memoryBudgetPercent, 100)}%`, 
+                                height: '100%', 
+                                background: result.cost.memoryBudgetPercent > 80 ? '#ef4444' : result.cost.memoryBudgetPercent > 50 ? '#f59e0b' : '#10b981',
+                                borderRadius: '3px',
+                              }} />
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                              {result.cost.memoryBudgetPercent}% of budget
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      {result.cost.breakdown && result.cost.breakdown.length > 0 && (
+                        <details style={{ marginTop: '0.75rem' }}>
+                          <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                            Cost breakdown by category
+                          </summary>
+                          <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.25rem' }}>
+                            {result.cost.breakdown.map((b, i) => (
+                              <div key={i} style={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                fontSize: '0.75rem',
+                                padding: '0.25rem 0.5rem',
+                                background: 'var(--card-bg)',
+                                borderRadius: '4px',
+                              }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>{b.category}</span>
+                                <span style={{ color: 'var(--text-muted)' }}>
+                                  {(parseInt(b.cpu) / 1_000_000).toFixed(1)}M cpu · {b.count} calls
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                      {result.cost.warnings && result.cost.warnings.length > 0 && (
+                        <div style={{ marginTop: '0.75rem' }}>
+                          {result.cost.warnings.map((w, i) => (
+                            <div key={i} style={{ 
+                              padding: '0.5rem', 
+                              background: 'rgba(245, 158, 11, 0.1)', 
+                              border: '1px solid rgba(245, 158, 11, 0.3)',
+                              borderRadius: '4px',
+                              fontSize: '0.8rem',
+                              color: '#f59e0b',
+                            }}>
+                              ⚠️ {w}
                             </div>
                           ))}
                         </div>

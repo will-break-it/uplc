@@ -42,6 +42,20 @@ export interface AnalysisResult {
   uplcPreview: string;
   // Rich pattern analysis from @uplc/patterns
   analysis?: PatternAnalysis;
+  // Execution cost estimate
+  cost?: {
+    cpu: string;
+    memory: string;
+    cpuBudgetPercent: number;
+    memoryBudgetPercent: number;
+    breakdown: Array<{
+      category: string;
+      cpu: string;
+      memory: string;
+      count: number;
+    }>;
+    warnings: string[];
+  };
 }
 
 // Helper: Convert hex bytes to readable text (for protocol detection)
