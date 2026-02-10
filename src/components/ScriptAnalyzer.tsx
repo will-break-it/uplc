@@ -1262,7 +1262,10 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
               {activeTab === 'contract' && (
                 <section className="docs-section">
                   <h2>{Icons.contract} Contract Code</h2>
-                  <p>View the smart contract in different formats.</p>
+                  <p style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                    <span>View the smart contract in different formats.</span>
+                    {contractView === 'aiken' && <ConfidenceBadge verification={getCurrentVerification()} issueInfo={issueInfo} />}
+                  </p>
 
                   <div className="code-section">
                     <div className="code-header">
@@ -1316,7 +1319,6 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           zIndex: 20,
                           marginTop: '-0.25rem',
                         }}>
-                          <ConfidenceBadge verification={getCurrentVerification()} issueInfo={issueInfo} />
                           {enhancement?.rewrite && (
                             <button
                               onClick={() => setShowOriginal(!showOriginal)}
