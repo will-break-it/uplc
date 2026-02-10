@@ -1,22 +1,63 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Highlight, themes } from 'prism-react-renderer';
 import type { AnalysisResult } from '../lib/analyzer';
 import { analyzeScriptCore } from '../lib/analyzer';
 import { decompileUplc, type DecompilerResult } from '../lib/decompiler';
 
-// Syntax-highlighted code block
-function CodeBlock({ code, language = 'haskell' }: { code: string; language?: string }) {
+// Syntax-highlighted code block with GitHub-style line numbers
+function CodeBlock({ code, language = 'haskell', highlightLines, onLineClick }: {
+  code: string;
+  language?: string;
+  highlightLines?: Set<number>;
+  onLineClick?: (line: number, e: React.MouseEvent) => void;
+}) {
   return (
     <Highlight theme={themes.nightOwl} code={code} language={language}>
       {({ className, style, tokens, getLineProps, getTokenProps }) => (
         <pre className={className} style={{ ...style, background: 'transparent', margin: 0, padding: 0 }}>
-          {tokens.map((line, i) => (
-            <div key={i} {...getLineProps({ line })}>
-              {line.map((token, key) => (
-                <span key={key} {...getTokenProps({ token })} />
-              ))}
-            </div>
-          ))}
+          {tokens.map((line, i) => {
+            const lineNum = i + 1;
+            const isHighlighted = highlightLines?.has(lineNum);
+            return (
+              <div
+                key={i}
+                {...getLineProps({ line })}
+                id={`L${lineNum}`}
+                style={{
+                  display: 'flex',
+                  background: isHighlighted ? 'rgba(6, 182, 212, 0.12)' : 'transparent',
+                  margin: '0 -1rem',
+                  padding: '0 1rem',
+                  borderLeft: isHighlighted ? '2px solid var(--accent)' : '2px solid transparent',
+                }}
+              >
+                <span
+                  className="line-number"
+                  data-line={lineNum}
+                  onClick={(e) => onLineClick?.(lineNum, e)}
+                  style={{
+                    display: 'inline-block',
+                    width: '3.5em',
+                    marginRight: '1em',
+                    textAlign: 'right',
+                    color: isHighlighted ? 'var(--accent)' : 'var(--text-muted)',
+                    opacity: isHighlighted ? 1 : 0.4,
+                    userSelect: 'none',
+                    cursor: 'pointer',
+                    fontSize: '0.8em',
+                    flexShrink: 0,
+                  }}
+                >
+                  {lineNum}
+                </span>
+                <span style={{ flex: 1 }}>
+                  {line.map((token, key) => (
+                    <span key={key} {...getTokenProps({ token })} />
+                  ))}
+                </span>
+              </div>
+            );
+          })}
         </pre>
       )}
     </Highlight>
@@ -352,6 +393,76 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   const [enhancement, setEnhancement] = useState<EnhancementResult | null>(null);
   const [showOriginal, setShowOriginal] = useState(false);
   
+  // Line highlight state for code view
+  const [highlightedLines, setHighlightedLines] = useState<Set<number>>(new Set());
+  
+  // Handle line click: click to select, shift+click for range
+  const handleLineClick = useCallback((line: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    if (e.shiftKey && highlightedLines.size > 0) {
+      // Range select from last highlighted line
+      const existing = [...highlightedLines].sort((a, b) => a - b);
+      const anchor = existing[0];
+      const newSet = new Set<number>();
+      const [start, end] = anchor < line ? [anchor, line] : [line, anchor];
+      for (let i = start; i <= end; i++) newSet.add(i);
+      setHighlightedLines(newSet);
+      window.history.replaceState(null, '', `#L${start}-L${end}`);
+    } else {
+      // Single line
+      setHighlightedLines(new Set([line]));
+      window.history.replaceState(null, '', `#L${line}`);
+    }
+  }, [highlightedLines]);
+  
+  // Find line numbers where a value appears in the displayed Aiken code
+  const findLinesForValue = useCallback((value: string): number[] => {
+    const code = enhancement?.rewrite && !showOriginal ? enhancement.rewrite : decompiled?.aikenCode;
+    if (!code) return [];
+    const lines: number[] = [];
+    code.split('\n').forEach((line, i) => {
+      if (line.includes(value)) lines.push(i + 1);
+    });
+    return lines;
+  }, [enhancement, showOriginal, decompiled]);
+  
+  // Jump to a value in the Aiken code view
+  const jumpToCodeLine = useCallback((value: string) => {
+    const lines = findLinesForValue(value);
+    if (lines.length === 0) return;
+    setHighlightedLines(new Set(lines));
+    setActiveTab('contract');
+    setContractView('aiken');
+    const hash = lines.length === 1 ? `#L${lines[0]}` : `#L${lines[0]}-L${lines[lines.length - 1]}`;
+    window.history.replaceState(null, '', hash);
+    setTimeout(() => document.getElementById(`L${lines[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+  }, [findLinesForValue]);
+  
+  // Parse URL hash for line highlights on mount/tab change
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    const rangeMatch = hash.match(/^#L(\d+)-L(\d+)$/);
+    const singleMatch = hash.match(/^#L(\d+)$/);
+    if (rangeMatch) {
+      const start = parseInt(rangeMatch[1]);
+      const end = parseInt(rangeMatch[2]);
+      const newSet = new Set<number>();
+      for (let i = start; i <= end; i++) newSet.add(i);
+      setHighlightedLines(newSet);
+      // Switch to contract tab and aiken view
+      setActiveTab('contract');
+      setContractView('aiken');
+      setTimeout(() => document.getElementById(`L${start}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+    } else if (singleMatch) {
+      const line = parseInt(singleMatch[1]);
+      setHighlightedLines(new Set([line]));
+      setActiveTab('contract');
+      setContractView('aiken');
+      setTimeout(() => document.getElementById(`L${line}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200);
+    }
+  }, [result]);
+  
   // Auto-scroll carousel
   useEffect(() => {
     const container = carouselRef.current;
@@ -523,6 +634,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           uplcPreview: serverResult.uplcText, // Actual UPLC text from harmoniclabs
           analysis: serverResult.analysis,
           cost: serverResult.cost,
+          executionCosts: serverResult.executionCosts,
         };
         
         setResult(coreResult);
@@ -1002,7 +1114,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                         {contractView === 'aiken' && (
                           decompiled ? (
                             <>
-                              <CodeBlock code={getDisplayCode()} language="rust" />
+                              <CodeBlock code={getDisplayCode()} language="rust" highlightLines={highlightedLines} onLineClick={handleLineClick} />
                               {decompiled.error && (
                                 <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
                                   Partial decompilation: {decompiled.error}
@@ -1032,12 +1144,19 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                 <section className="docs-section">
                   <h2>{Icons.analysis} Static Analysis</h2>
 
-                  {/* 1. Execution Budget */}
-                  {result.cost && (() => {
-                    const cpuValue = parseInt(result.cost.cpu);
-                    const memValue = parseInt(result.cost.memory);
-                    const cpuPct = result.cost.cpuBudgetPercent;
-                    const memPct = result.cost.memoryBudgetPercent;
+                  {/* 1. Execution Budget — real on-chain data or static estimate */}
+                  {(() => {
+                    const exec = result.executionCosts;
+                    const hasRealData = !!exec && exec.sampleCount > 0;
+                    
+                    // Use real data if available, fall back to static
+                    const cpuPct = hasRealData ? exec!.budgetPercent.cpu.avg : (result.cost?.cpuBudgetPercent ?? 0);
+                    const memPct = hasRealData ? exec!.budgetPercent.memory.avg : (result.cost?.memoryBudgetPercent ?? 0);
+                    const cpuValue = hasRealData ? exec!.cpu.avg : parseInt(result.cost?.cpu ?? '0');
+                    const memValue = hasRealData ? exec!.memory.avg : parseInt(result.cost?.memory ?? '0');
+                    
+                    if (!hasRealData && !result.cost) return null;
+                    
                     const getColor = (pct: number) => pct < 33 ? '#10b981' : pct < 66 ? '#f59e0b' : '#ef4444';
                     const formatUnits = (val: number) => {
                       if (val >= 1_000_000_000) return (val / 1_000_000_000).toFixed(1) + 'B';
@@ -1047,87 +1166,142 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                     };
                     
                     return (
-                      <div style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
-                        gap: '1rem',
-                        marginTop: '1rem',
-                      }}>
-                        {/* CPU Gauge */}
-                        <div style={{
-                          background: 'var(--card-bg)',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          padding: '1.25rem',
+                      <>
+                        <div style={{ 
+                          display: 'grid', 
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
+                          gap: '1rem',
+                          marginTop: '1rem',
                         }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
-                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>CPU Budget</span>
-                            <span style={{ fontSize: '1.5rem', fontWeight: 600, color: getColor(cpuPct) }}>
-                              {cpuPct.toFixed(1)}%
-                            </span>
-                          </div>
-                          <div style={{ 
-                            height: '12px', 
-                            background: 'var(--border)', 
-                            borderRadius: '6px',
-                            overflow: 'hidden',
-                            marginBottom: '0.5rem',
+                          {/* CPU Gauge */}
+                          <div style={{
+                            background: 'var(--card-bg)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            padding: '1.25rem',
                           }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>CPU Budget</span>
+                              <span style={{ fontSize: '1.5rem', fontWeight: 600, color: getColor(cpuPct) }}>
+                                {cpuPct.toFixed(1)}%
+                              </span>
+                            </div>
                             <div style={{ 
-                              width: `${Math.min(cpuPct, 100)}%`, 
-                              height: '100%', 
-                              background: getColor(cpuPct),
+                              height: '12px', 
+                              background: 'var(--border)', 
                               borderRadius: '6px',
-                              transition: 'width 0.3s ease',
-                            }} />
+                              overflow: 'hidden',
+                              marginBottom: '0.5rem',
+                            }}>
+                              {hasRealData ? (
+                                <>
+                                  {/* Range bar: min to max */}
+                                  <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                                    <div style={{
+                                      position: 'absolute',
+                                      left: `${Math.min(exec!.budgetPercent.cpu.avg * 0.5, 100)}%`,
+                                      width: `${Math.min(Math.max(exec!.budgetPercent.cpu.max - exec!.budgetPercent.cpu.avg * 0.5, 0.5), 100)}%`,
+                                      height: '100%',
+                                      background: getColor(cpuPct),
+                                      opacity: 0.3,
+                                      borderRadius: '6px',
+                                    }} />
+                                    <div style={{ 
+                                      width: `${Math.min(cpuPct, 100)}%`, 
+                                      height: '100%', 
+                                      background: getColor(cpuPct),
+                                      borderRadius: '6px',
+                                    }} />
+                                  </div>
+                                </>
+                              ) : (
+                                <div style={{ 
+                                  width: `${Math.min(cpuPct, 100)}%`, 
+                                  height: '100%', 
+                                  background: getColor(cpuPct),
+                                  borderRadius: '6px',
+                                  transition: 'width 0.3s ease',
+                                }} />
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              {hasRealData ? (
+                                <>avg {formatUnits(cpuValue)} · max {formatUnits(exec!.cpu.max)} / 10B</>
+                              ) : (
+                                <>{formatUnits(cpuValue)} / 10B units</>
+                              )}
+                            </div>
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            {formatUnits(cpuValue)} / 10B units
+
+                          {/* Memory Gauge */}
+                          <div style={{
+                            background: 'var(--card-bg)',
+                            border: '1px solid var(--border)',
+                            borderRadius: '8px',
+                            padding: '1.25rem',
+                          }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
+                              <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Memory Budget</span>
+                              <span style={{ fontSize: '1.5rem', fontWeight: 600, color: getColor(memPct) }}>
+                                {memPct.toFixed(1)}%
+                              </span>
+                            </div>
+                            <div style={{ 
+                              height: '12px', 
+                              background: 'var(--border)', 
+                              borderRadius: '6px',
+                              overflow: 'hidden',
+                              marginBottom: '0.5rem',
+                            }}>
+                              {hasRealData ? (
+                                <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                                  <div style={{
+                                    position: 'absolute',
+                                    left: `${Math.min(exec!.budgetPercent.memory.avg * 0.5, 100)}%`,
+                                    width: `${Math.min(Math.max(exec!.budgetPercent.memory.max - exec!.budgetPercent.memory.avg * 0.5, 0.5), 100)}%`,
+                                    height: '100%',
+                                    background: getColor(memPct),
+                                    opacity: 0.3,
+                                    borderRadius: '6px',
+                                  }} />
+                                  <div style={{ 
+                                    width: `${Math.min(memPct, 100)}%`, 
+                                    height: '100%', 
+                                    background: getColor(memPct),
+                                    borderRadius: '6px',
+                                  }} />
+                                </div>
+                              ) : (
+                                <div style={{ 
+                                  width: `${Math.min(memPct, 100)}%`, 
+                                  height: '100%', 
+                                  background: getColor(memPct),
+                                  borderRadius: '6px',
+                                  transition: 'width 0.3s ease',
+                                }} />
+                              )}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              {hasRealData ? (
+                                <>avg {formatUnits(memValue)} · max {formatUnits(exec!.memory.max)} / 14M</>
+                              ) : (
+                                <>{formatUnits(memValue)} / 14M units</>
+                              )}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Memory Gauge */}
-                        <div style={{
-                          background: 'var(--card-bg)',
-                          border: '1px solid var(--border)',
-                          borderRadius: '8px',
-                          padding: '1.25rem',
-                        }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
-                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Memory Budget</span>
-                            <span style={{ fontSize: '1.5rem', fontWeight: 600, color: getColor(memPct) }}>
-                              {memPct.toFixed(1)}%
-                            </span>
-                          </div>
-                          <div style={{ 
-                            height: '12px', 
-                            background: 'var(--border)', 
-                            borderRadius: '6px',
-                            overflow: 'hidden',
-                            marginBottom: '0.5rem',
-                          }}>
-                            <div style={{ 
-                              width: `${Math.min(memPct, 100)}%`, 
-                              height: '100%', 
-                              background: getColor(memPct),
-                              borderRadius: '6px',
-                              transition: 'width 0.3s ease',
-                            }} />
-                          </div>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            {formatUnits(memValue)} / 14M units
-                          </div>
+                        {/* Source note */}
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem', opacity: 0.7 }}>
+                          {hasRealData ? (
+                            <>From {exec!.sampleCount} on-chain transaction{exec!.sampleCount !== 1 ? 's' : ''}. Actual costs vary by transaction context (inputs, outputs, datum size).</>
+                          ) : (
+                            <>Static estimate from bytecode analysis. No on-chain executions found for actual costs.</>
+                          )}
                         </div>
-                      </div>
+                      </>
                     );
                   })()}
-
-                  {/* Cost note */}
-                  {result.cost && (
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem', opacity: 0.7 }}>
-                      Estimated from builtin base costs (Plutus V3 model). Actual execution costs vary with argument sizes.
-                    </div>
-                  )}
 
                   {/* Cost warnings */}
                   {result.cost?.warnings && result.cost.warnings.length > 0 && (
@@ -1316,20 +1490,34 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                               Script Parameters <span style={{ opacity: 0.6 }}>— parameterized values passed at deployment</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                              {result.analysis!.scriptParams.map((param, i) => (
-                                <div key={i} style={{ 
-                                  display: 'flex', 
-                                  gap: '0.75rem', 
-                                  alignItems: 'baseline',
-                                  padding: '0.35rem 0.5rem',
-                                  background: 'var(--card-bg)',
-                                  borderRadius: '4px',
-                                  fontSize: '0.8rem',
-                                }}>
-                                  <span style={{ color: 'var(--accent)', fontWeight: 500, flexShrink: 0 }}>{param.name}</span>
-                                  <code style={{ color: 'var(--text-muted)', wordBreak: 'break-all', fontSize: '0.75rem' }}>{param.value}</code>
-                                </div>
-                              ))}
+                              {result.analysis!.scriptParams.map((param, i) => {
+                                // Link 56-char hex values as potential script hashes
+                                const isScriptHash = /^[a-f0-9]{56}$/i.test(param.value);
+                                return (
+                                  <div key={i} style={{ 
+                                    display: 'flex', 
+                                    gap: '0.75rem', 
+                                    alignItems: 'baseline',
+                                    padding: '0.35rem 0.5rem',
+                                    background: 'var(--card-bg)',
+                                    borderRadius: '4px',
+                                    fontSize: '0.8rem',
+                                  }}>
+                                    <span style={{ color: 'var(--accent)', fontWeight: 500, flexShrink: 0 }}>{param.name}</span>
+                                    {isScriptHash ? (
+                                      <a
+                                        href={`/script/${param.value}`}
+                                        style={{ color: 'var(--text-muted)', wordBreak: 'break-all', fontSize: '0.75rem', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: '2px' }}
+                                        title="Analyze this script"
+                                      >
+                                        {param.value}
+                                      </a>
+                                    ) : (
+                                      <code style={{ color: 'var(--text-muted)', wordBreak: 'break-all', fontSize: '0.75rem' }}>{param.value}</code>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         )}
@@ -1341,15 +1529,32 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                               Trace Strings <span style={{ opacity: 0.6 }}>— error/debug messages in bytecode</span>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              {result.errorMessages.slice(0, 10).map((msg: string, i: number) => (
-                                <div key={i} style={{ 
-                                  padding: '0.3rem 0.5rem',
-                                  background: 'var(--card-bg)',
-                                  borderRadius: '4px',
-                                }}>
-                                  <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{msg}</code>
-                                </div>
-                              ))}
+                              {result.errorMessages.slice(0, 10).map((msg: string, i: number) => {
+                                const lines = findLinesForValue(msg);
+                                const clickable = lines.length > 0;
+                                return (
+                                  <div key={i}
+                                    onClick={clickable ? () => jumpToCodeLine(msg) : undefined}
+                                    style={{ 
+                                      padding: '0.3rem 0.5rem',
+                                      background: 'var(--card-bg)',
+                                      borderRadius: '4px',
+                                      cursor: clickable ? 'pointer' : 'default',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '0.5rem',
+                                    }}
+                                    title={clickable ? `Jump to line ${lines[0]} in code` : undefined}
+                                  >
+                                    <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', flex: 1 }}>{msg}</code>
+                                    {clickable && (
+                                      <span style={{ fontSize: '0.65rem', color: 'var(--accent)', opacity: 0.7, flexShrink: 0 }}>
+                                        L{lines[0]}
+                                      </span>
+                                    )}
+                                  </div>
+                                );
+                              })}
                               {result.errorMessages.length > 10 && (
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '0.5rem' }}>
                                   +{result.errorMessages.length - 10} more...
@@ -1366,33 +1571,54 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                               Bytestring Constants
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                              {result.constants.bytestrings.slice(0, 8).map((bs: string, i: number) => (
-                                <div key={i} style={{ 
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  padding: '0.3rem 0.5rem',
-                                  background: 'var(--card-bg)',
-                                  borderRadius: '4px',
-                                  gap: '1rem',
-                                }}>
-                                  <code style={{ 
-                                    fontSize: '0.7rem', 
-                                    color: 'var(--text-secondary)', 
-                                    wordBreak: 'break-all',
-                                    fontFamily: 'monospace',
+                              {result.constants.bytestrings.slice(0, 8).map((bs: string, i: number) => {
+                                const isScriptHash = bs.length === 56 && /^[a-f0-9]+$/i.test(bs);
+                                return (
+                                  <div key={i} style={{ 
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    padding: '0.3rem 0.5rem',
+                                    background: 'var(--card-bg)',
+                                    borderRadius: '4px',
+                                    gap: '1rem',
                                   }}>
-                                    {bs.length > 64 ? bs.slice(0, 64) + '...' : bs}
-                                  </code>
-                                  <span style={{ 
-                                    fontSize: '0.7rem', 
-                                    color: 'var(--text-muted)',
-                                    flexShrink: 0,
-                                  }}>
-                                    {bs.length / 2} bytes
-                                  </span>
-                                </div>
-                              ))}
+                                    {isScriptHash ? (
+                                      <a
+                                        href={`/script/${bs}`}
+                                        style={{
+                                          fontSize: '0.7rem',
+                                          color: 'var(--text-secondary)',
+                                          wordBreak: 'break-all',
+                                          fontFamily: 'monospace',
+                                          textDecoration: 'underline',
+                                          textDecorationStyle: 'dotted',
+                                          textUnderlineOffset: '2px',
+                                        }}
+                                        title="Analyze this script"
+                                      >
+                                        {bs}
+                                      </a>
+                                    ) : (
+                                      <code style={{ 
+                                        fontSize: '0.7rem', 
+                                        color: 'var(--text-secondary)', 
+                                        wordBreak: 'break-all',
+                                        fontFamily: 'monospace',
+                                      }}>
+                                        {bs.length > 64 ? bs.slice(0, 64) + '...' : bs}
+                                      </code>
+                                    )}
+                                    <span style={{ 
+                                      fontSize: '0.7rem', 
+                                      color: 'var(--text-muted)',
+                                      flexShrink: 0,
+                                    }}>
+                                      {bs.length / 2} bytes
+                                    </span>
+                                  </div>
+                                );
+                              })}
                               {result.constants.bytestrings.length > 8 && (
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '0.5rem' }}>
                                   +{result.constants.bytestrings.length - 8} more...
@@ -1413,17 +1639,26 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                               flexWrap: 'wrap', 
                               gap: '0.35rem',
                             }}>
-                              {result.constants.integers.slice(0, 20).map((int: string, i: number) => (
-                                <code key={i} style={{ 
-                                  fontSize: '0.75rem', 
-                                  color: 'var(--text-secondary)',
-                                  padding: '0.2rem 0.4rem',
-                                  background: 'var(--card-bg)',
-                                  borderRadius: '3px',
-                                }}>
-                                  {int}
-                                </code>
-                              ))}
+                              {result.constants.integers.slice(0, 20).map((int: string, i: number) => {
+                                const lines = findLinesForValue(int);
+                                const clickable = lines.length > 0 && int !== '0' && int !== '1'; // Skip trivial matches
+                                return (
+                                  <code key={i}
+                                    onClick={clickable ? () => jumpToCodeLine(int) : undefined}
+                                    style={{ 
+                                      fontSize: '0.75rem', 
+                                      color: 'var(--text-secondary)',
+                                      padding: '0.2rem 0.4rem',
+                                      background: 'var(--card-bg)',
+                                      borderRadius: '3px',
+                                      cursor: clickable ? 'pointer' : 'default',
+                                    }}
+                                    title={clickable ? `Jump to line ${lines[0]}` : undefined}
+                                  >
+                                    {int}
+                                  </code>
+                                );
+                              })}
                               {result.constants.integers.length > 20 && (
                                 <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '0.2rem' }}>
                                   +{result.constants.integers.length - 20} more

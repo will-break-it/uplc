@@ -11,9 +11,9 @@ import { analyzeContract } from '@uplc/patterns';
 import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
 import type { MachineCostParams } from '@uplc/codegen';
 import {
-  type BlockfrostEnv, type EpochCostData,
+  type BlockfrostEnv, type EpochCostData, type ExecutionStats,
   getCorsOrigin, corsHeaders, optionsResponse, jsonError, jsonOk,
-  fetchScript, fetchEpochCosts,
+  fetchScript, fetchEpochCosts, fetchExecutionStats,
 } from './_blockfrost';
 
 type Env = BlockfrostEnv;
@@ -69,6 +69,8 @@ interface AnalysisResult {
     checkTypes: string[];
     scriptParams: Array<{ name: string; type: string; value: string }>;
   };
+  /** Actual on-chain execution costs from recent transactions */
+  executionCosts?: ExecutionStats;
   cached: boolean;
 }
 
@@ -352,7 +354,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonError('Invalid script hash. Must be 56 hex characters.', 400, corsOrigin);
     }
 
-    const cacheKey = `analysis:v9:${scriptHash}`;  // v9: CEK machine costs
+    const cacheKey = `analysis:v10:${scriptHash}`;  // v10: on-chain execution stats
 
     // Check cache
     if (context.env.UPLC_CACHE) {
@@ -380,9 +382,12 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const { type: scriptType, size: scriptSize, bytes: scriptBytes } = scriptResult;
 
-    // Decode, analyze, and estimate cost
+    // Decode, analyze, and estimate cost (+ fetch actual execution stats in parallel)
     const decoded = decodeAndAnalyze(scriptBytes);
-    const epochCosts = await fetchEpochCosts(context.env);
+    const [epochCosts, executionStats] = await Promise.all([
+      fetchEpochCosts(context.env),
+      fetchExecutionStats(scriptHash, context.env),
+    ]);
 
     // Convert Blockfrost epoch costs to bigint maps for estimateCost
     let cpuCosts: Record<string, bigint> | undefined;
@@ -440,6 +445,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         warnings: costWarnings,
       },
       analysis: decoded.analysis,
+      executionCosts: executionStats ?? undefined,
       cached: false,
     };
 

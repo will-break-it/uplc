@@ -42,7 +42,7 @@ export interface AnalysisResult {
   uplcPreview: string;
   // Rich pattern analysis from @uplc/patterns
   analysis?: PatternAnalysis;
-  // Execution cost estimate
+  // Execution cost estimate (static)
   cost?: {
     cpu: string;
     memory: string;
@@ -56,6 +56,17 @@ export interface AnalysisResult {
       builtins?: string[];
     }>;
     warnings: string[];
+  };
+  // Actual on-chain execution costs from recent transactions
+  executionCosts?: {
+    sampleCount: number;
+    cpu: { min: number; max: number; avg: number; median: number };
+    memory: { min: number; max: number; avg: number; median: number };
+    budgetPercent: {
+      cpu: { avg: number; max: number };
+      memory: { avg: number; max: number };
+    };
+    purposes: string[];
   };
 }
 

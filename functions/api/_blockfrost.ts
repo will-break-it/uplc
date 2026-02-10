@@ -244,6 +244,113 @@ export async function fetchEpochCosts(env: BlockfrostEnv): Promise<EpochCostData
   }
 }
 
+// ── Script redeemers (actual execution costs) ──
+
+const REDEEMERS_CACHE_TTL = 3600; // 1 hour
+
+export interface ExecutionStats {
+  sampleCount: number;
+  cpu: { min: number; max: number; avg: number; median: number };
+  memory: { min: number; max: number; avg: number; median: number };
+  budgetPercent: {
+    cpu: { avg: number; max: number };
+    memory: { avg: number; max: number };
+  };
+  /** Most recent redeemer purposes seen */
+  purposes: string[];
+}
+
+function median(sorted: number[]): number {
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+}
+
+/**
+ * Fetch recent redeemer executions for a script and compute statistics.
+ * Returns null if the script has never been executed.
+ */
+export async function fetchExecutionStats(
+  scriptHash: string,
+  env: BlockfrostEnv,
+): Promise<ExecutionStats | null> {
+  const cacheKey = `redeemers:v1:${scriptHash}`;
+
+  if (env.UPLC_CACHE) {
+    const cached = await env.UPLC_CACHE.get(cacheKey, 'json') as ExecutionStats | null;
+    if (cached) return cached;
+  }
+
+  try {
+    // Fetch up to 100 most recent redeemers
+    const res = await blockfrostGet(
+      `/scripts/${scriptHash}/redeemers?count=100&order=desc`,
+      env.BLOCKFROST_PROJECT_ID,
+    );
+
+    if (res.status === 404) return null;
+    if (!res.ok) return null;
+
+    const redeemers = await res.json() as Array<{
+      tx_hash: string;
+      tx_index: number;
+      purpose: string;
+      unit_mem: string;
+      unit_steps: string;
+    }>;
+
+    if (!redeemers || redeemers.length === 0) return null;
+
+    const cpuValues = redeemers.map(r => parseInt(r.unit_steps)).sort((a, b) => a - b);
+    const memValues = redeemers.map(r => parseInt(r.unit_mem)).sort((a, b) => a - b);
+    const purposes = [...new Set(redeemers.map(r => r.purpose))];
+
+    const cpuAvg = Math.round(cpuValues.reduce((a, b) => a + b, 0) / cpuValues.length);
+    const memAvg = Math.round(memValues.reduce((a, b) => a + b, 0) / memValues.length);
+
+    const txBudgetCpu = 10_000_000_000;
+    const txBudgetMem = 14_000_000;
+
+    const result: ExecutionStats = {
+      sampleCount: redeemers.length,
+      cpu: {
+        min: cpuValues[0],
+        max: cpuValues[cpuValues.length - 1],
+        avg: cpuAvg,
+        median: median(cpuValues),
+      },
+      memory: {
+        min: memValues[0],
+        max: memValues[memValues.length - 1],
+        avg: memAvg,
+        median: median(memValues),
+      },
+      budgetPercent: {
+        cpu: {
+          avg: Math.round(cpuAvg / txBudgetCpu * 10000) / 100,
+          max: Math.round(cpuValues[cpuValues.length - 1] / txBudgetCpu * 10000) / 100,
+        },
+        memory: {
+          avg: Math.round(memAvg / txBudgetMem * 10000) / 100,
+          max: Math.round(memValues[memValues.length - 1] / txBudgetMem * 10000) / 100,
+        },
+      },
+      purposes,
+    };
+
+    if (env.UPLC_CACHE) {
+      env.UPLC_CACHE.put(cacheKey, JSON.stringify(result), {
+        expirationTtl: REDEEMERS_CACHE_TTL,
+      }).catch(() => {});
+    }
+
+    return result;
+  } catch {
+    return null;
+  }
+}
+
 /** Typical argument sizes (words) for slope-based cost estimates */
 function getTypicalSize(builtin: string): number {
   if (builtin.includes('Integer') || builtin === 'modInteger' || builtin === 'divideInteger' ||
