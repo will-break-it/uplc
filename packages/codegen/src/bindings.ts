@@ -283,6 +283,46 @@ export class BindingEnvironment {
           inlineValue: `#"${hex}"`,
           pattern: 'constant_bytes'
         };
+      
+      case 'string':
+        return {
+          name,
+          value: term,
+          category: 'inline',
+          inlineValue: `"${val.value}"`,
+          pattern: 'constant_string' as any
+        };
+      
+      case 'data':
+        return {
+          name,
+          value: term,
+          category: 'inline',
+          inlineValue: dataConstToString(val.value),
+          pattern: 'constant_data' as any
+        };
+      
+      case 'list':
+        const listItems = (val as any).items || (val as any).value || (val as any).list || [];
+        if (Array.isArray(listItems) && listItems.length === 0) {
+          return { name, value: term, category: 'inline', inlineValue: '[]', pattern: 'constant_list' as any };
+        }
+        return {
+          name,
+          value: term,
+          category: 'inline',
+          inlineValue: listConstToString(listItems),
+          pattern: 'constant_list' as any
+        };
+      
+      case 'pair':
+        return {
+          name,
+          value: term,
+          category: 'inline',
+          inlineValue: `(${dataConstToString(val.fst)}, ${dataConstToString(val.snd)})`,
+          pattern: 'constant_pair' as any
+        };
         
       default:
         return { name, value: term, category: 'keep', pattern: 'unknown' };
@@ -626,6 +666,57 @@ function extractIntConstant(term: UplcTerm): bigint | null {
     return term.value.value;
   }
   return null;
+}
+
+/** Convert a PlutusData value to a readable string */
+function dataConstToString(data: any): string {
+  if (!data) return '<data>';
+  if (data instanceof Uint8Array) return `#"${bytesToHex(data)}"`;
+  if (typeof data === 'bigint' || typeof data === 'number') return data.toString();
+  
+  switch (data.tag) {
+    case 'bytes': {
+      const val = data.value;
+      if (val instanceof Uint8Array) return `#"${bytesToHex(val)}"`;
+      if (typeof val === 'string') return `#"${val}"`;
+      return `#""`;
+    }
+    case 'int':
+      return (data.value ?? 0).toString();
+    case 'list': {
+      const items = data.value || data.list || [];
+      if (!Array.isArray(items) || items.length === 0) return '[]';
+      return `[${items.map(dataConstToString).join(', ')}]`;
+    }
+    case 'constr': {
+      const fields = data.fields || [];
+      const fieldStrs = Array.isArray(fields) ? fields.map(dataConstToString) : [];
+      return `Constr(${data.index ?? 0}${fieldStrs.length ? ', ' + fieldStrs.join(', ') : ''})`;
+    }
+    case 'map': {
+      const entries = data.value || [];
+      if (!Array.isArray(entries) || entries.length === 0) return '{}';
+      const strs = entries.map(([k, v]: [any, any]) =>
+        `${dataConstToString(k)}: ${dataConstToString(v)}`
+      );
+      return `{ ${strs.join(', ')} }`;
+    }
+    default:
+      if (typeof data === 'string') return `#"${data}"`;
+      return '<data>';
+  }
+}
+
+/** Convert a list constant to a readable string */
+function listConstToString(items: any[]): string {
+  if (!Array.isArray(items) || items.length === 0) return '[]';
+  const strs = items.map((item: any) => {
+    if (!item) return '<null>';
+    // Items might be wrapped in {tag: 'data', value: ...}
+    if (item.tag === 'data' && item.value) return dataConstToString(item.value);
+    return dataConstToString(item);
+  });
+  return `[${strs.join(', ')}]`;
 }
 
 function bytesToHex(bytes: Uint8Array | number[]): string {
