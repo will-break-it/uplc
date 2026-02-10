@@ -120,39 +120,96 @@ export async function fetchScript(
 const COST_MODEL_CACHE_KEY = 'plutus-cost-model:v2';
 const COST_MODEL_TTL = 5 * 24 * 3600; // 5 days (~1 epoch)
 
+/** Machine cost entry from cost model */
+export interface MachineCosts {
+  cekStartupCost: { cpu: number; mem: number };
+  cekVarCost: { cpu: number; mem: number };
+  cekConstCost: { cpu: number; mem: number };
+  cekLamCost: { cpu: number; mem: number };
+  cekDelayCost: { cpu: number; mem: number };
+  cekForceCost: { cpu: number; mem: number };
+  cekApplyCost: { cpu: number; mem: number };
+  cekBuiltinCost: { cpu: number; mem: number };
+  cekConstrCost: { cpu: number; mem: number };
+  cekCaseCost: { cpu: number; mem: number };
+}
+
+export interface CostModelResult {
+  builtinModel: Record<string, any> | null;
+  machineCosts: MachineCosts | null;
+}
+
 /**
- * Fetch the Plutus V3 cost model from Blockfrost epoch params.
- * KV cache (5 days) → Blockfrost /epochs/latest/parameters → null
+ * Fetch Plutus V3 cost model (builtins + machine costs) from Blockfrost epoch params.
+ * KV cache (5 days) → Blockfrost /epochs/latest/parameters
  */
-export async function fetchCostModel(
-  env: BlockfrostEnv,
-): Promise<Record<string, any> | null> {
+export async function fetchCostModel(env: BlockfrostEnv): Promise<CostModelResult> {
+  const empty: CostModelResult = { builtinModel: null, machineCosts: null };
+
   try {
     // KV cache
     if (env.UPLC_CACHE) {
-      const cached = await env.UPLC_CACHE.get(COST_MODEL_CACHE_KEY, 'json') as any;
-      if (cached) return cached;
+      const cached = await env.UPLC_CACHE.get(COST_MODEL_CACHE_KEY, 'json') as CostModelResult | null;
+      if (cached?.builtinModel) return cached;
     }
 
     // Blockfrost epoch params
     const res = await blockfrostGet('/epochs/latest/parameters', env.BLOCKFROST_PROJECT_ID);
-    if (!res.ok) return null;
+    if (!res.ok) return empty;
 
     const params = await res.json() as any;
-    const model = params.cost_models_raw?.PlutusV3;
+    const raw = params.cost_models_raw?.PlutusV3;
 
-    // cost_models_raw.PlutusV3 should be a named object (not flat array)
-    if (model && typeof model === 'object' && !Array.isArray(model)) {
-      if (env.UPLC_CACHE) {
-        env.UPLC_CACHE.put(COST_MODEL_CACHE_KEY, JSON.stringify(model), {
-          expirationTtl: COST_MODEL_TTL,
-        }).catch(() => {});
+    let builtinModel: Record<string, any> | null = null;
+    let machineCosts: MachineCosts | null = null;
+
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      // Separate machine costs (cek*) from builtin costs
+      const builtins: Record<string, any> = {};
+      const machine: Record<string, any> = {};
+
+      for (const [key, value] of Object.entries(raw)) {
+        if (key.startsWith('cek')) {
+          machine[key] = value;
+        } else {
+          builtins[key] = value;
+        }
       }
-      return model;
+
+      if (Object.keys(builtins).length > 0) builtinModel = builtins;
+
+      // Parse machine costs if present
+      if (machine.cekApplyCost) {
+        const m = (entry: any) => ({
+          cpu: entry?.exBudgetCPU ?? entry?.cpu ?? 23000,
+          mem: entry?.exBudgetMemory ?? entry?.memory ?? 100,
+        });
+        machineCosts = {
+          cekStartupCost: m(machine.cekStartupCost),
+          cekVarCost: m(machine.cekVarCost),
+          cekConstCost: m(machine.cekConstCost),
+          cekLamCost: m(machine.cekLamCost),
+          cekDelayCost: m(machine.cekDelayCost),
+          cekForceCost: m(machine.cekForceCost),
+          cekApplyCost: m(machine.cekApplyCost),
+          cekBuiltinCost: m(machine.cekBuiltinCost),
+          cekConstrCost: m(machine.cekConstrCost),
+          cekCaseCost: m(machine.cekCaseCost),
+        };
+      }
     }
 
-    return null;
+    const result: CostModelResult = { builtinModel, machineCosts };
+
+    // Cache
+    if (env.UPLC_CACHE) {
+      env.UPLC_CACHE.put(COST_MODEL_CACHE_KEY, JSON.stringify(result), {
+        expirationTtl: COST_MODEL_TTL,
+      }).catch(() => {});
+    }
+
+    return result;
   } catch {
-    return null;
+    return empty;
   }
 }

@@ -285,30 +285,66 @@ export const TX_BUDGET = {
 };
 
 /**
- * CEK machine step costs (Plutus V3 mainnet).
- * Every AST node traversal has a fixed CPU + memory cost.
- * Source: cardano-ledger Conway era protocol parameters.
+ * CEK machine step costs.
+ * Defaults from cekMachineCostsA.json (Plutus repo).
+ * These are protocol parameters — can change per epoch via governance.
  */
-const CEK_STEP_CPU = 23_000n;
-const CEK_STEP_MEM = 100n;
-const CEK_STARTUP_CPU = 100n;
-const CEK_STARTUP_MEM = 100n;
+export interface MachineCostParams {
+  startup: { cpu: number; mem: number };
+  var: { cpu: number; mem: number };
+  const: { cpu: number; mem: number };
+  lam: { cpu: number; mem: number };
+  delay: { cpu: number; mem: number };
+  force: { cpu: number; mem: number };
+  apply: { cpu: number; mem: number };
+  builtin: { cpu: number; mem: number };
+  constr: { cpu: number; mem: number };
+  case: { cpu: number; mem: number };
+}
+
+const DEFAULT_MACHINE_COSTS: MachineCostParams = {
+  startup: { cpu: 100, mem: 100 },
+  var:     { cpu: 23000, mem: 100 },
+  const:   { cpu: 23000, mem: 100 },
+  lam:     { cpu: 23000, mem: 100 },
+  delay:   { cpu: 23000, mem: 100 },
+  force:   { cpu: 23000, mem: 100 },
+  apply:   { cpu: 23000, mem: 100 },
+  builtin: { cpu: 23000, mem: 100 },
+  constr:  { cpu: 23000, mem: 100 },
+  case:    { cpu: 23000, mem: 100 },
+};
 
 /**
  * Estimate CEK machine overhead from AST statistics.
- * This is the cost of the VM traversing the AST — independent of builtin costs.
+ * Uses per-node-type costs from protocol parameters.
  */
-function estimateMachineCost(stats: AstStats): { cpu: bigint; memory: bigint; steps: number } {
-  const steps = stats.lambdaCount + stats.applicationCount +
-    stats.forceCount + stats.delayCount +
-    stats.variableCount + stats.constantCount +
-    stats.constrCount + stats.caseCount;
+function estimateMachineCost(
+  stats: AstStats,
+  mc: MachineCostParams,
+): { cpu: bigint; memory: bigint; steps: number } {
+  let cpu = BigInt(mc.startup.cpu);
+  let memory = BigInt(mc.startup.mem);
 
-  return {
-    cpu: CEK_STARTUP_CPU + CEK_STEP_CPU * BigInt(steps),
-    memory: CEK_STARTUP_MEM + CEK_STEP_MEM * BigInt(steps),
-    steps,
-  };
+  const pairs: [number, { cpu: number; mem: number }][] = [
+    [stats.lambdaCount, mc.lam],
+    [stats.applicationCount, mc.apply],
+    [stats.forceCount, mc.force],
+    [stats.delayCount, mc.delay],
+    [stats.variableCount, mc.var],
+    [stats.constantCount, mc.const],
+    [stats.constrCount, mc.constr],
+    [stats.caseCount, mc.case],
+  ];
+
+  let steps = 0;
+  for (const [count, cost] of pairs) {
+    steps += count;
+    cpu += BigInt(cost.cpu) * BigInt(count);
+    memory += BigInt(cost.mem) * BigInt(count);
+  }
+
+  return { cpu, memory, steps };
 }
 
 /**
@@ -320,6 +356,7 @@ export function estimateCost(
   dynamicCpuCosts?: Record<string, bigint>,
   dynamicMemCosts?: Record<string, bigint>,
   astStats?: AstStats,
+  machineCosts?: MachineCostParams,
 ): CostEstimate {
   const cpuMap = dynamicCpuCosts ?? BUILTIN_CPU_COSTS;
   const memMap = dynamicMemCosts ?? BUILTIN_MEMORY_COSTS;
@@ -370,7 +407,7 @@ export function estimateCost(
 
   // Add CEK machine overhead if AST stats available
   if (astStats) {
-    const machine = estimateMachineCost(astStats);
+    const machine = estimateMachineCost(astStats, machineCosts ?? DEFAULT_MACHINE_COSTS);
     totalCpu += machine.cpu;
     totalMemory += machine.memory;
 

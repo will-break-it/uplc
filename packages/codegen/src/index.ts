@@ -26,7 +26,7 @@ export type { CodeFragment, FragmentRole, FragmentedCode } from './fragments.js'
 export { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch, TX_FIELDS } from './patterns.js';
 export type { DetectedPattern, PatternKind } from './patterns.js';
 export { estimateCost, getCostWarnings, parseCostModelJSON, BUILTIN_CPU_COSTS, TX_BUDGET } from './costs.js';
-export type { CostEstimate, AstStats } from './costs.js';
+export type { CostEstimate, AstStats, MachineCostParams } from './costs.js';
 export { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from './helpers.js';
 export type { BuiltinMapping } from './stdlib.js';
 export type { ExtractedHelper, HelperPattern } from './helpers.js';

@@ -380,15 +380,34 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const { type: scriptType, size: scriptSize, bytes: scriptBytes } = scriptResult;
 
-    // Decode, analyze, and estimate cost (in parallel where possible)
+    // Decode, analyze, and estimate cost
     const decoded = decodeAndAnalyze(scriptBytes);
-    const costModelJSON = await fetchCostModel(context.env);
-    const costMaps = costModelJSON ? parseCostModelJSON(costModelJSON) : null;
+    const { builtinModel, machineCosts: fetchedMachineCosts } = await fetchCostModel(context.env);
+    const costMaps = builtinModel ? parseCostModelJSON(builtinModel) : null;
+
+    // Convert Blockfrost machine costs to our format (if fetched)
+    let machineCostParams: import('@uplc/codegen').MachineCostParams | undefined;
+    if (fetchedMachineCosts) {
+      machineCostParams = {
+        startup: fetchedMachineCosts.cekStartupCost,
+        var: fetchedMachineCosts.cekVarCost,
+        const: fetchedMachineCosts.cekConstCost,
+        lam: fetchedMachineCosts.cekLamCost,
+        delay: fetchedMachineCosts.cekDelayCost,
+        force: fetchedMachineCosts.cekForceCost,
+        apply: fetchedMachineCosts.cekApplyCost,
+        builtin: fetchedMachineCosts.cekBuiltinCost,
+        constr: fetchedMachineCosts.cekConstrCost,
+        case: fetchedMachineCosts.cekCaseCost,
+      };
+    }
+
     const costEstimate = estimateCost(
       decoded.builtins,
       costMaps?.cpuCosts,
       costMaps?.memCosts,
       decoded.stats,
+      machineCostParams,
     );
     const costWarnings = getCostWarnings(decoded.builtins);
 
