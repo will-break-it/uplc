@@ -1031,236 +1031,429 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
               {activeTab === 'analysis' && (
                 <section className="docs-section">
                   <h2>{Icons.analysis} Static Analysis</h2>
-                  <p>Data extracted directly from UPLC bytecode.</p>
 
-                  {/* Pattern Analysis */}
+                  {/* 1. Execution Budget - Hero Section */}
+                  {result.cost && (() => {
+                    const cpuValue = parseInt(result.cost.cpu);
+                    const memValue = parseInt(result.cost.memory);
+                    const cpuPct = result.cost.cpuBudgetPercent;
+                    const memPct = result.cost.memoryBudgetPercent;
+                    const getColor = (pct: number) => pct < 33 ? '#10b981' : pct < 66 ? '#f59e0b' : '#ef4444';
+                    const formatUnits = (val: number, divisor: number, suffix: string) => 
+                      (val / divisor).toFixed(1) + suffix;
+                    
+                    return (
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
+                        gap: '1rem',
+                        marginTop: '1rem',
+                      }}>
+                        {/* CPU Gauge */}
+                        <div style={{
+                          background: 'var(--card-bg)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '1.25rem',
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>CPU Budget</span>
+                            <span style={{ fontSize: '1.5rem', fontWeight: 600, color: getColor(cpuPct) }}>
+                              {cpuPct.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div style={{ 
+                            height: '12px', 
+                            background: 'var(--border)', 
+                            borderRadius: '6px',
+                            overflow: 'hidden',
+                            marginBottom: '0.5rem',
+                          }}>
+                            <div style={{ 
+                              width: `${Math.min(cpuPct, 100)}%`, 
+                              height: '100%', 
+                              background: getColor(cpuPct),
+                              borderRadius: '6px',
+                              transition: 'width 0.3s ease',
+                            }} />
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {formatUnits(cpuValue, 1_000_000, 'M')} / 10,000M units
+                          </div>
+                        </div>
+
+                        {/* Memory Gauge */}
+                        <div style={{
+                          background: 'var(--card-bg)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '1.25rem',
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.75rem' }}>
+                            <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 500 }}>Memory Budget</span>
+                            <span style={{ fontSize: '1.5rem', fontWeight: 600, color: getColor(memPct) }}>
+                              {memPct.toFixed(1)}%
+                            </span>
+                          </div>
+                          <div style={{ 
+                            height: '12px', 
+                            background: 'var(--border)', 
+                            borderRadius: '6px',
+                            overflow: 'hidden',
+                            marginBottom: '0.5rem',
+                          }}>
+                            <div style={{ 
+                              width: `${Math.min(memPct, 100)}%`, 
+                              height: '100%', 
+                              background: getColor(memPct),
+                              borderRadius: '6px',
+                              transition: 'width 0.3s ease',
+                            }} />
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                            {formatUnits(memValue, 1_000_000, 'M')} / 14M units
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Cost warnings */}
+                  {result.cost?.warnings && result.cost.warnings.length > 0 && (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      {result.cost.warnings.map((w, i) => (
+                        <div key={i} style={{ 
+                          padding: '0.5rem 0.75rem', 
+                          background: 'rgba(245, 158, 11, 0.1)', 
+                          border: '1px solid rgba(245, 158, 11, 0.3)',
+                          borderRadius: '6px',
+                          fontSize: '0.8rem',
+                          color: '#f59e0b',
+                        }}>
+                          ⚠️ {w}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* 2. Cost Breakdown Donut Chart */}
+                  {result.cost?.breakdown && result.cost.breakdown.length > 0 && (() => {
+                    const categoryColors: Record<string, string> = {
+                      Data: '#8b5cf6',
+                      List: '#06b6d4',
+                      Crypto: '#f43f5e',
+                      Integer: '#10b981',
+                      ByteString: '#f59e0b',
+                      Control: '#3b82f6',
+                      Other: '#64748b',
+                      Arithmetic: '#10b981',
+                      Comparison: '#a855f7',
+                      Debug: '#ec4899',
+                    };
+                    
+                    const totalCpu = result.cost.breakdown.reduce((sum, b) => sum + parseInt(b.cpu), 0);
+                    const sortedBreakdown = [...result.cost.breakdown].sort((a, b) => parseInt(b.cpu) - parseInt(a.cpu));
+                    
+                    // Build conic-gradient segments
+                    let currentAngle = 0;
+                    const gradientParts: string[] = [];
+                    sortedBreakdown.forEach(b => {
+                      const pct = (parseInt(b.cpu) / totalCpu) * 100;
+                      const color = categoryColors[b.category] || categoryColors.Other;
+                      gradientParts.push(`${color} ${currentAngle}deg ${currentAngle + pct * 3.6}deg`);
+                      currentAngle += pct * 3.6;
+                    });
+                    
+                    return (
+                      <div style={{ marginTop: '1.5rem' }}>
+                        <h3 style={{ fontSize: '0.9rem', marginBottom: '1rem', color: 'var(--text-secondary)' }}>
+                          Cost Distribution by Category
+                        </h3>
+                        <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+                          {/* Donut Chart */}
+                          <div style={{
+                            width: '140px',
+                            height: '140px',
+                            borderRadius: '50%',
+                            background: `conic-gradient(${gradientParts.join(', ')})`,
+                            position: 'relative',
+                            flexShrink: 0,
+                          }}>
+                            <div style={{
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              width: '80px',
+                              height: '80px',
+                              borderRadius: '50%',
+                              background: 'var(--bg)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexDirection: 'column',
+                            }}>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>CPU</span>
+                              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)' }}>
+                                {(totalCpu / 1_000_000).toFixed(0)}M
+                              </span>
+                            </div>
+                          </div>
+                          
+                          {/* Legend */}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1, minWidth: '180px' }}>
+                            {sortedBreakdown.map((b, i) => {
+                              const pct = ((parseInt(b.cpu) / totalCpu) * 100).toFixed(1);
+                              const color = categoryColors[b.category] || categoryColors.Other;
+                              return (
+                                <div key={i} style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: '0.5rem',
+                                  fontSize: '0.8rem',
+                                }}>
+                                  <div style={{ 
+                                    width: '10px', 
+                                    height: '10px', 
+                                    borderRadius: '2px', 
+                                    background: color,
+                                    flexShrink: 0,
+                                  }} />
+                                  <span style={{ color: 'var(--text)', flex: 1 }}>{b.category}</span>
+                                  <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+                                    {pct}% · {b.count} calls
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 3. Contract Summary - Compact */}
                   {result.analysis && (
-                    <div style={{ marginTop: '1rem' }}>
-                      <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Contract Structure
-                      </h3>
-                      <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
-                        <div className="stat-card">
-                          <div className="label">Datum</div>
-                          <div className="value small">{result.analysis.datumUsed ? (result.analysis.datumOptional ? 'Optional' : 'Required') : 'Unused'}</div>
-                        </div>
-                        <div className="stat-card">
-                          <div className="label">Datum Fields</div>
-                          <div className="value">{result.analysis.datumFields}</div>
-                        </div>
-                        <div className="stat-card">
-                          <div className="label">Redeemer Variants</div>
-                          <div className="value">{result.analysis.redeemerVariants}</div>
-                        </div>
-                        <div className="stat-card">
-                          <div className="label">Validation Checks</div>
-                          <div className="value">{result.analysis.validationChecks}</div>
-                        </div>
-                      </div>
-                      {result.analysis.checkTypes && result.analysis.checkTypes.length > 0 && (
-                        <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          {result.analysis.checkTypes.map((type, i) => (
-                            <span key={i} style={{
-                              padding: '0.25rem 0.5rem',
-                              background: 'var(--card-bg)',
-                              border: '1px solid var(--border)',
-                              borderRadius: '4px',
-                              fontSize: '0.75rem',
-                              color: 'var(--text-secondary)',
-                            }}>{type}</span>
-                          ))}
-                        </div>
-                      )}
-                      {result.analysis.scriptParams && result.analysis.scriptParams.length > 0 && (
-                        <div style={{ marginTop: '1rem' }}>
-                          <h4 style={{ fontSize: '0.85rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
-                            Script Parameters
-                          </h4>
-                          {result.analysis.scriptParams.map((param, i) => (
-                            <div key={i} className="error-item" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                              <span style={{ color: 'var(--accent)', fontWeight: 500 }}>{param.name}</span>
-                              <code style={{ fontSize: '0.75rem', wordBreak: 'break-all' }}>{param.value}</code>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                    <div style={{ 
+                      marginTop: '1.5rem',
+                      padding: '0.75rem 1rem',
+                      background: 'var(--card-bg)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '6px',
+                      fontSize: '0.85rem',
+                      color: 'var(--text-secondary)',
+                    }}>
+                      <span style={{ color: 'var(--text)' }}>{result.classification || 'Validator'}</span>
+                      <span style={{ margin: '0 0.5rem', opacity: 0.4 }}>·</span>
+                      {result.analysis.datumUsed 
+                        ? (result.analysis.datumOptional ? 'optional datum' : 'required datum')
+                        : 'no datum'}
+                      <span style={{ margin: '0 0.5rem', opacity: 0.4 }}>·</span>
+                      {result.analysis.redeemerVariants} redeemer variant{result.analysis.redeemerVariants !== 1 ? 's' : ''}
+                      <span style={{ margin: '0 0.5rem', opacity: 0.4 }}>·</span>
+                      {result.analysis.validationChecks} check{result.analysis.validationChecks !== 1 ? 's' : ''}
                     </div>
                   )}
 
-                  {/* Execution Cost */}
-                  {result.cost && (
-                    <div style={{ marginTop: '1.5rem' }}>
-                      <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                        Execution Cost Estimate
-                      </h3>
-                      <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))' }}>
-                        <div className="stat-card">
-                          <div className="label">CPU Units</div>
-                          <div className="value small">{(parseInt(result.cost.cpu) / 1_000_000).toFixed(1)}M</div>
-                          <div style={{ marginTop: '0.5rem' }}>
-                            <div style={{ 
-                              height: '6px', 
-                              background: 'var(--border)', 
-                              borderRadius: '3px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ 
-                                width: `${Math.min(result.cost.cpuBudgetPercent, 100)}%`, 
-                                height: '100%', 
-                                background: result.cost.cpuBudgetPercent > 80 ? '#ef4444' : result.cost.cpuBudgetPercent > 50 ? '#f59e0b' : '#10b981',
-                                borderRadius: '3px',
-                              }} />
+                  {/* 4. Constants & Parameters */}
+                  {(() => {
+                    const hasScriptParams = result.analysis?.scriptParams && result.analysis.scriptParams.length > 0;
+                    const hasTraceStrings = result.errorMessages.length > 0;
+                    const hasBytestrings = result.constants.bytestrings.length > 0;
+                    const hasIntegers = result.constants.integers.length > 0;
+                    const hasAny = hasScriptParams || hasTraceStrings || hasBytestrings || hasIntegers;
+                    
+                    if (!hasAny) return null;
+                    
+                    return (
+                      <div style={{ marginTop: '1.5rem' }}>
+                        <h3 style={{ fontSize: '0.9rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                          Constants & Parameters
+                        </h3>
+                        
+                        {/* Script Parameters */}
+                        {hasScriptParams && (
+                          <div style={{ marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                              Script Parameters <span style={{ opacity: 0.6 }}>— parameterized values passed at deployment</span>
                             </div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                              {result.cost.cpuBudgetPercent}% of budget
-                            </div>
-                          </div>
-                        </div>
-                        <div className="stat-card">
-                          <div className="label">Memory Units</div>
-                          <div className="value small">{(parseInt(result.cost.memory) / 1_000).toFixed(1)}K</div>
-                          <div style={{ marginTop: '0.5rem' }}>
-                            <div style={{ 
-                              height: '6px', 
-                              background: 'var(--border)', 
-                              borderRadius: '3px',
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ 
-                                width: `${Math.min(result.cost.memoryBudgetPercent, 100)}%`, 
-                                height: '100%', 
-                                background: result.cost.memoryBudgetPercent > 80 ? '#ef4444' : result.cost.memoryBudgetPercent > 50 ? '#f59e0b' : '#10b981',
-                                borderRadius: '3px',
-                              }} />
-                            </div>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                              {result.cost.memoryBudgetPercent}% of budget
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              {result.analysis!.scriptParams.map((param, i) => (
+                                <div key={i} style={{ 
+                                  display: 'flex', 
+                                  gap: '0.75rem', 
+                                  alignItems: 'baseline',
+                                  padding: '0.35rem 0.5rem',
+                                  background: 'var(--card-bg)',
+                                  borderRadius: '4px',
+                                  fontSize: '0.8rem',
+                                }}>
+                                  <span style={{ color: 'var(--accent)', fontWeight: 500, flexShrink: 0 }}>{param.name}</span>
+                                  <code style={{ color: 'var(--text-muted)', wordBreak: 'break-all', fontSize: '0.75rem' }}>{param.value}</code>
+                                </div>
+                              ))}
                             </div>
                           </div>
-                        </div>
-                      </div>
-                      {result.cost.breakdown && result.cost.breakdown.length > 0 && (
-                        <details style={{ marginTop: '0.75rem' }}>
-                          <summary style={{ cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
-                            Cost breakdown by category
-                          </summary>
-                          <div style={{ marginTop: '0.5rem', display: 'grid', gap: '0.25rem' }}>
-                            {result.cost.breakdown.map((b, i) => (
-                              <div key={i} style={{ 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                fontSize: '0.75rem',
-                                padding: '0.25rem 0.5rem',
-                                background: 'var(--card-bg)',
-                                borderRadius: '4px',
-                              }}>
-                                <span style={{ color: 'var(--text-secondary)' }}>{b.category}</span>
-                                <span style={{ color: 'var(--text-muted)' }}>
-                                  {(parseInt(b.cpu) / 1_000_000).toFixed(1)}M cpu · {b.count} calls
+                        )}
+                        
+                        {/* Trace Strings */}
+                        {hasTraceStrings && (
+                          <div style={{ marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                              Trace Strings <span style={{ opacity: 0.6 }}>— error/debug messages in bytecode</span>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              {result.errorMessages.slice(0, 10).map((msg: string, i: number) => (
+                                <div key={i} style={{ 
+                                  padding: '0.3rem 0.5rem',
+                                  background: 'var(--card-bg)',
+                                  borderRadius: '4px',
+                                }}>
+                                  <code style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{msg}</code>
+                                </div>
+                              ))}
+                              {result.errorMessages.length > 10 && (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '0.5rem' }}>
+                                  +{result.errorMessages.length - 10} more...
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Bytestring Constants */}
+                        {hasBytestrings && (
+                          <div style={{ marginBottom: '1rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                              Bytestring Constants
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                              {result.constants.bytestrings.slice(0, 8).map((bs: string, i: number) => (
+                                <div key={i} style={{ 
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '0.3rem 0.5rem',
+                                  background: 'var(--card-bg)',
+                                  borderRadius: '4px',
+                                  gap: '1rem',
+                                }}>
+                                  <code style={{ 
+                                    fontSize: '0.7rem', 
+                                    color: 'var(--text-secondary)', 
+                                    wordBreak: 'break-all',
+                                    fontFamily: 'monospace',
+                                  }}>
+                                    {bs.length > 64 ? bs.slice(0, 64) + '...' : bs}
+                                  </code>
+                                  <span style={{ 
+                                    fontSize: '0.7rem', 
+                                    color: 'var(--text-muted)',
+                                    flexShrink: 0,
+                                  }}>
+                                    {bs.length / 2} bytes
+                                  </span>
+                                </div>
+                              ))}
+                              {result.constants.bytestrings.length > 8 && (
+                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', paddingLeft: '0.5rem' }}>
+                                  +{result.constants.bytestrings.length - 8} more...
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Integer Constants */}
+                        {hasIntegers && (
+                          <div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.4rem' }}>
+                              Integer Constants
+                            </div>
+                            <div style={{ 
+                              display: 'flex', 
+                              flexWrap: 'wrap', 
+                              gap: '0.35rem',
+                            }}>
+                              {result.constants.integers.slice(0, 20).map((int: string, i: number) => (
+                                <code key={i} style={{ 
+                                  fontSize: '0.75rem', 
+                                  color: 'var(--text-secondary)',
+                                  padding: '0.2rem 0.4rem',
+                                  background: 'var(--card-bg)',
+                                  borderRadius: '3px',
+                                }}>
+                                  {int}
+                                </code>
+                              ))}
+                              {result.constants.integers.length > 20 && (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', padding: '0.2rem' }}>
+                                  +{result.constants.integers.length - 20} more
                                 </span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-                      {result.cost.warnings && result.cost.warnings.length > 0 && (
-                        <div style={{ marginTop: '0.75rem' }}>
-                          {result.cost.warnings.map((w, i) => (
-                            <div key={i} style={{ 
-                              padding: '0.5rem', 
-                              background: 'rgba(245, 158, 11, 0.1)', 
-                              border: '1px solid rgba(245, 158, 11, 0.3)',
-                              borderRadius: '4px',
-                              fontSize: '0.8rem',
-                              color: '#f59e0b',
-                            }}>
-                              ⚠️ {w}
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
-                  {/* Bytecode Stats */}
+                  {/* 5. Bytecode Statistics - Compact */}
                   <div style={{ marginTop: '1.5rem' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
+                    <h3 style={{ fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-secondary)' }}>
                       Bytecode Statistics
                     </h3>
-                    <div className="stats-row" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))' }}>
-                      <div className="stat-card">
-                        <div className="label">Builtins</div>
-                        <div className="value">{result.stats.uniqueBuiltins}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="label">Lambdas</div>
-                        <div className="value">{result.stats.lambdaCount}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="label">Applications</div>
-                        <div className="value">{result.stats.applicationCount}</div>
-                      </div>
-                      <div className="stat-card">
-                        <div className="label">Force/Delay</div>
-                        <div className="value">{result.stats.forceCount}/{result.stats.delayCount}</div>
-                      </div>
+                    <div style={{ 
+                      display: 'flex', 
+                      flexWrap: 'wrap', 
+                      gap: '1rem',
+                      fontSize: '0.8rem',
+                      color: 'var(--text-muted)',
+                    }}>
+                      <span><strong style={{ color: 'var(--text)' }}>{result.stats.uniqueBuiltins}</strong> builtins</span>
+                      <span><strong style={{ color: 'var(--text)' }}>{result.stats.lambdaCount}</strong> lambdas</span>
+                      <span><strong style={{ color: 'var(--text)' }}>{result.stats.applicationCount}</strong> applications</span>
+                      <span><strong style={{ color: 'var(--text)' }}>{result.stats.forceCount}</strong> force / <strong style={{ color: 'var(--text)' }}>{result.stats.delayCount}</strong> delay</span>
                     </div>
                   </div>
 
-                  {/* Trace Strings */}
-                  <div style={{ marginTop: '1.5rem' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                      Trace Strings ({result.errorMessages.length})
-                    </h3>
-                    {result.errorMessages.length > 0 ? (
-                      <div>
-                        {result.errorMessages.map((msg: string, i: number) => (
-                          <div key={i} className="error-item">
-                            <code>{msg}</code>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="empty-state">
-                        <p>No trace strings found in bytecode</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Builtins */}
-                  <div style={{ marginTop: '1.5rem' }}>
-                    <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem', color: 'var(--text-secondary)' }}>
-                      Builtin Functions
-                    </h3>
-                    {Object.keys(result.builtins).length > 0 ? (
-                      <div className="builtin-table-wrapper">
-                        <table className="builtin-table">
-                          <thead>
-                            <tr>
-                              <th>Function</th>
-                              <th>Count</th>
-                              <th>Category</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {Object.entries(result.builtins)
-                              .sort((a, b) => (b[1] as number) - (a[1] as number))
-                              .map(([name, count]) => (
-                                <tr key={name}>
-                                  <td><code>{name}</code></td>
-                                  <td className="count">{count as number}</td>
-                                  <td className="category">{getBuiltinCategory(name)}</td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="empty-state">
-                        <p>No builtins detected</p>
-                      </div>
-                    )}
-                  </div>
+                  {/* Builtin Functions Table */}
+                  {Object.keys(result.builtins).length > 0 && (
+                    <div style={{ marginTop: '1rem' }}>
+                      <details>
+                        <summary style={{ 
+                          cursor: 'pointer', 
+                          color: 'var(--text-secondary)', 
+                          fontSize: '0.8rem',
+                          marginBottom: '0.5rem',
+                        }}>
+                          Builtin functions ({Object.keys(result.builtins).length})
+                        </summary>
+                        <div className="builtin-table-wrapper" style={{ marginTop: '0.5rem' }}>
+                          <table className="builtin-table">
+                            <thead>
+                              <tr>
+                                <th>Function</th>
+                                <th>Count</th>
+                                <th>Category</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {Object.entries(result.builtins)
+                                .sort((a, b) => (b[1] as number) - (a[1] as number))
+                                .map(([name, count]) => (
+                                  <tr key={name}>
+                                    <td><code>{name}</code></td>
+                                    <td className="count">{count as number}</td>
+                                    <td className="category">{getBuiltinCategory(name)}</td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    </div>
+                  )}
                 </section>
               )}
             </main>
