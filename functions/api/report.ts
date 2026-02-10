@@ -63,12 +63,13 @@ function hexToAscii(hex: string): string | null {
 
 /**
  * Check if an issue already exists for this script hash
+ * Returns the existing issue URL if found, null otherwise
  */
 async function findExistingIssue(
   scriptHash: string,
   stage: 'static' | 'ai',
   token: string
-): Promise<boolean> {
+): Promise<{ exists: boolean; url?: string; number?: number }> {
   const label = stage === 'static' ? 'decompile-bug' : 'enhance-bug';
   const hashPrefix = scriptHash.slice(0, 12);
   
@@ -87,16 +88,20 @@ async function findExistingIssue(
 
     if (!response.ok) {
       console.error('Failed to fetch issues:', response.status);
-      return false;
+      return { exists: false };
     }
 
-    const issues = await response.json() as Array<{ title: string }>;
+    const issues = await response.json() as Array<{ title: string; html_url: string; number: number }>;
     
     // Check if any existing issue contains our hash prefix
-    return issues.some(issue => issue.title.includes(hashPrefix));
+    const existing = issues.find(issue => issue.title.includes(hashPrefix));
+    if (existing) {
+      return { exists: true, url: existing.html_url, number: existing.number };
+    }
+    return { exists: false };
   } catch (error) {
     console.error('Error checking existing issues:', error);
-    return false;
+    return { exists: false };
   }
 }
 
@@ -108,7 +113,7 @@ async function createIssue(
   body: string,
   labels: string[],
   token: string
-): Promise<{ success: boolean; issueUrl?: string; error?: string }> {
+): Promise<{ success: boolean; issueUrl?: string; issueNumber?: number; error?: string }> {
   try {
     const response = await fetch(
       `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/issues`,
@@ -130,8 +135,8 @@ async function createIssue(
       return { success: false, error: `GitHub API error: ${response.status} - ${errorBody}` };
     }
 
-    const issue = await response.json() as { html_url: string };
-    return { success: true, issueUrl: issue.html_url };
+    const issue = await response.json() as { html_url: string; number: number };
+    return { success: true, issueUrl: issue.html_url, issueNumber: issue.number };
   } catch (error) {
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
   }
@@ -339,9 +344,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     // Check for existing issue (rate limiting)
-    const exists = await findExistingIssue(body.scriptHash, body.stage, context.env.GITHUB_TOKEN);
-    if (exists) {
-      return new Response(JSON.stringify({ reported: false, reason: 'Issue already exists' }), {
+    const existingIssue = await findExistingIssue(body.scriptHash, body.stage, context.env.GITHUB_TOKEN);
+    if (existingIssue.exists) {
+      return new Response(JSON.stringify({ 
+        reported: false, 
+        alreadyExists: true,
+        existingUrl: existingIssue.url,
+        issueNumber: existingIssue.number,
+      }), {
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': corsOrigin,
@@ -369,7 +379,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     const result = await createIssue(title, issueBody, labels, context.env.GITHUB_TOKEN);
 
     if (result.success) {
-      return new Response(JSON.stringify({ reported: true, issueUrl: result.issueUrl }), {
+      return new Response(JSON.stringify({ 
+        reported: true, 
+        issueUrl: result.issueUrl,
+        issueNumber: result.issueNumber,
+      }), {
         headers: {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': corsOrigin,

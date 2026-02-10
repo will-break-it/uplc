@@ -364,9 +364,10 @@ function MermaidDiagram({ chart }: { chart: string }) {
 }
 
 // Confidence Badge component
-function ConfidenceBadge({ verification, compact = false }: { 
+function ConfidenceBadge({ verification, compact = false, issueInfo }: { 
   verification: VerificationResult | null; 
   compact?: boolean;
+  issueInfo?: { url: string; number: number } | null;
 }) {
   if (!verification) return null;
   
@@ -413,30 +414,56 @@ function ConfidenceBadge({ verification, compact = false }: {
     );
   }
   
-  // Full badge with text
+  // Full badge with text and optional issue link
   return (
     <span
-      title={style.tooltip}
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: '4px',
-        padding: '2px 8px',
-        borderRadius: '4px',
-        fontSize: '0.7rem',
-        fontWeight: 500,
-        background: style.bg,
-        color: style.color,
+        gap: '6px',
       }}
     >
-      <span style={{
-        display: 'inline-block',
-        width: '6px',
-        height: '6px',
-        borderRadius: '50%',
-        backgroundColor: style.color,
-      }} />
-      {style.label}
+      <span
+        title={style.tooltip}
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '2px 8px',
+          borderRadius: '4px',
+          fontSize: '0.7rem',
+          fontWeight: 500,
+          background: style.bg,
+          color: style.color,
+        }}
+      >
+        <span style={{
+          display: 'inline-block',
+          width: '6px',
+          height: '6px',
+          borderRadius: '50%',
+          backgroundColor: style.color,
+        }} />
+        {style.label}
+      </span>
+      {issueInfo && confidence !== 'high' && (
+        <a
+          href={issueInfo.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="View tracking issue on GitHub"
+          style={{
+            fontSize: '0.65rem',
+            color: 'var(--text-muted)',
+            textDecoration: 'none',
+            opacity: 0.8,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.textDecoration = 'underline'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.8'; e.currentTarget.style.textDecoration = 'none'; }}
+        >
+          Tracking: #{issueInfo.number}
+        </a>
+      )}
     </span>
   );
 }
@@ -474,6 +501,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   
   // Verification state
   const [rawVerification, setRawVerification] = useState<VerificationResult | null>(null);
+  const [issueInfo, setIssueInfo] = useState<{ url: string; number: number } | null>(null);
   
   // Line highlight state for code view
   const [highlightedLines, setHighlightedLines] = useState<Set<number>>(new Set());
@@ -722,6 +750,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     setDecompiled(null);
     setEnhancement(null);
     setRawVerification(null);
+    setIssueInfo(null);
     setScriptHash(targetHash);
     // Don't reset contractView - preserve current state (may be from URL)
 
@@ -868,7 +897,24 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
               verification: data.verification,
               staticVerification: result.verification,
             }),
-          }).catch(() => {}); // Silently ignore errors
+          })
+            .then(res => res.ok ? res.json() : null)
+            .then((reportData: { issueUrl?: string; issueNumber?: number; existingUrl?: string; alreadyExists?: boolean } | null) => {
+              if (reportData) {
+                const url = reportData.issueUrl || reportData.existingUrl;
+                const num = reportData.issueNumber;
+                if (url && num) {
+                  setIssueInfo({ url, number: num });
+                } else if (url) {
+                  // Extract issue number from URL if not provided
+                  const match = url.match(/\/issues\/(\d+)$/);
+                  if (match) {
+                    setIssueInfo({ url, number: parseInt(match[1]) });
+                  }
+                }
+              }
+            })
+            .catch(() => {}); // Silently ignore errors
         }
       }
       // Silently fail - enhancements are optional
@@ -1243,7 +1289,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           zIndex: 20,
                           marginTop: '-0.25rem',
                         }}>
-                          <ConfidenceBadge verification={getCurrentVerification()} />
+                          <ConfidenceBadge verification={getCurrentVerification()} issueInfo={issueInfo} />
                           {enhancement?.rewrite && (
                             <button
                               onClick={() => setShowOriginal(!showOriginal)}
