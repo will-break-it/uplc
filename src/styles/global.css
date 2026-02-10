@@ -1701,3 +1701,12 @@ footer a:hover {
   --text-success: #34d399;
   --text-warning: #fbbf24;
 }
+
+/* Interactive list items (trace strings, constants, params) */
+.interactive-row {
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.interactive-row:hover {
+  background: rgba(6, 182, 212, 0.06) !important;
+  transform: translateX(2px);
+}

@@ -1542,7 +1542,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                 // Link 56-char hex values as potential script hashes
                                 const isScriptHash = /^[a-f0-9]{56}$/i.test(param.value);
                                 return (
-                                  <div key={i} style={{ 
+                                  <div key={i} className="interactive-row" style={{ 
                                     display: 'flex', 
                                     gap: '0.75rem', 
                                     alignItems: 'baseline',
@@ -1582,6 +1582,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                 const clickable = lines.length > 0;
                                 return (
                                   <div key={i}
+                                    className={clickable ? 'interactive-row' : undefined}
                                     onClick={clickable ? () => jumpToCodeLine(msg) : undefined}
                                     style={{ 
                                       padding: '0.3rem 0.5rem',
@@ -1625,7 +1626,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                 const codeLines = findLinesForValue(bs);
                                 const clickable = codeLines.length > 0;
                                 return (
-                                  <div key={i} style={{ 
+                                  <div key={i} className="interactive-row" style={{ 
                                     display: 'flex',
                                     alignItems: 'center',
                                     padding: '0.3rem 0.5rem',
@@ -1708,6 +1709,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                 const clickable = lines.length > 0 && int !== '0' && int !== '1'; // Skip trivial matches
                                 return (
                                   <code key={i}
+                                    className={clickable ? 'interactive-row' : undefined}
                                     onClick={clickable ? () => jumpToCodeLine(int) : undefined}
                                     style={{ 
                                       fontSize: '0.75rem', 
