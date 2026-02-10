@@ -24,7 +24,7 @@ export interface GeneratorOptions {
  */
 export interface ScriptParameterDef {
   name: string;
-  type: 'bytestring' | 'integer';
+  type: 'bytestring' | 'integer' | 'data';
   value: string;
 }
 

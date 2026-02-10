@@ -112,9 +112,9 @@ function extractConstantParam(term: any, index: number): ScriptParameter | null 
   }
   
   if (type === 'data' || value?.tag === 'data') {
-    // Handle Data-encoded values
+    // Handle Data-encoded values — may be nested Constr structures
     const innerValue = value?.value || value;
-    if (innerValue?.tag === 'bytes') {
+    if (innerValue?.tag === 'bytes' || innerValue?.tag === 'B') {
       const hex = typeof innerValue.value === 'string' 
         ? innerValue.value 
         : bytesToHex(innerValue.value);
@@ -123,9 +123,54 @@ function extractConstantParam(term: any, index: number): ScriptParameter | null 
                  : `PARAM_${index}`;
       return { name, type: 'bytestring', value: hex };
     }
-    if (innerValue?.tag === 'int') {
-      return { name: `PARAM_${index}`, type: 'integer', value: innerValue.value.toString() };
+    if (innerValue?.tag === 'int' || innerValue?.tag === 'I') {
+      return { name: `PARAM_${index}`, type: 'integer', value: (innerValue.value ?? innerValue).toString() };
     }
+    // For complex Data structures (Constr, List, Map), serialize as readable representation
+    const dataStr = serializeDataParam(innerValue);
+    if (dataStr) {
+      return { name: `PARAM_${index}`, type: 'data', value: dataStr };
+    }
+  }
+  
+  return null;
+}
+
+/**
+ * Serialize a Data parameter to a human-readable string
+ * e.g., Constr 0 [Constr 0 [B #1510c33e...], I 0] → "Constr(0, [Constr(0, [#1510c33e...]), 0])"
+ */
+function serializeDataParam(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+  
+  const tag = data.tag;
+  
+  if (tag === 'constr' || data.fields) {
+    const idx = data.index ?? data.constr ?? 0;
+    const fields = data.fields || [];
+    if (fields.length === 0) return `Constr(${idx}, [])`;
+    const serializedFields = fields.map((f: any) => serializeDataParam(f) || '?').join(', ');
+    return `Constr(${idx}, [${serializedFields}])`;
+  }
+  
+  if (tag === 'bytes' || tag === 'B') {
+    const raw = data.value;
+    const hex = (raw instanceof Uint8Array) ? bytesToHex(raw) : (typeof raw === 'string' ? raw : '');
+    return `#${hex}`;
+  }
+  
+  if (tag === 'int' || tag === 'I') {
+    return (data.value ?? data).toString();
+  }
+  
+  if (tag === 'list' || Array.isArray(data.value)) {
+    const items = Array.isArray(data.value) ? data.value : (data.items || data.list || []);
+    const serialized = items.map((i: any) => serializeDataParam(i) || '?').join(', ');
+    return `[${serialized}]`;
+  }
+  
+  if (tag === 'map') {
+    return 'Map(...)';
   }
   
   return null;

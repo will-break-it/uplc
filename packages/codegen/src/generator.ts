@@ -136,7 +136,7 @@ export function generateValidator(
   // Convert script parameters to output format
   const scriptParams = structure.scriptParams?.map(p => ({
     name: p.name,
-    type: p.type as 'bytestring' | 'integer',
+    type: p.type as 'bytestring' | 'integer' | 'data',
     value: p.value
   }));
   

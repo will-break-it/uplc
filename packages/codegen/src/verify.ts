@@ -31,7 +31,7 @@ const AIKEN_STDLIB = new Set([
   'list.find', 'list.at', 'list.head', 'list.tail', 'list.filter', 'list.map',
   'list.foldl', 'list.foldr', 'list.any', 'list.all', 'list.length', 'list.concat',
   'list.push', 'list.reverse', 'list.drop', 'list.take', 'list.zip', 'list.indexed_map',
-  'list.unique', 'list.flatten', 'list.span', 'list.has', 'list.index_of',
+  'list.unique', 'list.flatten', 'list.span', 'list.has', 'list.index_of', 'list.is_empty',
   // value module
   'value.to_dict', 'value.from_dict', 'value.merge', 'value.lovelace_of', 'value.quantity_of',
   'value.tokens', 'value.policies', 'value.flatten', 'value.zero', 'value.add',
@@ -71,10 +71,44 @@ const TYPE_CONSTRUCTORS = new Set([
   'Mint', 'Spend', 'Withdraw', 'Publish', 'NoDatum', 'DatumHash', 'InlineDatum',
   'Input', 'Output', 'Redeemer', 'TransactionId', 'OutputReference',
   'Constr', 'List', 'Map', 'Pair',
+  // Lowercase type names (appear in type annotations like <list(pair)>)
+  'list', 'pair', 'data', 'int', 'bool', 'string', 'bytestring', 'void',
 ]);
+
+// Aiken keywords and builtins that aren't function definitions
+const AIKEN_KEYWORDS = new Set([
+  'fn', 'if', 'else', 'when', 'is', 'let', 'expect', 'fail', 'trace',
+  'use', 'pub', 'type', 'opaque', 'const', 'validator', 'test', 'and', 'or',
+  // Validator entry points
+  'spend', 'mint', 'withdraw', 'publish', 'vote', 'propose',
+]);
+
+// Pattern: generated binding name (single letter, or letter + digits like b1, j2, a3)
+const GENERATED_BINDING_RE = /^[a-z][0-9]*$/;
+
+// Pattern: method call on a variable (e.g., b1.tail, p2.is_empty, z.tail)
+const VARIABLE_METHOD_RE = /^[a-z][a-z0-9]*\.(tail|head|is_empty|length|1st|2nd)$/;
 
 // Aiken builtins (builtin.xxx calls)
 const BUILTIN_PREFIX = 'builtin.';
+
+// Plutus builtins that AI sometimes writes with underscores instead of camelCase
+const PLUTUS_BUILTINS = new Set([
+  'un_constr_data', 'un_map_data', 'un_b_data', 'un_i_data', 'un_list_data',
+  'mk_pair_data', 'mk_cons', 'mk_nil_data', 'mk_nil_pair_data',
+  'list_data', 'map_data', 'constr_data', 'b_data', 'i_data',
+  'head_list', 'tail_list', 'null_list', 'choose_list',
+  'fst_pair', 'snd_pair', 'choose_data', 'choose_unit',
+  'if_then_else', 'equals_data', 'equals_integer', 'equals_bytestring', 'equals_string',
+  'less_than_integer', 'less_than_equals_integer', 'less_than_bytestring',
+  'add_integer', 'subtract_integer', 'multiply_integer', 'divide_integer', 'mod_integer',
+  'quotient_integer', 'remainder_integer',
+  'append_bytestring', 'cons_bytestring', 'slice_bytestring', 'length_of_bytestring',
+  'index_bytestring', 'sha2_256', 'sha3_256', 'blake2b_256', 'blake2b_224',
+  'verify_ed25519_signature', 'verify_ecdsa_secp256k1_signature', 'verify_schnorr_secp256k1_signature',
+  'append_string', 'encode_utf8', 'decode_utf8', 'trace',
+  'serialise_data', 'mk_pair_data',
+]);
 
 /**
  * Try to decode hex bytestring to ASCII
@@ -158,19 +192,18 @@ function extractDefinedFunctions(code: string): Set<string> {
 
 /**
  * Extract all function calls/references from the code
- * Filters out builtins, stdlib, and type constructors
+ * Filters out builtins, stdlib, type constructors, keywords, and generated bindings
  */
 function extractFunctionCalls(code: string): Set<string> {
   const calls = new Set<string>();
   
   // Match name( but not fn name( and not .name(
-  // This regex captures function calls like: name(, module.name(
   const callRegex = /(?<!fn\s)(?<![.a-zA-Z_])([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\(/g;
   let match;
   while ((match = callRegex.exec(code)) !== null) {
     const name = match[1];
     
-    // Skip builtins
+    // Skip builtins (builtin.xxx)
     if (name.startsWith(BUILTIN_PREFIX)) continue;
     
     // Skip stdlib functions
@@ -179,16 +212,29 @@ function extractFunctionCalls(code: string): Set<string> {
     // Skip type constructors
     if (TYPE_CONSTRUCTORS.has(name)) continue;
     
+    // Skip Aiken keywords (fn, fail, spend, etc.)
+    if (AIKEN_KEYWORDS.has(name)) continue;
+    
+    // Skip Plutus builtins written with underscores (AI variant)
+    if (PLUTUS_BUILTINS.has(name)) continue;
+    
+    // Skip generated binding names (single letter or letter+digits: i, j, b1, a3)
+    if (GENERATED_BINDING_RE.test(name)) continue;
+    
+    // Skip method calls on generated variables (b1.tail, z.head, p2.is_empty)
+    if (VARIABLE_METHOD_RE.test(name)) continue;
+    
     // Skip if it's a method call on a module we recognize
     const parts = name.split('.');
     if (parts.length > 1) {
-      const fullName = name;
-      if (AIKEN_STDLIB.has(fullName)) continue;
+      if (AIKEN_STDLIB.has(name)) continue;
       
-      // Check if the module prefix matches known modules
       const modulePrefix = parts[0];
-      const knownModules = ['list', 'dict', 'value', 'bytearray', 'string', 'math', 'option', 'interval', 'cbor', 'hash', 'tx', 'transaction'];
+      const knownModules = ['list', 'dict', 'value', 'bytearray', 'string', 'math', 'option', 'interval', 'cbor', 'hash', 'tx', 'transaction', 'builtin'];
       if (knownModules.includes(modulePrefix)) continue;
+      
+      // Skip if the prefix is a generated binding name (variable.method pattern)
+      if (GENERATED_BINDING_RE.test(modulePrefix)) continue;
     }
     
     calls.add(name);
