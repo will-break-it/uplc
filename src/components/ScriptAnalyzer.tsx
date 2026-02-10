@@ -800,6 +800,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                 scriptHash: serverResult.scriptHash,
                 stage: 'static',
                 verification: serverResult.verification,
+                uplcText: serverResult.uplcText?.slice(0, 15000),
+                rawAiken: serverResult.aikenCode?.slice(0, 10000),
               }),
             })
               .then(res => res.ok ? res.json() : null)
@@ -923,6 +925,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
               stage: 'ai',
               verification: data.verification,
               staticVerification: result.verification,
+              uplcText: result.uplcPreview?.slice(0, 15000),
+              rawAiken: decompiled?.aikenCode?.slice(0, 10000),
+              aiAiken: data.rewrite?.slice(0, 10000),
             }),
           })
             .then(res => res.ok ? res.json() : null)

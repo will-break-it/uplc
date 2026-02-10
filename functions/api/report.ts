@@ -29,6 +29,12 @@ interface ReportRequest {
   stage: 'static' | 'ai';
   verification: VerificationData;
   staticVerification?: VerificationData;
+  /** Compact UPLC text for context */
+  uplcText?: string;
+  /** Raw decompiled Aiken code */
+  rawAiken?: string;
+  /** AI-enhanced Aiken code (enhance-bug only) */
+  aiAiken?: string;
 }
 
 const ALLOWED_ORIGINS = [
@@ -147,7 +153,13 @@ async function createIssue(
 /**
  * Build issue body for static decompilation bugs
  */
-function buildStaticIssueBody(scriptHash: string, verification: VerificationData): string {
+/** Truncate code for issue body — GitHub limit is 65536 chars total */
+function truncateCode(code: string, maxChars: number = 8000): string {
+  if (code.length <= maxChars) return code;
+  return code.slice(0, maxChars) + `\n... (truncated, ${code.length} chars total)`;
+}
+
+function buildStaticIssueBody(scriptHash: string, verification: VerificationData, uplcText?: string, rawAiken?: string): string {
   const lines = [
     `## Static Decompilation Issue`,
     ``,
@@ -210,6 +222,26 @@ function buildStaticIssueBody(scriptHash: string, verification: VerificationData
   lines.push(`- **Abstraction:** ${(verification.abstractionScore * 100).toFixed(1)}% — inverse of raw \`builtin.*\` density`);
   lines.push(``);
 
+  if (rawAiken) {
+    lines.push(`### Raw Decompiled Aiken`);
+    lines.push(``);
+    lines.push('```aiken');
+    lines.push(truncateCode(rawAiken));
+    lines.push('```');
+    lines.push(``);
+  }
+
+  if (uplcText) {
+    lines.push(`<details><summary>UPLC (compact)</summary>`);
+    lines.push(``);
+    lines.push('```');
+    lines.push(truncateCode(uplcText, 12000));
+    lines.push('```');
+    lines.push(``);
+    lines.push(`</details>`);
+    lines.push(``);
+  }
+
   lines.push(`---`);
   lines.push(`*Auto-filed by [UPLC.WTF](https://uplc.wtf) verification system*`);
 
@@ -222,7 +254,10 @@ function buildStaticIssueBody(scriptHash: string, verification: VerificationData
 function buildAIIssueBody(
   scriptHash: string,
   verification: VerificationData,
-  staticVerification?: VerificationData
+  staticVerification?: VerificationData,
+  uplcText?: string,
+  rawAiken?: string,
+  aiAiken?: string,
 ): string {
   const lines = [
     `## AI Enhancement Issue`,
@@ -290,6 +325,37 @@ function buildAIIssueBody(
   lines.push(`- **Placeholders:** ${(verification.placeholderScore * 100).toFixed(1)}%${s ? ` → ${(s.placeholderScore * 100).toFixed(1)}%` : ''}`);
   lines.push(`- **Abstraction:** ${(verification.abstractionScore * 100).toFixed(1)}%${s ? ` → ${(s.abstractionScore * 100).toFixed(1)}%` : ''}`);
   lines.push(``);
+
+  if (aiAiken) {
+    lines.push(`### AI-Enhanced Aiken`);
+    lines.push(``);
+    lines.push('```aiken');
+    lines.push(truncateCode(aiAiken));
+    lines.push('```');
+    lines.push(``);
+  }
+
+  if (rawAiken) {
+    lines.push(`<details><summary>Raw Decompiled Aiken</summary>`);
+    lines.push(``);
+    lines.push('```aiken');
+    lines.push(truncateCode(rawAiken));
+    lines.push('```');
+    lines.push(``);
+    lines.push(`</details>`);
+    lines.push(``);
+  }
+
+  if (uplcText) {
+    lines.push(`<details><summary>UPLC (compact)</summary>`);
+    lines.push(``);
+    lines.push('```');
+    lines.push(truncateCode(uplcText, 12000));
+    lines.push('```');
+    lines.push(``);
+    lines.push(`</details>`);
+    lines.push(``);
+  }
 
   lines.push(`---`);
   lines.push(`*Auto-filed by [UPLC.WTF](https://uplc.wtf) verification system*`);
@@ -379,11 +445,11 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     if (body.stage === 'static') {
       title = `[decompile-bug] Missing constants in ${hashPrefix}...`;
-      issueBody = buildStaticIssueBody(body.scriptHash, body.verification);
+      issueBody = buildStaticIssueBody(body.scriptHash, body.verification, body.uplcText, body.rawAiken);
       labels = ['decompile-bug', 'auto-reported'];
     } else {
       title = `[enhance-bug] AI quality issues in ${hashPrefix}...`;
-      issueBody = buildAIIssueBody(body.scriptHash, body.verification, body.staticVerification);
+      issueBody = buildAIIssueBody(body.scriptHash, body.verification, body.staticVerification, body.uplcText, body.rawAiken, body.aiAiken);
       labels = ['enhance-bug', 'auto-reported'];
     }
 
