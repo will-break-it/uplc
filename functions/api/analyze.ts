@@ -2,34 +2,30 @@
  * Full analysis endpoint with caching
  * 
  * Pipeline: script_hash → CBOR → AST → Analysis → Decompiled
- * All stages cached in KV (immutable once computed)
+ * Uses Blockfrost for on-chain data.
  */
 
 import { UPLCDecoder, builtinTagToString, showUPLC } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
-import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
+import { generate, estimateCost, getCostWarnings, parseCostModelJSON } from '@uplc/codegen';
 
-interface Env {
-  UPLC_CACHE?: KVNamespace;
-}
+import {
+  type BlockfrostEnv,
+  getCorsOrigin, corsHeaders, optionsResponse, jsonError, jsonOk,
+  fetchScript, fetchCostModel,
+} from './_blockfrost';
 
-interface ScriptInfo {
-  script_hash: string;
-  creation_tx_hash: string;
-  type: string;
-  bytes: string;
-  size: number;
-}
+type Env = BlockfrostEnv;
 
 interface AnalysisResult {
   scriptHash: string;
   scriptType: string;
   size: number;
-  bytes: string;  // CBOR hex
+  bytes: string;
   version: string;
   aikenCode: string;
-  uplcText: string;  // Pretty-printed UPLC
+  uplcText: string;
   scriptPurpose: string;
   builtins: Record<string, number>;
   traceStrings: string[];
@@ -45,10 +41,9 @@ interface AnalysisResult {
     delayCount: number;
     applicationCount: number;
   };
-  // Execution cost estimate
   cost: {
-    cpu: string;        // CPU units (as string for bigint)
-    memory: string;     // Memory units
+    cpu: string;
+    memory: string;
     cpuBudgetPercent: number;
     memoryBudgetPercent: number;
     breakdown: Array<{
@@ -56,10 +51,10 @@ interface AnalysisResult {
       cpu: string;
       memory: string;
       count: number;
+      builtins: string[];
     }>;
     warnings: string[];
   };
-  // Rich analysis from @uplc/patterns
   analysis: {
     datumUsed: boolean;
     datumOptional: boolean;
@@ -71,28 +66,6 @@ interface AnalysisResult {
     scriptParams: Array<{ name: string; type: string; value: string }>;
   };
   cached: boolean;
-}
-
-const ALLOWED_ORIGINS = [
-  'https://uplc.wtf',
-  'https://www.uplc.wtf',
-  'https://uplc.pages.dev',
-];
-
-function getCorsOrigin(request: Request): string {
-  const origin = request.headers.get('Origin') || '';
-  if (ALLOWED_ORIGINS.includes(origin) || origin.startsWith('http://localhost:')) {
-    return origin;
-  }
-  return 'https://uplc.wtf';
-}
-
-function corsHeaders(origin: string): Record<string, string> {
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
 }
 
 // Convert hex to Uint8Array
@@ -347,11 +320,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const corsOrigin = getCorsOrigin(context.request);
   
   if (context.request.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders(corsOrigin) });
+    return optionsResponse(corsOrigin);
   }
 
   try {
-    // Get script hash from request
     const url = new URL(context.request.url);
     let scriptHash: string | null = null;
     
@@ -363,13 +335,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     }
 
     if (!scriptHash || !/^[a-f0-9]{56}$/i.test(scriptHash)) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid script hash. Must be 56 hex characters.' }),
-        { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
-      );
+      return jsonError('Invalid script hash. Must be 56 hex characters.', 400, corsOrigin);
     }
 
-    const cacheKey = `analysis:v6:${scriptHash}`;  // v6: compact uplcText via showUPLC
+    const cacheKey = `analysis:v8:${scriptHash}`;  // v8: Blockfrost + dynamic cost model
 
     // Check cache
     if (context.env.UPLC_CACHE) {
@@ -389,49 +358,30 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       }
     }
 
-    // Fetch from Koios
-    const koiosResponse = await fetch('https://api.koios.rest/api/v1/script_info', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ _script_hashes: [scriptHash] }),
-    });
-
-    if (!koiosResponse.ok) {
-      return new Response(
-        JSON.stringify({ error: `Koios API error: ${koiosResponse.status}` }),
-        { status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
-      );
+    // Fetch script CBOR (Blockfrost preferred, Koios fallback)
+    const scriptResult = await fetchScript(scriptHash, context.env);
+    if ('error' in scriptResult) {
+      return jsonError(scriptResult.error, scriptResult.status, corsOrigin);
     }
 
-    const scripts = await koiosResponse.json() as ScriptInfo[];
-    if (!scripts || scripts.length === 0) {
-      return new Response(
-        JSON.stringify({ error: 'Script not found on chain' }),
-        { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
-      );
-    }
+    const { type: scriptType, size: scriptSize, bytes: scriptBytes } = scriptResult;
 
-    const script = scripts[0];
-    
-    if (!script.bytes) {
-      return new Response(
-        JSON.stringify({ error: 'Script is a native script (no Plutus bytecode)' }),
-        { status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(corsOrigin) } }
-      );
-    }
-
-    // Decode and analyze
-    const decoded = decodeAndAnalyze(script.bytes);
-    
-    // Estimate execution cost
-    const costEstimate = estimateCost(decoded.builtins);
+    // Decode, analyze, and estimate cost (in parallel where possible)
+    const decoded = decodeAndAnalyze(scriptBytes);
+    const costModelJSON = await fetchCostModel(context.env);
+    const costMaps = costModelJSON ? parseCostModelJSON(costModelJSON) : null;
+    const costEstimate = estimateCost(
+      decoded.builtins,
+      costMaps?.cpuCosts,
+      costMaps?.memCosts,
+    );
     const costWarnings = getCostWarnings(decoded.builtins);
 
     const result: AnalysisResult = {
-      scriptHash: script.script_hash,
-      scriptType: script.type,
-      size: script.size,
-      bytes: script.bytes,
+      scriptHash,
+      scriptType,
+      size: scriptSize,
+      bytes: scriptBytes,
       version: decoded.version,
       aikenCode: decoded.aikenCode,
       uplcText: decoded.uplcText,
@@ -454,6 +404,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
           cpu: b.cpu.toString(),
           memory: b.memory.toString(),
           count: b.count,
+          builtins: b.builtins,
         })),
         warnings: costWarnings,
       },

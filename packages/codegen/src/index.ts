@@ -25,7 +25,7 @@ export { extractFragments, formatFragmentsForAI } from './fragments.js';
 export type { CodeFragment, FragmentRole, FragmentedCode } from './fragments.js';
 export { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch, TX_FIELDS } from './patterns.js';
 export type { DetectedPattern, PatternKind } from './patterns.js';
-export { estimateCost, formatCost, getCostWarnings, BUILTIN_CPU_COSTS, TX_BUDGET } from './costs.js';
+export { estimateCost, getCostWarnings, parseCostModelJSON, BUILTIN_CPU_COSTS, TX_BUDGET } from './costs.js';
 export type { CostEstimate } from './costs.js';
 export { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from './helpers.js';
 export type { BuiltinMapping } from './stdlib.js';

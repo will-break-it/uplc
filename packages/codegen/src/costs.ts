@@ -2,212 +2,326 @@
  * Plutus Cost Model
  * 
  * Estimates execution costs based on builtin usage.
- * Costs are in abstract units (ExUnits = CPU + Memory).
+ * Uses actual Plutus V3 mainnet cost model parameters from
+ * github.com/IntersectMBO/plutus/plutus-core/cost-model/data/builtinCostModelA.json
  * 
- * Based on Plutus V3 cost model from Cardano mainnet.
- * These are base costs - actual costs depend on arguments.
+ * For variable-cost builtins (linear/quadratic models), we use
+ * intercept + slope × typical_size to estimate realistic costs.
+ * 
+ * Typical argument sizes:
+ *   Integer: 1 word (small numbers common in contracts)
+ *   ByteString: 4 words (32 bytes — hashes, policy IDs)
+ *   Data: 20 words (typical datum/redeemer structure)
+ *   String: 2 words (trace messages)
+ * 
+ * Note: This covers builtin costs only. CEK machine overhead
+ * (closures, environments, stack frames) is not included.
  */
 
 export interface CostEstimate {
-  /** CPU cost in abstract units */
   cpu: bigint;
-  /** Memory cost in abstract units */
   memory: bigint;
-  /** Total cost (weighted combination) */
   total: bigint;
-  /** Breakdown by category */
   breakdown: {
     category: string;
     cpu: bigint;
     memory: bigint;
     count: number;
+    builtins: string[];
   }[];
-  /** Estimated as percentage of typical tx budget */
   budgetPercent: {
     cpu: number;
     memory: number;
   };
 }
 
+// Typical argument sizes (in words) for slope-based estimates
+const TYPICAL_INT_SIZE = 1;
+const TYPICAL_BS_SIZE = 4;   // 32 bytes
+const TYPICAL_DATA_SIZE = 20;
+const TYPICAL_STRING_SIZE = 2;
+
 /**
- * Base CPU costs per builtin (Plutus V3 mainnet model)
- * Values are approximate base costs
+ * CPU costs per builtin — from Plutus V3 mainnet cost model.
+ * Variable-cost builtins use: intercept + slope × typical_size
  */
 export const BUILTIN_CPU_COSTS: Record<string, bigint> = {
-  // Integer operations
-  addInteger: 205665n,
-  subtractInteger: 205665n,
-  multiplyInteger: 69522n,
+  // Integer arithmetic (max_size model: intercept + slope × max(size_a, size_b))
+  addInteger: BigInt(205665 + 812 * TYPICAL_INT_SIZE),
+  subtractInteger: BigInt(205665 + 812 * TYPICAL_INT_SIZE),
+  multiplyInteger: BigInt(69522 + 11687 * (TYPICAL_INT_SIZE * 2)),
+  // Division uses const_above_diagonal — use the constant for typical case
   divideInteger: 196500n,
   quotientInteger: 196500n,
   remainderInteger: 196500n,
   modInteger: 196500n,
-  equalsInteger: 208512n,
-  lessThanInteger: 208512n,
-  lessThanEqualsInteger: 208512n,
-  
+  // Comparison (min_size model: intercept + slope × min(size_a, size_b))
+  equalsInteger: BigInt(208512 + 421 * TYPICAL_INT_SIZE),
+  lessThanInteger: BigInt(208896 + 511 * TYPICAL_INT_SIZE),
+  lessThanEqualsInteger: BigInt(204924 + 473 * TYPICAL_INT_SIZE),
+
   // ByteString operations
-  appendByteString: 1000n,
-  consByteString: 150000n,
-  sliceByteString: 150000n,
-  lengthOfByteString: 150000n,
-  indexByteString: 150000n,
-  equalsByteString: 150000n,
-  lessThanByteString: 150000n,
-  lessThanEqualsByteString: 150000n,
-  
-  // Crypto (expensive!)
-  sha2_256: 806990n,
-  sha3_256: 1927926n,
-  blake2b_256: 201305n,
-  blake2b_224: 201305n,
-  keccak_256: 1927926n,
-  ripemd_160: 806990n,
-  verifyEd25519Signature: 53384111n,
-  verifyEcdsaSecp256k1Signature: 35892428n,
-  verifySchnorrSecp256k1Signature: 38916450n,
-  
+  appendByteString: BigInt(1000 + 571 * (TYPICAL_BS_SIZE * 2)),
+  consByteString: BigInt(221973 + 511 * TYPICAL_BS_SIZE),
+  sliceByteString: 265318n,
+  lengthOfByteString: 1000n,
+  indexByteString: 57667n,
+  equalsByteString: BigInt(216773 + 62 * TYPICAL_BS_SIZE),
+  lessThanByteString: BigInt(197145 + 156 * TYPICAL_BS_SIZE),
+  lessThanEqualsByteString: BigInt(197145 + 156 * TYPICAL_BS_SIZE),
+
+  // Crypto (linear_in_x: intercept + slope × input_size)
+  sha2_256: BigInt(806990 + 30482 * TYPICAL_BS_SIZE),
+  sha3_256: BigInt(1927926 + 82523 * TYPICAL_BS_SIZE),
+  blake2b_256: BigInt(117366 + 10475 * TYPICAL_BS_SIZE),
+  blake2b_224: BigInt(207616 + 8310 * TYPICAL_BS_SIZE),
+  keccak_256: BigInt(2261318 + 64571 * TYPICAL_BS_SIZE),
+  ripemd_160: BigInt(1964219 + 24520 * TYPICAL_BS_SIZE),
+  verifyEd25519Signature: BigInt(57996947 + 18975 * TYPICAL_BS_SIZE),
+  verifyEcdsaSecp256k1Signature: 35190005n,
+  verifySchnorrSecp256k1Signature: BigInt(39121781 + 32260 * TYPICAL_BS_SIZE),
+
   // String operations
-  appendString: 1000n,
-  equalsString: 150000n,
-  encodeUtf8: 150000n,
-  decodeUtf8: 150000n,
-  
-  // Control flow
+  appendString: BigInt(1000 + 24177 * (TYPICAL_STRING_SIZE * 2)),
+  equalsString: BigInt(1000 + 52998 * TYPICAL_STRING_SIZE),
+  encodeUtf8: BigInt(1000 + 28662 * TYPICAL_STRING_SIZE),
+  decodeUtf8: BigInt(497525 + 14068 * TYPICAL_STRING_SIZE),
+
+  // Control flow (constant cost)
   ifThenElse: 80556n,
   chooseUnit: 46417n,
-  chooseList: 150000n,
-  chooseData: 150000n,
-  trace: 150000n,
-  
-  // Pair operations
+  chooseList: 175354n,
+  chooseData: 19537n,
+  trace: 212342n,
+
+  // Pair operations (constant cost)
   fstPair: 80436n,
-  sndPair: 80436n,
-  mkPairData: 150000n,
-  
-  // List operations
-  mkCons: 150000n,
-  headList: 150000n,
-  tailList: 150000n,
-  nullList: 150000n,
-  
-  // Data operations
-  constrData: 150000n,
-  mapData: 150000n,
-  listData: 150000n,
-  iData: 150000n,
-  bData: 150000n,
-  unConstrData: 150000n,
-  unMapData: 150000n,
-  unListData: 150000n,
-  unIData: 150000n,
-  unBData: 150000n,
-  equalsData: 150000n,
-  mkNilData: 150000n,
-  mkNilPairData: 150000n,
-  serialiseData: 150000n,
-  
-  // BLS12-381 (very expensive!)
-  bls12_381_G1_add: 962126n,
+  sndPair: 85931n,
+  mkPairData: 76511n,
+
+  // List operations (constant cost)
+  mkCons: 65493n,
+  headList: 43249n,
+  tailList: 41182n,
+  nullList: 60091n,
+
+  // Data operations (constant cost unless noted)
+  constrData: 89141n,
+  mapData: 64832n,
+  listData: 52467n,
+  iData: 1000n,
+  bData: 1000n,
+  unConstrData: 32696n,
+  unMapData: 38314n,
+  unListData: 32247n,
+  unIData: 43357n,
+  unBData: 31220n,
+  equalsData: BigInt(1060367 + 12586 * TYPICAL_DATA_SIZE),
+  mkNilData: 22558n,
+  mkNilPairData: 16563n,
+  serialiseData: BigInt(1159724 + 392670 * TYPICAL_DATA_SIZE),
+
+  // BLS12-381
+  bls12_381_G1_add: 962335n,
   bls12_381_G1_neg: 267929n,
-  bls12_381_G1_scalarMul: 76433006n,
-  bls12_381_G1_equal: 545063n,
-  bls12_381_G1_hashToGroup: 66311195n,
-  bls12_381_G1_compress: 3227919n,
-  bls12_381_G1_uncompress: 16598737n,
-  bls12_381_G2_add: 2117323n,
-  bls12_381_G2_neg: 344963n,
-  bls12_381_G2_scalarMul: 219393451n,
+  bls12_381_G1_scalarMul: BigInt(76433006 + 8868 * 32),
+  bls12_381_G1_equal: 442008n,
+  bls12_381_G1_hashToGroup: BigInt(52538055 + 3756 * TYPICAL_BS_SIZE),
+  bls12_381_G1_compress: 2780678n,
+  bls12_381_G1_uncompress: 52948122n,
+  bls12_381_G2_add: 1995836n,
+  bls12_381_G2_neg: 284546n,
+  bls12_381_G2_scalarMul: BigInt(158221314 + 26549 * 32),
   bls12_381_G2_equal: 901022n,
-  bls12_381_G2_hashToGroup: 204557793n,
-  bls12_381_G2_compress: 3948421n,
-  bls12_381_G2_uncompress: 33114723n,
-  bls12_381_millerLoop: 284097484n,
-  bls12_381_mulMlResult: 2174318n,
-  bls12_381_finalVerify: 388656972n,
-  
+  bls12_381_G2_hashToGroup: BigInt(166917843 + 4307 * TYPICAL_BS_SIZE),
+  bls12_381_G2_compress: 3227919n,
+  bls12_381_G2_uncompress: 74698472n,
+  bls12_381_millerLoop: 254006273n,
+  bls12_381_mulMlResult: 2174038n,
+  bls12_381_finalVerify: 333849714n,
+
   // Bitwise (Plutus V3)
-  integerToByteString: 1000n,
-  byteStringToInteger: 1000n,
-  andByteString: 150000n,
-  orByteString: 150000n,
-  xorByteString: 150000n,
-  complementByteString: 150000n,
-  readBit: 150000n,
-  writeBits: 150000n,
-  replicateByte: 150000n,
-  shiftByteString: 150000n,
-  rotateByteString: 150000n,
-  countSetBits: 150000n,
-  findFirstSetBit: 150000n,
+  integerToByteString: BigInt(1293828 + 28716 * TYPICAL_INT_SIZE),
+  byteStringToInteger: BigInt(1006041 + 43623 * TYPICAL_BS_SIZE),
+  andByteString: BigInt(100181 + 726 * TYPICAL_BS_SIZE + 719 * TYPICAL_BS_SIZE),
+  orByteString: BigInt(100181 + 726 * TYPICAL_BS_SIZE + 719 * TYPICAL_BS_SIZE),
+  xorByteString: BigInt(100181 + 726 * TYPICAL_BS_SIZE + 719 * TYPICAL_BS_SIZE),
+  complementByteString: BigInt(107878 + 680 * TYPICAL_BS_SIZE),
+  readBit: 95336n,
+  writeBits: BigInt(281145 + 18848 * 1),
+  replicateByte: BigInt(180194 + 159 * TYPICAL_BS_SIZE),
+  shiftByteString: BigInt(158519 + 8942 * TYPICAL_BS_SIZE),
+  rotateByteString: BigInt(159378 + 8813 * TYPICAL_BS_SIZE),
+  countSetBits: BigInt(107490 + 3298 * TYPICAL_BS_SIZE),
+  findFirstSetBit: BigInt(106057 + 655 * TYPICAL_BS_SIZE),
 };
 
 /**
- * Memory costs per builtin (simplified)
+ * Memory costs per builtin — from Plutus V3 mainnet cost model.
+ * Most are constant_cost; variable ones use typical sizes.
  */
 export const BUILTIN_MEMORY_COSTS: Record<string, bigint> = {
-  // Most operations have minimal base memory cost
-  // Actual cost depends on data sizes
-  addInteger: 1n,
-  subtractInteger: 1n,
-  multiplyInteger: 1n,
+  // Integer (max_size / added_sizes / subtracted_sizes)
+  addInteger: BigInt(1 + 1 * TYPICAL_INT_SIZE),
+  subtractInteger: BigInt(1 + 1 * TYPICAL_INT_SIZE),
+  multiplyInteger: BigInt(0 + 1 * (TYPICAL_INT_SIZE * 2)),
   divideInteger: 1n,
+  quotientInteger: 1n,
+  remainderInteger: 1n,
+  modInteger: 1n,
+  equalsInteger: 1n,
+  lessThanInteger: 1n,
+  lessThanEqualsInteger: 1n,
+
+  // ByteString
+  appendByteString: BigInt(0 + 1 * (TYPICAL_BS_SIZE * 2)),
+  consByteString: BigInt(0 + 1 * (TYPICAL_BS_SIZE + 1)),
+  sliceByteString: 4n,
+  lengthOfByteString: 10n,
+  indexByteString: 4n,
+  equalsByteString: 1n,
+  lessThanByteString: 1n,
+  lessThanEqualsByteString: 1n,
+
+  // Crypto (constant memory — output hash size)
   sha2_256: 4n,
   sha3_256: 4n,
   blake2b_256: 4n,
+  blake2b_224: 4n,
+  keccak_256: 4n,
+  ripemd_160: 3n,
   verifyEd25519Signature: 10n,
-  appendByteString: 1n,
-  appendString: 1n,
+  verifyEcdsaSecp256k1Signature: 10n,
+  verifySchnorrSecp256k1Signature: 10n,
+
+  // String
+  appendString: BigInt(4 + 1 * (TYPICAL_STRING_SIZE * 2)),
+  equalsString: 1n,
+  encodeUtf8: BigInt(4 + 2 * TYPICAL_STRING_SIZE),
+  decodeUtf8: BigInt(4 + 2 * TYPICAL_STRING_SIZE),
+
+  // Control (constant)
   ifThenElse: 1n,
-  // ... defaults to 1
+  chooseUnit: 4n,
+  chooseList: 32n,
+  chooseData: 32n,
+  trace: 32n,
+
+  // Pair (constant = 32)
+  fstPair: 32n,
+  sndPair: 32n,
+  mkPairData: 32n,
+
+  // List (constant = 32)
+  mkCons: 32n,
+  headList: 32n,
+  tailList: 32n,
+  nullList: 32n,
+
+  // Data (constant = 32)
+  constrData: 32n,
+  mapData: 32n,
+  listData: 32n,
+  iData: 32n,
+  bData: 32n,
+  unConstrData: 32n,
+  unMapData: 32n,
+  unListData: 32n,
+  unIData: 32n,
+  unBData: 32n,
+  equalsData: 1n,
+  mkNilData: 32n,
+  mkNilPairData: 32n,
+  serialiseData: BigInt(0 + 2 * TYPICAL_DATA_SIZE),
+
+  // BLS12-381
+  bls12_381_G1_add: 18n,
+  bls12_381_G1_neg: 18n,
+  bls12_381_G1_scalarMul: 18n,
+  bls12_381_G1_equal: 1n,
+  bls12_381_G1_hashToGroup: 18n,
+  bls12_381_G1_compress: 6n,
+  bls12_381_G1_uncompress: 18n,
+  bls12_381_G2_add: 36n,
+  bls12_381_G2_neg: 36n,
+  bls12_381_G2_scalarMul: 36n,
+  bls12_381_G2_equal: 1n,
+  bls12_381_G2_hashToGroup: 36n,
+  bls12_381_G2_compress: 12n,
+  bls12_381_G2_uncompress: 36n,
+  bls12_381_millerLoop: 72n,
+  bls12_381_mulMlResult: 72n,
+  bls12_381_finalVerify: 1n,
+
+  // Bitwise
+  integerToByteString: BigInt(0 + 1 * TYPICAL_INT_SIZE),
+  byteStringToInteger: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  andByteString: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  orByteString: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  xorByteString: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  complementByteString: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  readBit: 1n,
+  writeBits: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  replicateByte: BigInt(1 + 1 * TYPICAL_BS_SIZE),
+  shiftByteString: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  rotateByteString: BigInt(0 + 1 * TYPICAL_BS_SIZE),
+  countSetBits: 1n,
+  findFirstSetBit: 1n,
 };
 
 /**
- * Typical transaction budget limits (mainnet)
+ * Mainnet per-transaction execution budget (Conway era)
  */
 export const TX_BUDGET = {
-  cpu: 10000000000n,  // 10 billion
-  memory: 10000000n,  // 10 million
+  cpu: 10_000_000_000n,
+  memory: 14_000_000n,
 };
 
 /**
- * Estimate execution cost from builtin counts
+ * Estimate execution cost from builtin counts.
+ * If dynamic cost maps are provided (from on-chain cost model), uses those.
+ * Otherwise falls back to hardcoded estimates.
  */
-export function estimateCost(builtinCounts: Record<string, number>): CostEstimate {
+export function estimateCost(
+  builtinCounts: Record<string, number>,
+  dynamicCpuCosts?: Record<string, bigint>,
+  dynamicMemCosts?: Record<string, bigint>,
+): CostEstimate {
+  const cpuMap = dynamicCpuCosts ?? BUILTIN_CPU_COSTS;
+  const memMap = dynamicMemCosts ?? BUILTIN_MEMORY_COSTS;
+
   let totalCpu = 0n;
   let totalMemory = 0n;
-  
-  const breakdown: CostEstimate['breakdown'] = [];
-  
-  // Group by category
-  const categories: Record<string, { builtins: string[], cpu: bigint, memory: bigint, count: number }> = {
-    'Integer': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'ByteString': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'Crypto': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'List': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'Data': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'Control': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'BLS': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
-    'Other': { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+
+  const categories: Record<string, { builtins: string[]; cpu: bigint; memory: bigint; count: number }> = {
+    Integer: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    ByteString: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    Crypto: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    List: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    Data: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    Control: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    BLS: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    Pair: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
+    Other: { builtins: [], cpu: 0n, memory: 0n, count: 0 },
   };
-  
+
   for (const [builtin, count] of Object.entries(builtinCounts)) {
     if (count === 0) continue;
-    
-    const cpuCost = (BUILTIN_CPU_COSTS[builtin] || 100000n) * BigInt(count);
-    const memCost = (BUILTIN_MEMORY_COSTS[builtin] || 1n) * BigInt(count);
-    
+
+    const cpuCost = (cpuMap[builtin] ?? 100000n) * BigInt(count);
+    const memCost = (memMap[builtin] ?? 32n) * BigInt(count);
+
     totalCpu += cpuCost;
     totalMemory += memCost;
-    
+
     const category = categorizeBuiltin(builtin);
     categories[category].cpu += cpuCost;
     categories[category].memory += memCost;
     categories[category].count += count;
     categories[category].builtins.push(builtin);
   }
-  
-  // Build breakdown
+
+  const breakdown: CostEstimate['breakdown'] = [];
   for (const [name, data] of Object.entries(categories)) {
     if (data.count > 0) {
       breakdown.push({
@@ -215,86 +329,196 @@ export function estimateCost(builtinCounts: Record<string, number>): CostEstimat
         cpu: data.cpu,
         memory: data.memory,
         count: data.count,
+        builtins: data.builtins,
       });
     }
   }
-  
-  // Sort by CPU cost
+
   breakdown.sort((a, b) => Number(b.cpu - a.cpu));
-  
+
   return {
     cpu: totalCpu,
     memory: totalMemory,
-    total: totalCpu + totalMemory * 1000n,  // Weighted combination
+    total: totalCpu + totalMemory * 1000n,
     breakdown,
     budgetPercent: {
-      cpu: Number((totalCpu * 100n) / TX_BUDGET.cpu),
-      memory: Number((totalMemory * 100n) / TX_BUDGET.memory),
+      cpu: Number((totalCpu * 10000n) / TX_BUDGET.cpu) / 100,
+      memory: Number((totalMemory * 10000n) / TX_BUDGET.memory) / 100,
     },
   };
 }
 
-/**
- * Categorize a builtin for grouping
- */
 function categorizeBuiltin(name: string): string {
-  if (name.includes('Integer') || name.includes('Mod') || name.includes('Quotient') || name.includes('Remainder')) {
+  if (name.includes('Integer') || name === 'modInteger' || name === 'quotientInteger' || name === 'remainderInteger' || name === 'divideInteger') {
     return 'Integer';
   }
-  if (name.includes('ByteString') || name.includes('Byte') || name.includes('Bit')) {
+  if (name.includes('ByteString') || name.includes('Byte') || name.includes('Bit') || name === 'readBit' || name === 'writeBits') {
     return 'ByteString';
   }
-  if (name.includes('sha') || name.includes('blake') || name.includes('keccak') || 
+  if (name.includes('sha') || name.includes('blake') || name.includes('keccak') ||
       name.includes('verify') || name.includes('ripemd')) {
     return 'Crypto';
   }
   if (name.includes('bls12')) {
     return 'BLS';
   }
-  if (name.includes('List') || name.includes('Cons') || name.includes('head') || name.includes('tail')) {
+  if (name === 'headList' || name === 'tailList' || name === 'mkCons' || name === 'nullList' || name === 'chooseList') {
     return 'List';
   }
-  if (name.includes('Data') || name.includes('Constr') || name.includes('Map') || 
-      name.includes('iData') || name.includes('bData') || name.includes('unI') || name.includes('unB')) {
+  if (name === 'fstPair' || name === 'sndPair' || name === 'mkPairData') {
+    return 'Pair';
+  }
+  if (name.includes('Data') || name.includes('Constr') || name.includes('Map') ||
+      name === 'iData' || name === 'bData' || name === 'unIData' || name === 'unBData' ||
+      name === 'listData' || name === 'unListData' || name === 'mapData' || name === 'unMapData' ||
+      name === 'mkNilData' || name === 'mkNilPairData') {
     return 'Data';
   }
-  if (name.includes('if') || name.includes('choose') || name.includes('trace') || name === 'error') {
+  if (name === 'ifThenElse' || name === 'chooseUnit' || name === 'chooseData' || name === 'trace' || name === 'error') {
     return 'Control';
   }
   return 'Other';
 }
 
-/**
- * Format cost for display
- */
-export function formatCost(cost: CostEstimate): string {
-  const cpuM = Number(cost.cpu / 1000000n);
-  const memK = Number(cost.memory / 1000n);
-  
-  return `CPU: ${cpuM.toFixed(1)}M (${cost.budgetPercent.cpu.toFixed(1)}% of budget)\n` +
-         `Memory: ${memK.toFixed(1)}K (${cost.budgetPercent.memory.toFixed(1)}% of budget)`;
+export function getCostWarnings(builtinCounts: Record<string, number>): string[] {
+  const warnings: string[] = [];
+
+  for (const [name, count] of Object.entries(builtinCounts)) {
+    if (count === 0) continue;
+
+    if (name.includes('bls12')) {
+      warnings.push(`BLS12-381 operations detected (${name}: ${count}×) — very expensive`);
+    }
+    if (name === 'verifyEd25519Signature' && count > 3) {
+      warnings.push(`Multiple signature verifications (${count}×) — consider batching`);
+    }
+    if (name.includes('sha3') || name.includes('keccak')) {
+      warnings.push(`SHA3/Keccak hashing (${count}×) — Blake2b is cheaper`);
+    }
+    if (name === 'serialiseData' && count > 5) {
+      warnings.push(`Heavy data serialization (${count}×) — expensive in CPU`);
+    }
+  }
+
+  return warnings;
+}
+
+// ──────────────────────────────────────────────
+// Dynamic cost model (fetched from Plutus repo)
+// ──────────────────────────────────────────────
+
+/** Raw cost model entry from builtinCostModelA.json */
+interface CostModelEntry {
+  arguments: number | { intercept?: number; slope?: number; slope1?: number; slope2?: number; constant?: number; c0?: number; c1?: number; c2?: number; minimum?: number; model?: any };
+  type: string;
+}
+
+/** Typical argument sizes for variable-cost builtins */
+function getTypicalSize(builtin: string): number {
+  if (builtin.includes('Integer') || builtin === 'modInteger' || builtin === 'divideInteger' ||
+      builtin === 'quotientInteger' || builtin === 'remainderInteger') return TYPICAL_INT_SIZE;
+  if (builtin.includes('ByteString') || builtin.includes('Byte') || builtin.includes('Bit') ||
+      builtin.includes('sha') || builtin.includes('blake') || builtin.includes('keccak') ||
+      builtin.includes('ripemd') || builtin.includes('verify') || builtin.includes('bls12')) return TYPICAL_BS_SIZE;
+  if (builtin.includes('String') || builtin === 'encodeUtf8' || builtin === 'decodeUtf8') return TYPICAL_STRING_SIZE;
+  if (builtin.includes('Data') || builtin.includes('Constr') || builtin === 'serialiseData') return TYPICAL_DATA_SIZE;
+  return 4; // default
+}
+
+/** Evaluate a single cost model entry to a concrete value */
+function evaluateCostEntry(entry: CostModelEntry, typicalSize: number): bigint {
+  const args = entry.arguments;
+
+  if (entry.type === 'constant_cost') {
+    return BigInt(args as number);
+  }
+
+  if (typeof args === 'number') {
+    return BigInt(args);
+  }
+
+  const a = args as Record<string, any>;
+
+  switch (entry.type) {
+    case 'linear_in_x':
+    case 'linear_in_y':
+    case 'linear_in_z':
+    case 'linear_in_u':
+    case 'max_size':
+    case 'min_size':
+      return BigInt(Math.max(0, Math.round((a.intercept ?? 0) + (a.slope ?? 0) * typicalSize)));
+
+    case 'added_sizes':
+      return BigInt(Math.max(0, Math.round((a.intercept ?? 0) + (a.slope ?? 0) * typicalSize * 2)));
+
+    case 'subtracted_sizes':
+      return BigInt(Math.max(a.minimum ?? 1, Math.round((a.intercept ?? 0) + (a.slope ?? 0) * 0)));
+
+    case 'multiplied_sizes':
+      return BigInt(Math.max(0, Math.round((a.intercept ?? 0) + (a.slope ?? 0) * typicalSize * typicalSize)));
+
+    case 'const_above_diagonal':
+      return BigInt(a.constant ?? 100000);
+
+    case 'linear_on_diagonal': {
+      // Typically same-size args → uses linear model
+      const linearCost = (a.intercept ?? 0) + (a.slope ?? 0) * typicalSize;
+      return BigInt(Math.max(0, Math.round(Math.min(a.constant ?? linearCost, linearCost))));
+    }
+
+    case 'quadratic_in_y':
+    case 'quadratic_in_z':
+    case 'quadratic_in_x':
+      return BigInt(Math.max(0, Math.round(
+        (a.c0 ?? 0) + (a.c1 ?? 0) * typicalSize + (a.c2 ?? 0) * typicalSize * typicalSize
+      )));
+
+    case 'linear_in_y_and_z':
+      return BigInt(Math.max(0, Math.round(
+        (a.intercept ?? 0) + (a.slope1 ?? 0) * typicalSize + (a.slope2 ?? 0) * typicalSize
+      )));
+
+    case 'linear_in_max_yz':
+      return BigInt(Math.max(0, Math.round((a.intercept ?? 0) + (a.slope ?? 0) * typicalSize)));
+
+    case 'literal_in_y_or_linear_in_z':
+      return BigInt(Math.max(0, Math.round((a.intercept ?? 0) + (a.slope ?? 0) * typicalSize)));
+
+    case 'exp_mod_cost':
+      // Complex model — use rough estimate
+      return BigInt(Math.round((a.coefficient00 ?? 0) + (a.coefficient11 ?? 0) * typicalSize));
+
+    case 'with_interaction_in_x_and_y':
+      return BigInt(Math.max(0, Math.round(
+        (a.c00 ?? 0) + (a.c01 ?? 0) * typicalSize + (a.c10 ?? 0) * typicalSize + (a.c11 ?? 0) * typicalSize * typicalSize
+      )));
+
+    default:
+      return 100000n;
+  }
 }
 
 /**
- * Get cost warnings for expensive operations
+ * Parse a Plutus cost model JSON (builtinCostModelA.json format)
+ * into CPU and memory cost maps usable by `estimateCost()`.
  */
-export function getCostWarnings(builtinCounts: Record<string, number>): string[] {
-  const warnings: string[] = [];
-  
-  // Check for expensive crypto
-  for (const [name, count] of Object.entries(builtinCounts)) {
-    if (count === 0) continue;
-    
-    if (name.includes('bls12') && count > 0) {
-      warnings.push(`BLS12-381 operations detected (${name}: ${count}x) - very expensive`);
-    }
-    if (name === 'verifyEd25519Signature' && count > 3) {
-      warnings.push(`Multiple signature verifications (${count}x) - consider batching`);
-    }
-    if (name.includes('sha3') || name.includes('keccak')) {
-      warnings.push(`SHA3/Keccak hashing used - SHA256 or Blake2b is cheaper`);
+export function parseCostModelJSON(
+  json: Record<string, { cpu: CostModelEntry; memory: CostModelEntry }>
+): { cpuCosts: Record<string, bigint>; memCosts: Record<string, bigint> } {
+  const cpuCosts: Record<string, bigint> = {};
+  const memCosts: Record<string, bigint> = {};
+
+  for (const [builtin, model] of Object.entries(json)) {
+    const size = getTypicalSize(builtin);
+    try {
+      cpuCosts[builtin] = evaluateCostEntry(model.cpu, size);
+      memCosts[builtin] = evaluateCostEntry(model.memory, size);
+    } catch {
+      // Skip builtins we can't parse — fallback handled in estimateCost
     }
   }
-  
-  return warnings;
+
+  return { cpuCosts, memCosts };
 }
+
+// End of costs module

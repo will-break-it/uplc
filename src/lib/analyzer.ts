@@ -53,6 +53,7 @@ export interface AnalysisResult {
       cpu: string;
       memory: string;
       count: number;
+      builtins?: string[];
     }>;
     warnings: string[];
   };

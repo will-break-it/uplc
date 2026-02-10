@@ -1032,15 +1032,19 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                 <section className="docs-section">
                   <h2>{Icons.analysis} Static Analysis</h2>
 
-                  {/* 1. Execution Budget - Hero Section */}
+                  {/* 1. Execution Budget */}
                   {result.cost && (() => {
                     const cpuValue = parseInt(result.cost.cpu);
                     const memValue = parseInt(result.cost.memory);
                     const cpuPct = result.cost.cpuBudgetPercent;
                     const memPct = result.cost.memoryBudgetPercent;
                     const getColor = (pct: number) => pct < 33 ? '#10b981' : pct < 66 ? '#f59e0b' : '#ef4444';
-                    const formatUnits = (val: number, divisor: number, suffix: string) => 
-                      (val / divisor).toFixed(1) + suffix;
+                    const formatUnits = (val: number) => {
+                      if (val >= 1_000_000_000) return (val / 1_000_000_000).toFixed(1) + 'B';
+                      if (val >= 1_000_000) return (val / 1_000_000).toFixed(1) + 'M';
+                      if (val >= 1_000) return (val / 1_000).toFixed(1) + 'K';
+                      return val.toString();
+                    };
                     
                     return (
                       <div style={{ 
@@ -1078,7 +1082,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             }} />
                           </div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            {formatUnits(cpuValue, 1_000_000, 'M')} / 10,000M units
+                            {formatUnits(cpuValue)} / 10B units
                           </div>
                         </div>
 
@@ -1111,12 +1115,19 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             }} />
                           </div>
                           <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                            {formatUnits(memValue, 1_000_000, 'M')} / 14M units
+                            {formatUnits(memValue)} / 14M units
                           </div>
                         </div>
                       </div>
                     );
                   })()}
+
+                  {/* Cost note */}
+                  {result.cost && (
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.5rem', opacity: 0.7 }}>
+                      Estimated from builtin base costs (Plutus V3 model). Actual execution costs vary with argument sizes.
+                    </div>
+                  )}
 
                   {/* Cost warnings */}
                   {result.cost?.warnings && result.cost.warnings.length > 0 && (
@@ -1136,32 +1147,64 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                     </div>
                   )}
 
-                  {/* 2. Cost Breakdown Donut Chart */}
+                  {/* 2. Cost Breakdown Donut Chart (SVG with hover) */}
                   {result.cost?.breakdown && result.cost.breakdown.length > 0 && (() => {
+                    // Flat, muted colors
                     const categoryColors: Record<string, string> = {
-                      Data: '#8b5cf6',
-                      List: '#06b6d4',
-                      Crypto: '#f43f5e',
-                      Integer: '#10b981',
-                      ByteString: '#f59e0b',
-                      Control: '#3b82f6',
-                      Other: '#64748b',
-                      Arithmetic: '#10b981',
-                      Comparison: '#a855f7',
-                      Debug: '#ec4899',
+                      Data: '#7c6dab',
+                      List: '#5a9bad',
+                      Crypto: '#b06878',
+                      Integer: '#6b9a7e',
+                      ByteString: '#b09860',
+                      Control: '#5b7db5',
+                      Pair: '#8a7a9e',
+                      BLS: '#a06080',
+                      Other: '#7a8494',
                     };
                     
-                    const totalCpu = result.cost.breakdown.reduce((sum, b) => sum + parseInt(b.cpu), 0);
-                    const sortedBreakdown = [...result.cost.breakdown].sort((a, b) => parseInt(b.cpu) - parseInt(a.cpu));
+                    const totalCpu = result.cost!.breakdown.reduce((sum, b) => sum + parseInt(b.cpu), 0);
+                    const sortedBreakdown = [...result.cost!.breakdown].sort((a, b) => parseInt(b.cpu) - parseInt(a.cpu));
                     
-                    // Build conic-gradient segments
-                    let currentAngle = 0;
-                    const gradientParts: string[] = [];
-                    sortedBreakdown.forEach(b => {
-                      const pct = (parseInt(b.cpu) / totalCpu) * 100;
+                    // SVG donut geometry
+                    const size = 140;
+                    const cx = size / 2;
+                    const cy = size / 2;
+                    const outerR = 64;
+                    const innerR = 38;
+                    
+                    // Build SVG arc segments
+                    let startAngle = -Math.PI / 2; // start from top
+                    const segments = sortedBreakdown.map(b => {
+                      const pct = parseInt(b.cpu) / totalCpu;
+                      const angle = pct * Math.PI * 2;
+                      const endAngle = startAngle + angle;
+                      const largeArc = angle > Math.PI ? 1 : 0;
+                      
+                      const x1o = cx + outerR * Math.cos(startAngle);
+                      const y1o = cy + outerR * Math.sin(startAngle);
+                      const x2o = cx + outerR * Math.cos(endAngle);
+                      const y2o = cy + outerR * Math.sin(endAngle);
+                      const x1i = cx + innerR * Math.cos(endAngle);
+                      const y1i = cy + innerR * Math.sin(endAngle);
+                      const x2i = cx + innerR * Math.cos(startAngle);
+                      const y2i = cy + innerR * Math.sin(startAngle);
+                      
+                      const path = [
+                        `M ${x1o} ${y1o}`,
+                        `A ${outerR} ${outerR} 0 ${largeArc} 1 ${x2o} ${y2o}`,
+                        `L ${x1i} ${y1i}`,
+                        `A ${innerR} ${innerR} 0 ${largeArc} 0 ${x2i} ${y2i}`,
+                        'Z'
+                      ].join(' ');
+                      
                       const color = categoryColors[b.category] || categoryColors.Other;
-                      gradientParts.push(`${color} ${currentAngle}deg ${currentAngle + pct * 3.6}deg`);
-                      currentAngle += pct * 3.6;
+                      const cpuM = (parseInt(b.cpu) / 1_000_000).toFixed(1);
+                      const builtinList = b.builtins?.slice(0, 5).join(', ') || '';
+                      const extra = (b.builtins?.length || 0) > 5 ? ` +${(b.builtins?.length || 0) - 5} more` : '';
+                      const title = `${b.category}: ${cpuM}M CPU (${(pct * 100).toFixed(1)}%)\n${b.count} calls${builtinList ? `\n${builtinList}${extra}` : ''}`;
+                      
+                      startAngle = endAngle;
+                      return { path, color, title, category: b.category };
                     });
                     
                     return (
@@ -1170,40 +1213,34 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           Cost Distribution by Category
                         </h3>
                         <div style={{ display: 'flex', gap: '2rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-                          {/* Donut Chart */}
-                          <div style={{
-                            width: '140px',
-                            height: '140px',
-                            borderRadius: '50%',
-                            background: `conic-gradient(${gradientParts.join(', ')})`,
-                            position: 'relative',
-                            flexShrink: 0,
-                          }}>
-                            <div style={{
-                              position: 'absolute',
-                              top: '50%',
-                              left: '50%',
-                              transform: 'translate(-50%, -50%)',
-                              width: '80px',
-                              height: '80px',
-                              borderRadius: '50%',
-                              background: 'var(--bg)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexDirection: 'column',
-                            }}>
-                              <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>CPU</span>
-                              <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)' }}>
-                                {(totalCpu / 1_000_000).toFixed(0)}M
-                              </span>
-                            </div>
-                          </div>
+                          {/* SVG Donut Chart */}
+                          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+                            {segments.map((seg, i) => (
+                              <path
+                                key={i}
+                                d={seg.path}
+                                fill={seg.color}
+                                stroke="var(--bg)"
+                                strokeWidth="1.5"
+                                style={{ cursor: 'pointer', transition: 'opacity 0.15s' }}
+                                onMouseEnter={(e) => { (e.target as SVGElement).style.opacity = '0.8'; }}
+                                onMouseLeave={(e) => { (e.target as SVGElement).style.opacity = '1'; }}
+                              >
+                                <title>{seg.title}</title>
+                              </path>
+                            ))}
+                            {/* Center label */}
+                            <text x={cx} y={cy - 6} textAnchor="middle" fill="var(--text-muted)" fontSize="8">CPU</text>
+                            <text x={cx} y={cx + 8} textAnchor="middle" fill="var(--text)" fontSize="12" fontWeight="600">
+                              {(totalCpu / 1_000_000).toFixed(0)}M
+                            </text>
+                          </svg>
                           
                           {/* Legend */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', flex: 1, minWidth: '180px' }}>
                             {sortedBreakdown.map((b, i) => {
                               const pct = ((parseInt(b.cpu) / totalCpu) * 100).toFixed(1);
+                              const cpuM = (parseInt(b.cpu) / 1_000_000).toFixed(1);
                               const color = categoryColors[b.category] || categoryColors.Other;
                               return (
                                 <div key={i} style={{ 
@@ -1221,7 +1258,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                                   }} />
                                   <span style={{ color: 'var(--text)', flex: 1 }}>{b.category}</span>
                                   <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-                                    {pct}% · {b.count} calls
+                                    {pct}% · {cpuM}M · {b.count} calls
                                   </span>
                                 </div>
                               );
