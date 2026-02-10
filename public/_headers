@@ -1,0 +1,9 @@
+# HTML pages - never cache
+/
+  Cache-Control: no-cache, no-store, must-revalidate
+/script/*
+  Cache-Control: no-cache, no-store, must-revalidate
+
+# Hashed assets - cache forever (hash changes on rebuild)
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
