@@ -8,12 +8,12 @@
 import { UPLCDecoder, builtinTagToString, showUPLC } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
-import { generate, estimateCost, getCostWarnings, parseCostModelJSON } from '@uplc/codegen';
-
+import { generate, estimateCost, getCostWarnings } from '@uplc/codegen';
+import type { MachineCostParams } from '@uplc/codegen';
 import {
-  type BlockfrostEnv,
+  type BlockfrostEnv, type EpochCostData,
   getCorsOrigin, corsHeaders, optionsResponse, jsonError, jsonOk,
-  fetchScript, fetchCostModel,
+  fetchScript, fetchEpochCosts,
 } from './_blockfrost';
 
 type Env = BlockfrostEnv;
@@ -382,30 +382,27 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     // Decode, analyze, and estimate cost
     const decoded = decodeAndAnalyze(scriptBytes);
-    const { builtinModel, machineCosts: fetchedMachineCosts } = await fetchCostModel(context.env);
-    const costMaps = builtinModel ? parseCostModelJSON(builtinModel) : null;
+    const epochCosts = await fetchEpochCosts(context.env);
 
-    // Convert Blockfrost machine costs to our format (if fetched)
-    let machineCostParams: import('@uplc/codegen').MachineCostParams | undefined;
-    if (fetchedMachineCosts) {
-      machineCostParams = {
-        startup: fetchedMachineCosts.cekStartupCost,
-        var: fetchedMachineCosts.cekVarCost,
-        const: fetchedMachineCosts.cekConstCost,
-        lam: fetchedMachineCosts.cekLamCost,
-        delay: fetchedMachineCosts.cekDelayCost,
-        force: fetchedMachineCosts.cekForceCost,
-        apply: fetchedMachineCosts.cekApplyCost,
-        builtin: fetchedMachineCosts.cekBuiltinCost,
-        constr: fetchedMachineCosts.cekConstrCost,
-        case: fetchedMachineCosts.cekCaseCost,
-      };
+    // Convert Blockfrost epoch costs to bigint maps for estimateCost
+    let cpuCosts: Record<string, bigint> | undefined;
+    let memCosts: Record<string, bigint> | undefined;
+    let machineCostParams: MachineCostParams | undefined;
+
+    if (epochCosts) {
+      cpuCosts = {};
+      memCosts = {};
+      for (const [name, costs] of Object.entries(epochCosts.builtinCosts)) {
+        cpuCosts[name] = BigInt(Math.round(costs.cpu));
+        memCosts[name] = BigInt(Math.round(costs.mem));
+      }
+      machineCostParams = epochCosts.machineCosts;
     }
 
     const costEstimate = estimateCost(
       decoded.builtins,
-      costMaps?.cpuCosts,
-      costMaps?.memCosts,
+      cpuCosts,
+      memCosts,
       decoded.stats,
       machineCostParams,
     );

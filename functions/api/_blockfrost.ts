@@ -72,7 +72,6 @@ export async function fetchScript(
   scriptHash: string,
   env: BlockfrostEnv,
 ): Promise<{ type: string; size: number; bytes: string } | { error: string; status: number }> {
-  // KV cache (immutable on-chain data)
   if (env.UPLC_CACHE) {
     const cached = await env.UPLC_CACHE.get(`script:${scriptHash}`, 'json') as any;
     if (cached?.bytes) {
@@ -80,7 +79,6 @@ export async function fetchScript(
     }
   }
 
-  // Blockfrost: script info + CBOR in parallel
   const [infoRes, cborRes] = await Promise.all([
     blockfrostGet(`/scripts/${scriptHash}`, env.BLOCKFROST_PROJECT_ID),
     blockfrostGet(`/scripts/${scriptHash}/cbor`, env.BLOCKFROST_PROJECT_ID),
@@ -105,7 +103,6 @@ export async function fetchScript(
     bytes: cbor.cbor,
   };
 
-  // Cache forever (script data is immutable on-chain)
   if (env.UPLC_CACHE) {
     env.UPLC_CACHE.put(`script:${scriptHash}`, JSON.stringify({
       script_hash: scriptHash, ...result,
@@ -115,101 +112,146 @@ export async function fetchScript(
   return result;
 }
 
-// ── Cost model ─────────────────────────────
+// ── Epoch parameters (cost model + budgets) ──
 
-const COST_MODEL_CACHE_KEY = 'plutus-cost-model:v2';
-const COST_MODEL_TTL = 5 * 24 * 3600; // 5 days (~1 epoch)
+const EPOCH_PARAMS_CACHE_KEY = 'epoch-params:v1';
+const EPOCH_PARAMS_TTL = 5 * 24 * 3600; // 5 days (~1 epoch)
 
-/** Machine cost entry from cost model */
-export interface MachineCosts {
-  cekStartupCost: { cpu: number; mem: number };
-  cekVarCost: { cpu: number; mem: number };
-  cekConstCost: { cpu: number; mem: number };
-  cekLamCost: { cpu: number; mem: number };
-  cekDelayCost: { cpu: number; mem: number };
-  cekForceCost: { cpu: number; mem: number };
-  cekApplyCost: { cpu: number; mem: number };
-  cekBuiltinCost: { cpu: number; mem: number };
-  cekConstrCost: { cpu: number; mem: number };
-  cekCaseCost: { cpu: number; mem: number };
-}
-
-export interface CostModelResult {
-  builtinModel: Record<string, any> | null;
-  machineCosts: MachineCosts | null;
+export interface EpochCostData {
+  /** Per-builtin costs: { builtinName: { cpu: number, mem: number } } */
+  builtinCosts: Record<string, { cpu: number; mem: number }>;
+  /** CEK machine step costs: { stepType: { cpu: number, mem: number } } */
+  machineCosts: {
+    startup: { cpu: number; mem: number };
+    var: { cpu: number; mem: number };
+    const: { cpu: number; mem: number };
+    lam: { cpu: number; mem: number };
+    delay: { cpu: number; mem: number };
+    force: { cpu: number; mem: number };
+    apply: { cpu: number; mem: number };
+    builtin: { cpu: number; mem: number };
+    constr: { cpu: number; mem: number };
+    case: { cpu: number; mem: number };
+  };
+  /** Transaction execution budget limits */
+  txBudget: { cpu: number; mem: number };
+  /** Epoch number this was fetched from */
+  epoch: number;
 }
 
 /**
- * Fetch Plutus V3 cost model (builtins + machine costs) from Blockfrost epoch params.
- * KV cache (5 days) → Blockfrost /epochs/latest/parameters
+ * Fetch epoch cost parameters from Blockfrost.
+ * Uses `cost_models.PlutusV3` (named format, not flat array).
+ * Includes builtin costs, CEK machine costs, and tx budget.
  */
-export async function fetchCostModel(env: BlockfrostEnv): Promise<CostModelResult> {
-  const empty: CostModelResult = { builtinModel: null, machineCosts: null };
-
+export async function fetchEpochCosts(env: BlockfrostEnv): Promise<EpochCostData | null> {
   try {
     // KV cache
     if (env.UPLC_CACHE) {
-      const cached = await env.UPLC_CACHE.get(COST_MODEL_CACHE_KEY, 'json') as CostModelResult | null;
-      if (cached?.builtinModel) return cached;
+      const cached = await env.UPLC_CACHE.get(EPOCH_PARAMS_CACHE_KEY, 'json') as EpochCostData | null;
+      if (cached) return cached;
     }
 
-    // Blockfrost epoch params
     const res = await blockfrostGet('/epochs/latest/parameters', env.BLOCKFROST_PROJECT_ID);
-    if (!res.ok) return empty;
+    if (!res.ok) return null;
 
     const params = await res.json() as any;
-    const raw = params.cost_models_raw?.PlutusV3;
+    const costModel = params.cost_models?.PlutusV3 as Record<string, number> | undefined;
+    if (!costModel) return null;
 
-    let builtinModel: Record<string, any> | null = null;
-    let machineCosts: MachineCosts | null = null;
+    // Parse flat named keys into structured costs
+    const builtinCosts: Record<string, { cpu: number; mem: number }> = {};
+    const cekEntries: Record<string, number> = {};
 
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-      // Separate machine costs (cek*) from builtin costs
-      const builtins: Record<string, any> = {};
-      const machine: Record<string, any> = {};
-
-      for (const [key, value] of Object.entries(raw)) {
-        if (key.startsWith('cek')) {
-          machine[key] = value;
-        } else {
-          builtins[key] = value;
-        }
+    for (const [key, value] of Object.entries(costModel)) {
+      if (key.startsWith('cek')) {
+        cekEntries[key] = value;
+        continue;
       }
 
-      if (Object.keys(builtins).length > 0) builtinModel = builtins;
+      // Parse builtin cost entries:
+      //   "headList-cpu-arguments" → constant cost
+      //   "addInteger-cpu-arguments-intercept" → variable cost (intercept)
+      //   "addInteger-cpu-arguments-slope" → variable cost (slope)
+      const cpuMatch = key.match(/^(.+)-cpu-arguments(?:-(.+))?$/);
+      const memMatch = key.match(/^(.+)-memory-arguments(?:-(.+))?$/);
 
-      // Parse machine costs if present
-      if (machine.cekApplyCost) {
-        const m = (entry: any) => ({
-          cpu: entry?.exBudgetCPU ?? entry?.cpu ?? 23000,
-          mem: entry?.exBudgetMemory ?? entry?.memory ?? 100,
-        });
-        machineCosts = {
-          cekStartupCost: m(machine.cekStartupCost),
-          cekVarCost: m(machine.cekVarCost),
-          cekConstCost: m(machine.cekConstCost),
-          cekLamCost: m(machine.cekLamCost),
-          cekDelayCost: m(machine.cekDelayCost),
-          cekForceCost: m(machine.cekForceCost),
-          cekApplyCost: m(machine.cekApplyCost),
-          cekBuiltinCost: m(machine.cekBuiltinCost),
-          cekConstrCost: m(machine.cekConstrCost),
-          cekCaseCost: m(machine.cekCaseCost),
-        };
+      if (cpuMatch) {
+        const [, name, param] = cpuMatch;
+        if (!builtinCosts[name]) builtinCosts[name] = { cpu: 0, mem: 0 };
+        if (!param) {
+          // Constant cost
+          builtinCosts[name].cpu = value;
+        } else if (param === 'intercept') {
+          builtinCosts[name].cpu = value; // Start with intercept, slope added below
+        } else if (param === 'slope' && builtinCosts[name].cpu > 0) {
+          // Add slope × typical_size to intercept
+          builtinCosts[name].cpu += value * getTypicalSize(name);
+        }
+        // Skip slope1, slope2, constant, c0, c1, c2 etc. — intercept is sufficient approximation
+      }
+
+      if (memMatch) {
+        const [, name, param] = memMatch;
+        if (!builtinCosts[name]) builtinCosts[name] = { cpu: 0, mem: 0 };
+        if (!param) {
+          builtinCosts[name].mem = value;
+        } else if (param === 'intercept') {
+          builtinCosts[name].mem = value;
+        } else if (param === 'slope' && builtinCosts[name].mem > 0) {
+          builtinCosts[name].mem += value * getTypicalSize(name);
+        }
       }
     }
 
-    const result: CostModelResult = { builtinModel, machineCosts };
+    // Parse CEK machine costs
+    const cek = (name: string) => ({
+      cpu: cekEntries[`${name}-exBudgetCPU`] ?? 16000,
+      mem: cekEntries[`${name}-exBudgetMemory`] ?? 100,
+    });
 
-    // Cache
+    const result: EpochCostData = {
+      builtinCosts,
+      machineCosts: {
+        startup: cek('cekStartupCost'),
+        var: cek('cekVarCost'),
+        const: cek('cekConstCost'),
+        lam: cek('cekLamCost'),
+        delay: cek('cekDelayCost'),
+        force: cek('cekForceCost'),
+        apply: cek('cekApplyCost'),
+        builtin: cek('cekBuiltinCost'),
+        constr: cek('cekConstrCost'),
+        case: cek('cekCaseCost'),
+      },
+      txBudget: {
+        cpu: parseInt(params.max_tx_ex_steps) || 10_000_000_000,
+        mem: parseInt(params.max_tx_ex_mem) || 14_000_000,
+      },
+      epoch: params.epoch ?? 0,
+    };
+
+    // Cache for ~1 epoch
     if (env.UPLC_CACHE) {
-      env.UPLC_CACHE.put(COST_MODEL_CACHE_KEY, JSON.stringify(result), {
-        expirationTtl: COST_MODEL_TTL,
+      env.UPLC_CACHE.put(EPOCH_PARAMS_CACHE_KEY, JSON.stringify(result), {
+        expirationTtl: EPOCH_PARAMS_TTL,
       }).catch(() => {});
     }
 
     return result;
   } catch {
-    return empty;
+    return null;
   }
+}
+
+/** Typical argument sizes (words) for slope-based cost estimates */
+function getTypicalSize(builtin: string): number {
+  if (builtin.includes('Integer') || builtin === 'modInteger' || builtin === 'divideInteger' ||
+      builtin === 'quotientInteger' || builtin === 'remainderInteger') return 1;
+  if (builtin.includes('ByteString') || builtin.includes('Byte') || builtin.includes('Bit') ||
+      builtin.includes('sha') || builtin.includes('blake') || builtin.includes('keccak') ||
+      builtin.includes('ripemd') || builtin.includes('verify') || builtin.includes('bls12')) return 4;
+  if (builtin.includes('String') || builtin === 'encodeUtf8' || builtin === 'decodeUtf8') return 2;
+  if (builtin.includes('Data') || builtin.includes('Constr') || builtin === 'serialiseData') return 20;
+  return 4;
 }
