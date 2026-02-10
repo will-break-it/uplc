@@ -19,7 +19,9 @@ export interface EnhanceRequest {
   purpose: string;
   builtins: Record<string, number>;
   traces: string[];
+  constants?: { bytestrings?: string[]; integers?: string[] };
   enhance: ('naming' | 'annotations' | 'diagram' | 'rewrite')[];
+  retry?: boolean;
 }
 
 export interface EnhanceResponse {
@@ -36,6 +38,7 @@ export interface EnhancementInput {
   purpose: string;
   builtins: Record<string, number>;
   traces: string[];
+  constants?: { bytestrings?: string[]; integers?: string[] };
 }
 
 const ALLOWED_ORIGINS = [
@@ -91,18 +94,20 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
     const result: EnhanceResponse = {};
 
-    // Check cache first
+    // Check cache first (skip if retry=true)
     const cacheKey = `enhance:${body.scriptHash}:${body.enhance.join(',')}`;
-    const cached = await context.env.UPLC_CACHE.get(cacheKey, 'json');
+    if (!body.retry) {
+      const cached = await context.env.UPLC_CACHE.get(cacheKey, 'json');
 
-    if (cached) {
-      return new Response(JSON.stringify({ ...cached, cached: true }), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': corsOrigin,
-          'Cache-Control': 'public, max-age=3600',
-        },
-      });
+      if (cached) {
+        return new Response(JSON.stringify({ ...cached, cached: true }), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': corsOrigin,
+            'Cache-Control': 'public, max-age=3600',
+          },
+        });
+      }
     }
 
     // Process enhancements
@@ -112,6 +117,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         purpose: body.purpose,
         builtins: body.builtins,
         traces: body.traces || [],
+        constants: body.constants,
       };
 
       switch (enhance) {
@@ -284,10 +290,40 @@ export async function rewriteCode(input: EnhancementInput, env: Env): Promise<st
     ? `\nTRACE STRINGS (from bytecode - MUST include ALL of these):\n${input.traces.map(t => `- "${t}"`).join('\n')}\n`
     : '';
 
+  // Decode hex bytestrings to ASCII where possible for context
+  const hexToAscii = (hex: string): string | null => {
+    let result = '';
+    for (let i = 0; i < hex.length; i += 2) {
+      const byte = parseInt(hex.substring(i, i + 2), 16);
+      if (byte < 32 || byte > 126) return null;
+      result += String.fromCharCode(byte);
+    }
+    return result.length >= 2 ? result : null;
+  };
+
+  let constantsSection = '';
+  if (input.constants) {
+    const parts: string[] = [];
+    if (input.constants.bytestrings?.length) {
+      parts.push('BYTESTRING CONSTANTS (extracted from bytecode):');
+      for (const bs of input.constants.bytestrings.slice(0, 15)) {
+        const decoded = hexToAscii(bs);
+        parts.push(`- #"${bs}"${decoded ? ` (= "${decoded}")` : ''} [${bs.length / 2} bytes]`);
+      }
+    }
+    if (input.constants.integers?.length) {
+      const notable = input.constants.integers.filter(i => parseInt(i) > 1 || parseInt(i) < 0);
+      if (notable.length) {
+        parts.push(`NOTABLE INTEGERS: ${notable.join(', ')}`);
+      }
+    }
+    if (parts.length) constantsSection = '\n' + parts.join('\n') + '\n';
+  }
+
   const prompt = `You are rewriting decompiled Plutus bytecode into cleaner Aiken. You MUST preserve all logic exactly - this is for security auditing.
 
 CONTRACT TYPE: ${input.purpose} validator
-BUILTINS USED: ${Object.entries(input.builtins).slice(0, 20).map(([k, v]) => `${k}(${v})`).join(', ')}${tracesSection}
+BUILTINS USED: ${Object.entries(input.builtins).slice(0, 20).map(([k, v]) => `${k}(${v})`).join(', ')}${tracesSection}${constantsSection}
 DECOMPILED CODE:
 \`\`\`
 ${input.aikenCode}

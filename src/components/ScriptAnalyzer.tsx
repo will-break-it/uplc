@@ -415,16 +415,43 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
     }
   }, [highlightedLines]);
   
+  // Try to decode hex as printable ASCII — returns null if not printable
+  const hexToAscii = useCallback((hex: string): string | null => {
+    if (hex.length % 2 !== 0) return null;
+    let result = '';
+    for (let i = 0; i < hex.length; i += 2) {
+      const byte = parseInt(hex.substring(i, i + 2), 16);
+      if (byte < 32 || byte > 126) return null;
+      result += String.fromCharCode(byte);
+    }
+    return result.length >= 2 ? result : null;
+  }, []);
+  
   // Find line numbers where a value appears in the displayed Aiken code
+  // Searches multiple representations: exact, hex with #"", decoded ASCII
   const findLinesForValue = useCallback((value: string): number[] => {
     const code = enhancement?.rewrite && !showOriginal ? enhancement.rewrite : decompiled?.aikenCode;
     if (!code) return [];
+    
+    // Build search variants
+    const variants = [value];
+    if (/^[a-f0-9]+$/i.test(value) && value.length >= 4) {
+      variants.push(`#"${value}"`);       // Aiken hex literal
+      variants.push(`#${value}`);          // Raw hex ref
+      const ascii = hexToAscii(value);
+      if (ascii) {
+        variants.push(`"${ascii}"`);       // Decoded string literal
+        variants.push(ascii);              // Raw decoded string
+      }
+    }
+    
     const lines: number[] = [];
-    code.split('\n').forEach((line, i) => {
-      if (line.includes(value)) lines.push(i + 1);
+    const codeLines = code.split('\n');
+    codeLines.forEach((line, i) => {
+      if (variants.some(v => line.includes(v))) lines.push(i + 1);
     });
     return lines;
-  }, [enhancement, showOriginal, decompiled]);
+  }, [enhancement, showOriginal, decompiled, hexToAscii]);
   
   // Jump to a value in the Aiken code view
   const jumpToCodeLine = useCallback((value: string) => {
@@ -701,6 +728,10 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
   // Automatic AI enhancement (called after successful decompilation)
   const enhanceCodeAuto = async (result: AnalysisResult, decompiled: DecompilerResult) => {
     try {
+      // Check if URL has ?retry=enhance to force re-enhancement
+      const urlParams = new URLSearchParams(window.location.search);
+      const retryEnhance = urlParams.get('retry') === 'enhance';
+      
       // Request rewrite + diagram for fully successful decompilation
       const enhancements: ('rewrite' | 'diagram')[] = ['rewrite'];
       if (!decompiled.error) {
@@ -719,7 +750,9 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
           purpose: decompiled.scriptPurpose,
           builtins: result.builtins,
           traces: result.errorMessages || [],
+          constants: result.constants,
           enhance: enhancements,
+          ...(retryEnhance ? { retry: true } : {}),
         }),
       });
 
@@ -1580,49 +1613,65 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
                               {result.constants.bytestrings.slice(0, 8).map((bs: string, i: number) => {
                                 const isScriptHash = bs.length === 56 && /^[a-f0-9]+$/i.test(bs);
+                                const decoded = hexToAscii(bs);
+                                const codeLines = findLinesForValue(bs);
+                                const clickable = codeLines.length > 0;
                                 return (
                                   <div key={i} style={{ 
                                     display: 'flex',
-                                    justifyContent: 'space-between',
                                     alignItems: 'center',
                                     padding: '0.3rem 0.5rem',
                                     background: 'var(--card-bg)',
                                     borderRadius: '4px',
-                                    gap: '1rem',
-                                  }}>
-                                    {isScriptHash ? (
-                                      <a
-                                        href={`/script/${bs}`}
-                                        style={{
-                                          fontSize: '0.7rem',
-                                          color: 'var(--text-secondary)',
+                                    gap: '0.75rem',
+                                    cursor: clickable ? 'pointer' : 'default',
+                                  }}
+                                    onClick={clickable ? () => jumpToCodeLine(bs) : undefined}
+                                    title={clickable ? `Jump to line ${codeLines[0]} in code` : isScriptHash ? 'Analyze this script' : undefined}
+                                  >
+                                    <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+                                      {isScriptHash ? (
+                                        <a
+                                          href={`/script/${bs}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                          style={{
+                                            fontSize: '0.7rem',
+                                            color: 'var(--text-secondary)',
+                                            wordBreak: 'break-all',
+                                            fontFamily: 'monospace',
+                                            textDecoration: 'underline',
+                                            textDecorationStyle: 'dotted',
+                                            textUnderlineOffset: '2px',
+                                          }}
+                                        >
+                                          {bs}
+                                        </a>
+                                      ) : (
+                                        <code style={{ 
+                                          fontSize: '0.7rem', 
+                                          color: 'var(--text-secondary)', 
                                           wordBreak: 'break-all',
                                           fontFamily: 'monospace',
-                                          textDecoration: 'underline',
-                                          textDecorationStyle: 'dotted',
-                                          textUnderlineOffset: '2px',
-                                        }}
-                                        title="Analyze this script"
-                                      >
-                                        {bs}
-                                      </a>
-                                    ) : (
-                                      <code style={{ 
-                                        fontSize: '0.7rem', 
-                                        color: 'var(--text-secondary)', 
-                                        wordBreak: 'break-all',
-                                        fontFamily: 'monospace',
-                                      }}>
-                                        {bs.length > 64 ? bs.slice(0, 64) + '...' : bs}
-                                      </code>
-                                    )}
-                                    <span style={{ 
-                                      fontSize: '0.7rem', 
-                                      color: 'var(--text-muted)',
-                                      flexShrink: 0,
-                                    }}>
-                                      {bs.length / 2} bytes
-                                    </span>
+                                        }}>
+                                          {bs.length > 64 ? bs.slice(0, 64) + '...' : bs}
+                                        </code>
+                                      )}
+                                      {decoded && (
+                                        <span style={{ fontSize: '0.65rem', color: 'var(--accent)', opacity: 0.7, flexShrink: 0 }}>
+                                          "{decoded}"
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+                                      {clickable && (
+                                        <span style={{ fontSize: '0.65rem', color: 'var(--accent)', opacity: 0.7 }}>
+                                          L{codeLines[0]}
+                                        </span>
+                                      )}
+                                      <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                        {bs.length / 2} bytes
+                                      </span>
+                                    </div>
                                   </div>
                                 );
                               })}
