@@ -135,6 +135,10 @@ function convertData(data: any): PlutusData {
     if (bytes instanceof Uint8Array) {
       return { tag: 'bytes', value: bytes };
     }
+    // harmoniclabs ByteString class stores data in _bytes property
+    if (bytes._bytes instanceof Uint8Array) {
+      return { tag: 'bytes', value: bytes._bytes };
+    }
     if (typeof bytes === 'string') {
       return { tag: 'bytes', value: hexToBytes(bytes) };
     }
@@ -143,7 +147,11 @@ function convertData(data: any): PlutusData {
     }
     // ByteString has toString that returns hex
     if (bytes.toString && typeof bytes.toString === 'function') {
-      return { tag: 'bytes', value: hexToBytes(bytes.toString()) };
+      const str = bytes.toString();
+      // Avoid [object Object] from default toString
+      if (/^[0-9a-fA-F]*$/.test(str)) {
+        return { tag: 'bytes', value: hexToBytes(str) };
+      }
     }
     return { tag: 'bytes', value: new Uint8Array(0) };
   }
@@ -171,9 +179,13 @@ function convertConstValue(type: ConstType, value: ConstValue): UplcValue {
       return { tag: 'integer', value: BigInt(value) };
     
     case ConstTyTag.byteStr: {
-      // ByteString can be string (hex), Uint8Array, or object with toBuffer
+      // ByteString can be string (hex), Uint8Array, or object with _bytes/toBuffer
       if (value instanceof Uint8Array) {
         return { tag: 'bytestring', value };
+      }
+      // harmoniclabs ByteString class stores data in _bytes property
+      if (value && value._bytes instanceof Uint8Array) {
+        return { tag: 'bytestring', value: value._bytes };
       }
       if (typeof value === 'string') {
         return { tag: 'bytestring', value: hexToBytes(value) };
@@ -182,7 +194,10 @@ function convertConstValue(type: ConstType, value: ConstValue): UplcValue {
         return { tag: 'bytestring', value: new Uint8Array(value.toBuffer()) };
       }
       if (value && value.toString) {
-        return { tag: 'bytestring', value: hexToBytes(value.toString()) };
+        const str = value.toString();
+        if (/^[0-9a-fA-F]*$/.test(str)) {
+          return { tag: 'bytestring', value: hexToBytes(str) };
+        }
       }
       return { tag: 'bytestring', value: new Uint8Array(0) };
     }

@@ -173,11 +173,17 @@ function findInteger(code: string, intStr: string): boolean {
   if (regex.test(code)) return true;
   
   // Check for absorption into semantic names:
-  // is_constr_N, eq_N, get_field_N — these prove the integer N was in the bytecode
+  // is_constr_N, eq_N, get_field_N, sub_N, mul_N, etc. — these prove the integer N was in the bytecode
   const absVal = Math.abs(val).toString();
-  if (code.includes(`is_constr_${absVal}`)) return true;
-  if (code.includes(`eq_${absVal}`)) return true;
-  if (code.includes(`get_field_${absVal}`)) return true;
+  const semanticPrefixes = [
+    'is_constr_', 'eq_', 'get_field_',
+    'sub_', 'mul_', 'add_', 'div_', 'mod_',
+    'lt_', 'lte_', 'gt_', 'gte_',
+    'quotient_', 'remainder_',
+  ];
+  for (const prefix of semanticPrefixes) {
+    if (code.includes(`${prefix}${absVal}`)) return true;
+  }
   
   return false;
 }

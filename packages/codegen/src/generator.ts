@@ -585,6 +585,23 @@ function constToExpression(term: any): string {
     case 'data':
       // Handle Data-encoded values (con data B #..., con data I ..., etc.)
       return dataToExpression(term.value.value);
+    case 'list': {
+      // Handle list constants: con (list data) [item1, item2, ...]
+      const items = term.value.items || term.value.value || term.value.list || [];
+      if (!Array.isArray(items) || items.length === 0) return '[]';
+      const itemExprs = items.map((item: any) => {
+        if (item?.tag === 'data' && item?.value) return dataToExpression(item.value);
+        if (item?.tag) return constToExpression({ value: item });
+        return dataToExpression(item);
+      });
+      return `[${itemExprs.join(', ')}]`;
+    }
+    case 'pair': {
+      // Handle pair constants: con (pair data data) (fst, snd)
+      const fst = term.value.fst ? dataToExpression(term.value.fst) : '???';
+      const snd = term.value.snd ? dataToExpression(term.value.snd) : '???';
+      return `(${fst}, ${snd})`;
+    }
     default:
       return `<${term.type || 'data'}>`;
   }
@@ -638,6 +655,36 @@ function unwrapForceDelay(term: any): any {
 }
 
 /**
+ * Flatten a nested application chain into [head, arg1, arg2, ...]
+ * Unwraps force/delay at the head.
+ */
+function flattenAppParts(term: any): any[] {
+  const parts: any[] = [];
+  let current = term;
+  while (current?.tag === 'app') {
+    parts.unshift(current.arg);
+    current = current.func;
+  }
+  // Unwrap force/delay at the head
+  while (current && (current.tag === 'force' || current.tag === 'delay')) {
+    current = current.term;
+  }
+  parts.unshift(current);
+  return parts;
+}
+
+/**
+ * Get the builtin name from a term (unwrapping force/delay)
+ */
+function getBuiltinHead(term: any): string | null {
+  let current = term;
+  while (current && (current.tag === 'force' || current.tag === 'delay')) {
+    current = current.term;
+  }
+  return current?.tag === 'builtin' ? current.name : null;
+}
+
+/**
  * Convert function application to expression
  */
 function appToExpression(term: any, params: string[], depth: number): string {
@@ -665,8 +712,9 @@ function appToExpression(term: any, params: string[], depth: number): string {
     // For complex values: emit as let-binding to preserve constants
     const valueExpr = termToExpression(value, params, depth + 1);
     
-    // Check if we'll emit a let statement (non-trivial value)
-    const isTrivialValue = valueExpr.length < 3 || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr);
+    // Trivial = just a variable name (renaming only, no info to preserve)
+    // Non-trivial = numbers, hex literals, expressions — must emit as let to preserve constants
+    const isTrivialValue = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr);
     
     // If emitting a let, prevent inlining this variable in the body
     if (!isTrivialValue) {
@@ -755,6 +803,16 @@ function appToExpression(term: any, params: string[], depth: number): string {
       // Use builtin for wrapper functions: to_int(x) → builtin call
       if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
         return builtinCallToExpression(resolved.semanticName, parts.slice(1), params, depth);
+      }
+      // Expand partial builtins: o4(n) where o4 = indexByteString(#"01...") → indexByteString(#"01...", n)
+      if (resolved.pattern === 'partial_builtin' && resolved.value) {
+        const boundParts = flattenAppParts(resolved.value);
+        const builtinHead = getBuiltinHead(boundParts[0]);
+        if (builtinHead) {
+          const boundArgs = boundParts.slice(1);
+          const allArgs = [...boundArgs, ...parts.slice(1)];
+          return builtinCallToExpression(builtinHead, allArgs, params, depth);
+        }
       }
       // Use semantic name for is_constr_N predicates
       if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
