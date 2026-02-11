@@ -917,7 +917,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
         return;
       }
 
-      if (response.ok) {
+      {
         const data = await response.json() as EnhancementResult;
         setEnhancement(data);
         
@@ -957,8 +957,8 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
       }
       // Silently fail - enhancements are optional
     } catch (err) {
-      // Silently fail - enhancements are optional
       console.warn('AI enhancement failed:', err);
+      setEnhancement({ error: 'AI enhancement unavailable. Showing raw decompilation.' } as any);
     }
   };
   
@@ -1297,7 +1297,10 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           {decompiled && !enhancement && (
                             <span className="spinner" style={{ width: '12px', height: '12px', borderWidth: '2px', margin: 0, flexShrink: 0, display: 'block', verticalAlign: 'middle' }} />
                           )}
-                          {enhancement && <ConfidenceBadge verification={getCurrentVerification()} compact />}
+                          {enhancement && enhancement.error && !enhancement.rewrite && (
+                            <span title={enhancement.error} style={{ color: '#fca5a5', fontSize: '0.75rem' }}>⚠</span>
+                          )}
+                          {enhancement && !enhancement.error && <ConfidenceBadge verification={getCurrentVerification()} compact />}
                         </button>
                       </div>
                       <button
