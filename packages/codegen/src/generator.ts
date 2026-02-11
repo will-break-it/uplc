@@ -572,12 +572,22 @@ function appToExpression(term: any, params: string[], depth: number): string {
     }
     
     // For complex values: emit as let-binding to preserve constants
-    // Generate the value expression first
     const valueExpr = termToExpression(value, params, depth + 1);
-    const bodyExpr = termToExpression(unwrappedFunc.body, params, depth + 1);
     
-    // If the value is trivial (just a variable name or short), skip the let
-    if (valueExpr.length < 3 || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr)) {
+    // Check if we'll emit a let statement (non-trivial value)
+    const isTrivialValue = valueExpr.length < 3 || /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr);
+    
+    // If emitting a let, prevent inlining this variable in the body
+    if (!isTrivialValue) {
+      inliningStack.add(paramName);
+    }
+    const bodyExpr = termToExpression(unwrappedFunc.body, params, depth + 1);
+    if (!isTrivialValue) {
+      inliningStack.delete(paramName);
+    }
+    
+    // For trivial values, skip the let and just return the body (which has inlined refs)
+    if (isTrivialValue) {
       return bodyExpr;
     }
     
