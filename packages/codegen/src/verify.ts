@@ -164,15 +164,22 @@ function findInteger(code: string, intStr: string): boolean {
   // For negative numbers, look for the minus sign before the digits
   // \b doesn't work with leading minus, so use lookbehind/lookahead
   if (intStr.startsWith('-')) {
-    const absStr = intStr.slice(1);
-    // Match: -N preceded by non-digit, or start of line
     const regex = new RegExp(`(?<![0-9])${intStr.replace('-', '\\-')}(?![0-9])`);
     return regex.test(code);
   }
   
   // For positive numbers, word boundary match avoids false positives
   const regex = new RegExp(`\\b${intStr}\\b`);
-  return regex.test(code);
+  if (regex.test(code)) return true;
+  
+  // Check for absorption into semantic names:
+  // is_constr_N, eq_N, get_field_N — these prove the integer N was in the bytecode
+  const absVal = Math.abs(val).toString();
+  if (code.includes(`is_constr_${absVal}`)) return true;
+  if (code.includes(`eq_${absVal}`)) return true;
+  if (code.includes(`get_field_${absVal}`)) return true;
+  
+  return false;
 }
 
 /**
