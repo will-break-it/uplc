@@ -372,6 +372,10 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
   const scriptParams: string[] = [];  // Pre-applied script parameters (actual data values)
   let validatorParams: string[] = [];  // Runtime validator parameters (datum, redeemer, ctx)
   
+  // Save the full inner body before any extraction (contains all let-bindings with constants)
+  // This is after script parameter unwrapping (done by caller) but before utility/param stripping
+  const fullInnerBody = ast;
+  
   // Step 1: Unwrap outer applications to find the core lambda
   let current: UplcTerm = ast;
   const appliedArgs: UplcTerm[] = [];
@@ -495,7 +499,7 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     type: purpose,
     params: validatorParams.length > 0 ? validatorParams : allParams,
     body: finalBody,
-    bodyWithBindings: countNonTrivialConstants(bodyBeforeParams) > countNonTrivialConstants(finalBody) ? bodyBeforeParams : undefined,
+    bodyWithBindings: countNonTrivialConstants(fullInnerBody) > countNonTrivialConstants(finalBody) ? fullInnerBody : undefined,
     utilityBindings: Object.keys(utilityBindings).length > 0 ? utilityBindings : undefined
   };
 }
