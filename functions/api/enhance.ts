@@ -188,8 +188,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
+    // Parse error type from prefixed messages
+    const errorType = message.match(/^([A-Z_]+):/)?.[1] || 'INTERNAL_ERROR';
+    const userMessage = message.replace(/^[A-Z_]+:\s*/, '');
+    const statusCode = errorType === 'RATE_LIMITED' ? 429 
+      : errorType === 'OVERLOADED' ? 503 
+      : errorType === 'BUDGET_EXCEEDED' ? 402
+      : 500;
+    return new Response(JSON.stringify({ error: userMessage, errorType }), {
+      status: statusCode,
       headers: {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': corsOrigin,
@@ -470,7 +477,21 @@ async function callModel(
 
     if (!response.ok) {
       const errorBody = await response.text();
-      throw new Error(`AI enhancement error (${model}): ${response.status} - ${errorBody}`);
+      // Surface specific error types for the UI
+      if (response.status === 429) {
+        throw new Error('RATE_LIMITED: AI service is temporarily rate-limited. Please try again in a moment.');
+      }
+      if (response.status === 529 || (response.status === 529)) {
+        throw new Error('OVERLOADED: AI service is temporarily overloaded. Please try again shortly.');
+      }
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('AUTH_ERROR: AI service authentication failed.');
+      }
+      // Check for budget/billing errors in response body
+      if (errorBody.includes('billing') || errorBody.includes('budget') || errorBody.includes('credit')) {
+        throw new Error('BUDGET_EXCEEDED: AI service budget has been reached. The site admin has been notified.');
+      }
+      throw new Error(`AI_ERROR: Enhancement failed (${response.status}). Please try again later.`);
     }
 
     const data = await response.json() as any;

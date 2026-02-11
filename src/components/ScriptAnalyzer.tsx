@@ -911,6 +911,12 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
         }),
       });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'AI enhancement unavailable' }));
+        setEnhancement({ error: errorData.error || `Enhancement failed (${response.status})`, errorType: errorData.errorType } as any);
+        return;
+      }
+
       if (response.ok) {
         const data = await response.json() as EnhancementResult;
         setEnhancement(data);
@@ -1357,6 +1363,23 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
                           decompiled ? (
                             <>
                               <CodeBlock code={getDisplayCode()} language="rust" highlightLines={highlightedLines} onLineClick={handleLineClick} />
+                              {enhancement?.error && !enhancement?.rewrite && (
+                                <div style={{
+                                  margin: '0.75rem 0 0',
+                                  padding: '0.5rem 0.75rem',
+                                  background: 'rgba(239, 68, 68, 0.1)',
+                                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                                  borderRadius: '6px',
+                                  color: '#fca5a5',
+                                  fontSize: '0.8rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.5rem',
+                                }}>
+                                  <span>⚠</span>
+                                  <span>{enhancement.error}</span>
+                                </div>
+                              )}
                               {decompiled.error && (
                                 <div style={{ marginTop: '1rem', color: 'var(--text-warning)', fontSize: '0.9rem' }}>
                                   Partial decompilation: {decompiled.error}
