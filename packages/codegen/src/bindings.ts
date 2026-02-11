@@ -136,23 +136,30 @@ export class BindingEnvironment {
     seen.add(term);
     
     switch (term.tag) {
-      case 'app':
+      case 'app': {
         // Check for let pattern: ((lam x body) value)
-        if (term.func.tag === 'lam') {
-          const name = term.func.param;
-          const value = term.arg;
+        // Also unwrap force/delay: (force(lam x body)) (delay(value))
+        let func = term.func;
+        let arg = term.arg;
+        while (func && (func.tag === 'force' || func.tag === 'delay')) func = func.term;
+        while (arg && (arg.tag === 'force' || arg.tag === 'delay')) arg = arg.term;
+        
+        if (func?.tag === 'lam') {
+          const name = func.param;
+          const value = arg;
           
           // Analyze and store the binding
           const resolved = this.analyzeBinding(name, value);
           this.bindings.set(name, resolved);
           
           // Continue walking both parts
-          this.walk(term.func.body, seen);
+          this.walk(func.body, seen);
           this.walk(value, seen);
         } else {
           this.walk(term.func, seen);
           this.walk(term.arg, seen);
         }
+      }
         break;
         
       case 'lam':
@@ -179,49 +186,36 @@ export class BindingEnvironment {
    * Analyze a binding and determine its category and semantics
    */
   private analyzeBinding(name: string, value: UplcTerm): ResolvedBinding {
-    // Check for constants first
-    if (value.tag === 'con') {
-      return this.analyzeConstant(name, value);
+    // Unwrap all force/delay layers to get the real value
+    let unwrapped = value;
+    while (unwrapped && (unwrapped.tag === 'force' || unwrapped.tag === 'delay')) {
+      unwrapped = unwrapped.term;
     }
     
-    // Check for delay-wrapped constants: delay { constant }
-    if (value.tag === 'delay' && value.term.tag === 'con') {
-      return this.analyzeConstant(name, value.term);
+    // Check for constants first
+    if (unwrapped.tag === 'con') {
+      return this.analyzeConstant(name, unwrapped);
     }
     
     // Check for builtin reference
-    if (value.tag === 'builtin') {
+    if (unwrapped.tag === 'builtin') {
       return {
         name,
         value,
         category: 'rename',
-        semanticName: value.name,
+        semanticName: unwrapped.name,
         pattern: 'builtin_wrapper'
       };
     }
     
-    // Check for force(builtin) - polymorphic builtin reference
-    if (value.tag === 'force') {
-      const inner = unwrapForces(value);
-      if (inner.tag === 'builtin') {
-        return {
-          name,
-          value,
-          category: 'rename',
-          semanticName: inner.name,
-          pattern: 'builtin_wrapper'
-        };
-      }
-    }
-    
     // Check for lambda patterns
-    if (value.tag === 'lam') {
-      return this.analyzeLambda(name, value);
+    if (unwrapped.tag === 'lam') {
+      return this.analyzeLambda(name, unwrapped);
     }
     
     // Check for partial application patterns
-    if (value.tag === 'app') {
-      return this.analyzeApplication(name, value);
+    if (unwrapped.tag === 'app') {
+      return this.analyzeApplication(name, unwrapped);
     }
     
     // Default: keep as-is

@@ -33,6 +33,10 @@ let bindingEnv: BindingEnvironment | null = null;
 // Track bindings currently being inlined to prevent infinite recursion
 let inliningStack: Set<string> = new Set();
 
+// When true, don't inline 'keep' bindings from BindingEnvironment
+// (used when bodyWithBindings includes let-bindings in the AST)
+let skipKeepInlining = false;
+
 const DEFAULT_OPTIONS: GeneratorOptions = {
   comments: true,
   namingStyle: 'generic',
@@ -308,8 +312,15 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
   }
   
   // If we have a raw body, try to generate code from it
-  if (rawBody) {
-    const expr = termToExpression(rawBody, params, 0);
+  // Prefer bodyWithBindings (includes let-binding chain with constants)
+  const bodyToProcess = structure.bodyWithBindings || rawBody;
+  if (bodyToProcess) {
+    // When using bodyWithBindings, let-bindings are in the AST already —
+    // disable keep-inlining from BindingEnvironment to avoid double-processing
+    const prevSkip = skipKeepInlining;
+    if (structure.bodyWithBindings) skipKeepInlining = true;
+    const expr = termToExpression(bodyToProcess, params, 0);
+    skipKeepInlining = prevSkip;
     if (expr !== '???' && expr !== 'True') {
       return {
         kind: 'expression',
@@ -388,18 +399,16 @@ function termToExpression(term: any, params: string[], depth: number): string {
           }
           
           // For 'keep' bindings: inline based on context
-          // At depth 0-5, allow larger inlining (top-level main logic)
-          // At deeper levels, limit size to prevent blowup
-          if (resolved.category === 'keep' && 
-              resolved.pattern !== 'list_fold' && 
-              depth < 50) {
+          // Skip when bodyWithBindings is used (let-bindings already in AST)
+          // Skip recursive bindings (list_fold) to avoid infinite expansion
+          // Cap at depth 50 to prevent exponential expansion in deeply nested contracts
+          if (resolved.category === 'keep' && resolved.pattern !== 'list_fold' && !skipKeepInlining && depth < 50) {
             // Add to stack to prevent cycles
             inliningStack.add(term.name);
             try {
               const inlined = termToExpression(resolved.value, params, depth + 1);
-              // At shallow depth, allow larger functions (e.g. main validator logic)
-              // At deeper depth, be more conservative
-              const maxLen = depth < 5 ? 10000 : 200;
+              // At shallow depth, allow larger functions; deeper = more conservative
+              const maxLen = depth < 5 ? 10000 : depth < 15 ? 2000 : depth < 30 ? 500 : 200;
               if (inlined.length < maxLen) {
                 return inlined;
               }

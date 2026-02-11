@@ -161,8 +161,16 @@ function findInteger(code: string, intStr: string): boolean {
   // Skip trivial integers - they're everywhere
   if (val === 0 || val === 1) return true;
   
-  // Look for the integer as a word boundary match to avoid false positives
-  // e.g., searching for "42" shouldn't match "342"
+  // For negative numbers, look for the minus sign before the digits
+  // \b doesn't work with leading minus, so use lookbehind/lookahead
+  if (intStr.startsWith('-')) {
+    const absStr = intStr.slice(1);
+    // Match: -N preceded by non-digit, or start of line
+    const regex = new RegExp(`(?<![0-9])${intStr.replace('-', '\\-')}(?![0-9])`);
+    return regex.test(code);
+  }
+  
+  // For positive numbers, word boundary match avoids false positives
   const regex = new RegExp(`\\b${intStr}\\b`);
   return regex.test(code);
 }

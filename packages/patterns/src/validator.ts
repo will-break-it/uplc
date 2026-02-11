@@ -33,6 +33,7 @@ export interface ValidatorInfo {
   type: ScriptPurpose;
   params: string[];
   body: UplcTerm;
+  bodyWithBindings?: UplcTerm;  // Body including let-binding chain (before param stripping)
   utilities?: UplcTerm;  // The constr with utility functions if detected
   utilityBindings?: Record<string, string>;  // Map param names to builtin names
   scriptParams?: ScriptParameter[];  // Top-level parameterized constants
@@ -401,6 +402,9 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     }
   }
   
+  // Save body before param extraction — contains let-bindings with constants
+  const bodyBeforeParams = current;
+  
   // Step 2: Try to find validator params at current level
   // First, check immediate lambda chain (after utility unwrapping)
   if (current.tag === 'lam') {
@@ -491,8 +495,37 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     type: purpose,
     params: validatorParams.length > 0 ? validatorParams : allParams,
     body: finalBody,
+    bodyWithBindings: countNonTrivialConstants(bodyBeforeParams) > countNonTrivialConstants(finalBody) ? bodyBeforeParams : undefined,
     utilityBindings: Object.keys(utilityBindings).length > 0 ? utilityBindings : undefined
   };
+}
+
+/**
+ * Count non-trivial constants (integers > 1, bytestrings, data) in an AST
+ */
+function countNonTrivialConstants(term: UplcTerm): number {
+  if (!term) return 0;
+  let count = 0;
+  function walk(t: UplcTerm) {
+    if (!t) return;
+    if (t.tag === 'con') {
+      const v = (t as any).value;
+      if (v?.tag === 'integer') {
+        const n = Number(v.value);
+        if (n !== 0 && n !== 1) count++;
+      } else if (v?.tag === 'bytestring' || v?.tag === 'string' || v?.tag === 'data') {
+        count++;
+      }
+      return;
+    }
+    if (t.tag === 'app') { walk((t as any).func); walk((t as any).arg); }
+    if (t.tag === 'lam') walk((t as any).body);
+    if (t.tag === 'force' || t.tag === 'delay') walk((t as any).term);
+    if (t.tag === 'case') { walk((t as any).scrutinee); (t as any).branches?.forEach(walk); }
+    if (t.tag === 'constr') { (t as any).args?.forEach(walk); }
+  }
+  walk(term);
+  return count;
 }
 
 /**
