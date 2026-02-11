@@ -315,16 +315,17 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
   // Prefer bodyWithBindings (includes let-binding chain with constants)
   const bodyToProcess = structure.bodyWithBindings || rawBody;
   if (bodyToProcess) {
-    // When using bodyWithBindings, let-bindings are in the AST already —
-    // disable keep-inlining from BindingEnvironment to avoid double-processing
-    const prevSkip = skipKeepInlining;
-    if (structure.bodyWithBindings) skipKeepInlining = true;
+    // Emit referenced keep-bindings as let-statements to preserve constants.
+    // This avoids exponential blowup from inlining (each binding computed once).
+    skipKeepInlining = true;
+    const preamble = emitReferencedBindings(bodyToProcess, params);
     const expr = termToExpression(bodyToProcess, params, 0);
-    skipKeepInlining = prevSkip;
+    skipKeepInlining = false;
     if (expr !== '???' && expr !== 'True') {
+      const content = preamble ? preamble + '\n' + expr : expr;
       return {
         kind: 'expression',
-        content: expr
+        content
       };
     }
   }
@@ -339,6 +340,103 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
     kind: 'expression',
     content: 'True'
   };
+}
+
+/**
+ * Emit referenced keep-bindings as let-statements in dependency order.
+ * Each binding is computed exactly once — no exponential blowup.
+ */
+function emitReferencedBindings(body: any, params: string[]): string {
+  if (!bindingEnv) return '';
+  
+  // Step 1: Find all variables referenced from the body
+  const referencedVars = new Set<string>();
+  collectVarNames(body, referencedVars);
+  
+  // Step 2: Transitively collect all keep-bindings needed
+  const needed = new Set<string>();
+  const queue = [...referencedVars];
+  while (queue.length > 0) {
+    const name = queue.pop()!;
+    if (needed.has(name) || params.includes(name)) continue;
+    const resolved = bindingEnv.get(name);
+    if (!resolved || resolved.category !== 'keep') continue;
+    needed.add(name);
+    // Find vars referenced by this binding's value
+    const deps = new Set<string>();
+    collectVarNames(resolved.value, deps);
+    for (const dep of deps) {
+      if (!needed.has(dep)) queue.push(dep);
+    }
+  }
+  
+  if (needed.size === 0) return '';
+  
+  // Step 3: Topological sort (dependencies first)
+  const sorted: string[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>(); // cycle detection
+  
+  function visit(name: string) {
+    if (visited.has(name) || !needed.has(name)) return;
+    if (visiting.has(name)) return; // break cycles
+    visiting.add(name);
+    
+    const resolved = bindingEnv!.get(name);
+    if (resolved) {
+      const deps = new Set<string>();
+      collectVarNames(resolved.value, deps);
+      for (const dep of deps) {
+        if (needed.has(dep) && dep !== name) visit(dep);
+      }
+    }
+    
+    visiting.delete(name);
+    visited.add(name);
+    sorted.push(name);
+  }
+  
+  for (const name of needed) {
+    visit(name);
+  }
+  
+  // Step 4: Emit let-statements in order
+  // Each binding is processed with skipKeepInlining=true,
+  // so vars reference names (not inline) — no exponential expansion
+  const lets: string[] = [];
+  for (const name of sorted) {
+    const resolved = bindingEnv!.get(name);
+    if (!resolved) continue;
+    
+    inliningStack.add(name); // prevent self-reference
+    const valueExpr = termToExpression(resolved.value, params, 0);
+    inliningStack.delete(name);
+    
+    if (valueExpr !== '???' && valueExpr !== name) {
+      const displayName = resolved.semanticName || name;
+      lets.push(`let ${displayName} = ${valueExpr}`);
+    }
+  }
+  
+  return lets.join('\n');
+}
+
+/** Collect all variable names referenced in a term */
+function collectVarNames(term: any, vars: Set<string>) {
+  if (!term) return;
+  switch (term.tag) {
+    case 'var': vars.add(term.name); break;
+    case 'app': collectVarNames(term.func, vars); collectVarNames(term.arg, vars); break;
+    case 'lam': collectVarNames(term.body, vars); break;
+    case 'force': case 'delay': collectVarNames(term.term, vars); break;
+    case 'case':
+      collectVarNames(term.scrutinee, vars);
+      term.branches?.forEach((b: any) => collectVarNames(b, vars));
+      break;
+    case 'constr':
+      term.args?.forEach((a: any) => collectVarNames(a, vars));
+      break;
+  }
 }
 
 /**
@@ -398,24 +496,8 @@ function termToExpression(term: any, params: string[], depth: number): string {
             }
           }
           
-          // For 'keep' bindings: inline based on context
-          // Skip when bodyWithBindings is used (let-bindings already in AST)
-          // Skip recursive bindings (list_fold) to avoid infinite expansion
-          // Cap at depth 50 to prevent exponential expansion in deeply nested contracts
-          if (resolved.category === 'keep' && resolved.pattern !== 'list_fold' && !skipKeepInlining && depth < 50) {
-            // Add to stack to prevent cycles
-            inliningStack.add(term.name);
-            try {
-              const inlined = termToExpression(resolved.value, params, depth + 1);
-              // At shallow depth, allow larger functions; deeper = more conservative
-              const maxLen = depth < 5 ? 10000 : depth < 15 ? 2000 : depth < 30 ? 500 : 200;
-              if (inlined.length < maxLen) {
-                return inlined;
-              }
-            } finally {
-              inliningStack.delete(term.name);
-            }
-          }
+          // 'keep' bindings are emitted as let-statements by emitReferencedBindings()
+          // No inline expansion needed — just reference by name (falls through below)
         }
       }
       
