@@ -516,7 +516,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
       return jsonError('Invalid script hash. Must be 56 hex characters.', 400, corsOrigin);
     }
 
-    const cacheKey = `analysis:v14:${scriptHash}`;  // v14: constant recovery via BindingEnvironment resolution
+    const cacheKey = `analysis:v15:${scriptHash}`;  // v15: verifier false positive fixes (camelCase builtins, string stripping, let-bindings)
 
     // Check cache (static analysis only — executionCosts always fetched fresh)
     if (context.env.UPLC_CACHE) {
