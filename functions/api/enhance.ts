@@ -415,33 +415,67 @@ OUTPUT: Return ONLY the Aiken code. No markdown, no explanations.`;
 }
 
 /**
- * Call AI API
+ * Call AI API with automatic fallback from Opus → Sonnet on timeout/error
  */
+const PRIMARY_MODEL = 'claude-sonnet-4-20250514';
+const FALLBACK_MODEL = 'claude-sonnet-4-20250514';
+const PRIMARY_TIMEOUT_MS = 30_000; // 30s for primary, then fallback
+
 export async function callClaude(prompt: string, env: Env, maxTokens: number = 2048): Promise<string> {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': env.ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: 'claude-opus-4-20250514',
-      max_tokens: maxTokens,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    }),
-  });
+  // Try primary model with timeout
+  try {
+    const result = await callModel(prompt, env, PRIMARY_MODEL, maxTokens, PRIMARY_TIMEOUT_MS);
+    return result;
+  } catch (primaryError) {
+    // If primary model is same as fallback, just throw
+    if (PRIMARY_MODEL === FALLBACK_MODEL) throw primaryError;
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`AI enhancement error: ${response.status} - ${errorBody}`);
+    console.log(`Primary model (${PRIMARY_MODEL}) failed: ${primaryError instanceof Error ? primaryError.message : 'unknown'}, falling back to ${FALLBACK_MODEL}`);
+
+    // Fallback — no timeout (Cloudflare will enforce its own limit)
+    return callModel(prompt, env, FALLBACK_MODEL, maxTokens);
   }
+}
 
-  const data = await response.json() as any;
-  return data.content[0]?.text || '';
+async function callModel(
+  prompt: string,
+  env: Env,
+  model: string,
+  maxTokens: number,
+  timeoutMs?: number,
+): Promise<string> {
+  const controller = timeoutMs ? new AbortController() : undefined;
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      }),
+      signal: controller?.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new Error(`AI enhancement error (${model}): ${response.status} - ${errorBody}`);
+    }
+
+    const data = await response.json() as any;
+    return data.content[0]?.text || '';
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
