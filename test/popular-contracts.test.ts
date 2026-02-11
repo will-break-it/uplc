@@ -188,6 +188,76 @@ interface QualityReport {
   confidence: string;
 }
 
+/** Extract constants from raw harmoniclabs AST (catches data-embedded values the converter may not expose) */
+function extractRawConstants(rawBody: any, bs: string[], ints: string[]) {
+  if (!rawBody || typeof rawBody !== 'object') return;
+
+  const termType = rawBody.constructor?.name;
+
+  if (termType === 'UPLCConst') {
+    extractRawValue(rawBody.value, bs, ints);
+  } else if (termType === 'Application') {
+    extractRawConstants(rawBody.funcTerm, bs, ints);
+    extractRawConstants(rawBody.argTerm, bs, ints);
+  } else if (termType === 'Lambda') {
+    extractRawConstants(rawBody.body, bs, ints);
+  } else if (termType === 'Delay') {
+    extractRawConstants(rawBody.delayedTerm, bs, ints);
+  } else if (termType === 'Force') {
+    extractRawConstants(rawBody.termToForce, bs, ints);
+  } else if (termType === 'Constr') {
+    rawBody.terms?.forEach((t: any) => extractRawConstants(t, bs, ints));
+  } else if (termType === 'Case') {
+    extractRawConstants(rawBody.scrutinee, bs, ints);
+    rawBody.branches?.forEach((t: any) => extractRawConstants(t, bs, ints));
+  }
+}
+
+function extractRawValue(val: any, bs: string[], ints: string[]) {
+  if (!val) return;
+  if (val instanceof Uint8Array) {
+    const hex = bufferToHex(val);
+    if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+    return;
+  }
+  if (val._bytes instanceof Uint8Array) {
+    const hex = bufferToHex(val._bytes);
+    if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+    return;
+  }
+  if (typeof val === 'bigint') {
+    const s = String(val);
+    if (s !== '0' && s !== '1' && !ints.includes(s)) ints.push(s);
+    return;
+  }
+  if (val.constr !== undefined && val.fields) {
+    for (const f of val.fields) extractRawValue(f, bs, ints);
+    return;
+  }
+  if (val.int !== undefined) {
+    const s = String(val.int);
+    if (s !== '0' && s !== '1' && !ints.includes(s)) ints.push(s);
+    return;
+  }
+  if (val.bytes !== undefined) {
+    if (val.bytes._bytes instanceof Uint8Array) {
+      const hex = bufferToHex(val.bytes._bytes);
+      if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+    } else if (val.bytes instanceof Uint8Array) {
+      const hex = bufferToHex(val.bytes);
+      if (hex.length >= 8 && !bs.includes(hex)) bs.push(hex);
+    }
+    return;
+  }
+  if (Array.isArray(val)) {
+    for (const item of val) extractRawValue(item, bs, ints);
+    return;
+  }
+  if (val.list) {
+    for (const item of val.list) extractRawValue(item, bs, ints);
+  }
+}
+
 /** Full pipeline: CBOR → AST → structure → code → quality report */
 function analyzeQuality(hash: string): QualityReport {
   const cbor = loadCbor(hash);
@@ -197,7 +267,11 @@ function analyzeQuality(hash: string): QualityReport {
   const ast = convertFromHarmoniclabs(program.body);
   const structure = analyzeContract(ast);
   const code = generate(structure);
+
+  // Extract constants from both converted AST and raw harmoniclabs AST
   const constants = extractConstants(ast);
+  extractRawConstants(program.body, constants.bytestrings, constants.integers);
+
   const verification = verifyCode(code, constants, []);
 
   // Count ??? placeholders — each one is a codegen gap

@@ -83,17 +83,20 @@ const AIKEN_KEYWORDS = new Set([
   'spend', 'mint', 'withdraw', 'publish', 'vote', 'propose',
 ]);
 
-// Pattern: generated binding name (single letter, or letter + digits like b1, j2, a3)
-const GENERATED_BINDING_RE = /^[a-z][0-9]*$/;
+// Pattern: generated binding name — single letter (a, b), letter+digits (b1, j2), or short
+// lowercase names (nd, st, tx) that come from de Bruijn variable naming in decompiled output
+const GENERATED_BINDING_RE = /^[a-z][a-z]?[0-9]*$/;
 
-// Pattern: method call on a variable (e.g., b1.tail, p2.is_empty, z.tail)
-const VARIABLE_METHOD_RE = /^[a-z][a-z0-9]*\.(tail|head|is_empty|length|1st|2nd)$/;
+// Pattern: method call on a variable (e.g., b1.tail, p2.is_empty, z.tail, recursive_g3.head)
+// Matches any identifier.method where method is a common list/pair/data accessor
+const VARIABLE_METHOD_RE = /^[a-zA-Z_][a-zA-Z0-9_]*\.(tail|head|is_empty|length|1st|2nd|at)$/;
 
 // Aiken builtins (builtin.xxx calls)
 const BUILTIN_PREFIX = 'builtin.';
 
-// Plutus builtins that AI sometimes writes with underscores instead of camelCase
+// Plutus builtins — both snake_case and camelCase variants
 const PLUTUS_BUILTINS = new Set([
+  // snake_case (common in AI output)
   'un_constr_data', 'un_map_data', 'un_b_data', 'un_i_data', 'un_list_data',
   'mk_pair_data', 'mk_cons', 'mk_nil_data', 'mk_nil_pair_data',
   'list_data', 'map_data', 'constr_data', 'b_data', 'i_data',
@@ -108,6 +111,21 @@ const PLUTUS_BUILTINS = new Set([
   'verify_ed25519_signature', 'verify_ecdsa_secp256k1_signature', 'verify_schnorr_secp256k1_signature',
   'append_string', 'encode_utf8', 'decode_utf8', 'trace',
   'serialise_data', 'mk_pair_data',
+  // camelCase (original Plutus builtin names, used in decompiled output)
+  'unConstrData', 'unMapData', 'unBData', 'unIData', 'unListData',
+  'mkPairData', 'mkCons', 'mkNilData', 'mkNilPairData',
+  'listData', 'mapData', 'constrData', 'bData', 'iData',
+  'headList', 'tailList', 'nullList', 'chooseList',
+  'fstPair', 'sndPair', 'chooseData', 'chooseUnit',
+  'ifThenElse', 'equalsData', 'equalsInteger', 'equalsByteString', 'equalsString',
+  'lessThanInteger', 'lessThanEqualsInteger', 'lessThanByteString',
+  'addInteger', 'subtractInteger', 'multiplyInteger', 'divideInteger', 'modInteger',
+  'quotientInteger', 'remainderInteger',
+  'appendByteString', 'consByteString', 'sliceByteString', 'lengthOfByteString',
+  'indexByteString', 'sha2_256', 'sha3_256', 'blake2b_256', 'blake2b_224',
+  'verifyEd25519Signature', 'verifyEcdsaSecp256k1Signature', 'verifySchnorrSecp256k1Signature',
+  'appendString', 'encodeUtf8', 'decodeUtf8',
+  'serialiseData',
 ]);
 
 /**
@@ -202,6 +220,21 @@ function extractDefinedFunctions(code: string): Set<string> {
     defined.add(match[1]);
   }
   
+  // Match let name = ... (decompiled code uses let-bindings for functions)
+  const letRegex = /\blet\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=/g;
+  while ((match = letRegex.exec(code)) !== null) {
+    defined.add(match[1]);
+  }
+  
+  // Match validator entry point parameters (spend(w, x, y, tx) defines w, x, y, tx)
+  const paramRegex = /\b(?:spend|mint|withdraw|publish|vote|propose)\s*\(([^)]+)\)/g;
+  while ((match = paramRegex.exec(code)) !== null) {
+    const params = match[1].split(',').map(p => p.trim().split(/[:\s]/)[0].trim());
+    for (const p of params) {
+      if (/^[a-zA-Z_]/.test(p)) defined.add(p);
+    }
+  }
+  
   // Also match type/struct/enum definitions as they create constructors
   const typeRegex = /\b(?:type|pub\s+type)\s+([A-Z][a-zA-Z0-9_]*)/g;
   while ((match = typeRegex.exec(code)) !== null) {
@@ -218,10 +251,24 @@ function extractDefinedFunctions(code: string): Set<string> {
 function extractFunctionCalls(code: string): Set<string> {
   const calls = new Set<string>();
   
+  // Strip comments and string literals before extracting calls
+  const strippedCode = code.split('\n').map(line => {
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('//')) return '';
+    // Remove inline comments
+    const commentIdx = line.indexOf('//');
+    const noComments = commentIdx >= 0 ? line.slice(0, commentIdx) : line;
+    // Remove string literals — handles @""..."" (Aiken trace), @"...", and "..."
+    // Must handle doubled quotes first (our codegen uses @""content"" for trace strings)
+    return noComments
+      .replace(/@?""[^""]*""/g, '""')  // @""..."" doubled-quote trace strings
+      .replace(/@?"(?:[^"\\]|\\.)*"/g, '""');  // standard "..." strings
+  }).join('\n');
+  
   // Match name( but not fn name( and not .name(
   const callRegex = /(?<!fn\s)(?<![.a-zA-Z_])([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\(/g;
   let match;
-  while ((match = callRegex.exec(code)) !== null) {
+  while ((match = callRegex.exec(strippedCode)) !== null) {
     const name = match[1];
     
     // Skip builtins (builtin.xxx)
@@ -245,7 +292,7 @@ function extractFunctionCalls(code: string): Set<string> {
     // Skip method calls on generated variables (b1.tail, z.head, p2.is_empty)
     if (VARIABLE_METHOD_RE.test(name)) continue;
     
-    // Skip if it's a method call on a module we recognize
+    // Skip if it's a method call on a module/variable we recognize
     const parts = name.split('.');
     if (parts.length > 1) {
       if (AIKEN_STDLIB.has(name)) continue;
@@ -256,7 +303,25 @@ function extractFunctionCalls(code: string): Set<string> {
       
       // Skip if the prefix is a generated binding name (variable.method pattern)
       if (GENERATED_BINDING_RE.test(modulePrefix)) continue;
+      
+      // Skip if the prefix is a Plutus builtin (e.g., unConstrData.tail)
+      if (PLUTUS_BUILTINS.has(modulePrefix)) continue;
+      
+      // Skip if the prefix starts with "recursive_" (generated recursive binding)
+      if (modulePrefix.startsWith('recursive_')) continue;
     }
+    
+    // Skip names starting with "recursive_" (generated by decompiler for recursive bindings)
+    if (name.startsWith('recursive_')) continue;
+    
+    // Skip generated semantic names (is_constr_N, eq_N, get_field_N, etc.)
+    if (/^(is_constr|eq|get_field|sub|mul|add|div|mod|lt|lte|gt|gte|quotient|remainder)_\d+$/.test(name)) continue;
+    
+    // Skip common Plutus/Aiken functions that appear in decompiled output
+    if (['serialise', 'verify_signature', 'from_string', 'to_int', 'to_bytes', 'max', 'min'].includes(name)) continue;
+    
+    // Skip BLS12-381 crypto primitives
+    if (name.startsWith('g1_') || name.startsWith('g2_') || name.startsWith('bls12_381_')) continue;
     
     calls.add(name);
   }
@@ -279,7 +344,6 @@ function detectPlaceholders(code: string): string[] {
     /\/\/\s*FIXME/i,
     /\/\*\s*TODO/i,
     /\bpanic\s*\(/,
-    /\bfail\s*$/,
     /\.\.\./,  // Ellipsis often indicates incomplete code
     /\/\/\s*\.\.\./,
     /\/\/\s*etc/i,
