@@ -422,26 +422,33 @@ OUTPUT: Return ONLY the Aiken code. No markdown, no explanations.`;
 }
 
 /**
- * Call AI API with automatic fallback from Opus → Sonnet on timeout/error
+ * Call AI API with automatic fallback chain: Opus 4.6 → Opus 4.5 → Sonnet 4
  */
-const PRIMARY_MODEL = 'claude-opus-4-6';
-const FALLBACK_MODEL = 'claude-sonnet-4-20250514';
-const PRIMARY_TIMEOUT_MS = 30_000; // 30s for primary, then fallback
+const MODEL_CHAIN = [
+  'claude-opus-4-6',
+  'claude-opus-4-5-20250929',
+  'claude-sonnet-4-20250514',
+];
+const MODEL_TIMEOUT_MS = 30_000; // 30s per model before trying next
 
 export async function callClaude(prompt: string, env: Env, maxTokens: number = 2048): Promise<string> {
-  // Try primary model with timeout
-  try {
-    const result = await callModel(prompt, env, PRIMARY_MODEL, maxTokens, PRIMARY_TIMEOUT_MS);
-    return result;
-  } catch (primaryError) {
-    // If primary model is same as fallback, just throw
-    if (PRIMARY_MODEL === FALLBACK_MODEL) throw primaryError;
+  let lastError: Error | null = null;
 
-    console.log(`Primary model (${PRIMARY_MODEL}) failed: ${primaryError instanceof Error ? primaryError.message : 'unknown'}, falling back to ${FALLBACK_MODEL}`);
+  for (let i = 0; i < MODEL_CHAIN.length; i++) {
+    const model = MODEL_CHAIN[i];
+    const isLast = i === MODEL_CHAIN.length - 1;
 
-    // Fallback — no timeout (Cloudflare will enforce its own limit)
-    return callModel(prompt, env, FALLBACK_MODEL, maxTokens);
+    try {
+      // No timeout on last model — let Cloudflare enforce its limit
+      const result = await callModel(prompt, env, model, maxTokens, isLast ? undefined : MODEL_TIMEOUT_MS);
+      return result;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.log(`Model ${model} failed: ${lastError.message}${isLast ? '' : `, trying ${MODEL_CHAIN[i + 1]}`}`);
+    }
   }
+
+  throw lastError || new Error('All models failed');
 }
 
 async function callModel(
