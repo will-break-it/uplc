@@ -424,7 +424,7 @@ OUTPUT: Return ONLY the Aiken code. No markdown, no explanations.`;
 /**
  * Call AI API with automatic fallback from Opus → Sonnet on timeout/error
  */
-const PRIMARY_MODEL = 'claude-opus-4-20250514';
+const PRIMARY_MODEL = 'claude-opus-4-6';
 const FALLBACK_MODEL = 'claude-sonnet-4-20250514';
 const PRIMARY_TIMEOUT_MS = 30_000; // 30s for primary, then fallback
 
