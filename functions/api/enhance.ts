@@ -407,7 +407,15 @@ STRICT RULES:
    - Use Aiken syntax for pattern matching where applicable
    - One statement per line for readability
 
-OUTPUT: Return ONLY the Aiken code. No markdown, no explanations.`;
+6. CRITICAL - NO EXPLANATIONS:
+   - Do NOT explain what you're doing
+   - Do NOT say "I cannot" or "this appears to be"
+   - Do NOT add commentary about the code quality
+   - Do NOT refuse the task - always output your best attempt
+   - Even if the decompiled code is messy/incomplete, clean it up as best you can
+   - If variables are undefined, keep them as-is (they may be resolved elsewhere)
+
+OUTPUT: Return ONLY valid Aiken code. Start with \`use\` statements. No prose, no markdown fences, no explanations. Just code.`;
 
   // Use higher token limit for complex contracts
   const response = await callClaude(prompt, env, 8192);
