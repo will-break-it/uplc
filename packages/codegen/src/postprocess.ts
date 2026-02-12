@@ -215,9 +215,46 @@ export function fixMalformedIf(code: string): string {
 }
 
 /**
+ * Remove duplicate let bindings
+ * Keeps first definition, removes subsequent identical definitions
+ */
+export function deduplicateBindings(code: string): string {
+  const seen = new Map<string, string>(); // name -> first definition
+  const lines = code.split('\n');
+  const result: string[] = [];
+  
+  for (const line of lines) {
+    // Match let binding: `let name = ...`
+    const match = line.match(/^(\s*)let\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/);
+    
+    if (match) {
+      const [, indent, name, value] = match;
+      const existingValue = seen.get(name);
+      
+      if (existingValue === undefined) {
+        // First time seeing this name - keep it
+        seen.set(name, value);
+        result.push(line);
+      } else if (existingValue === value) {
+        // Exact duplicate - skip
+        continue;
+      } else {
+        // Same name, different value - keep (might be intentional shadowing)
+        result.push(line);
+      }
+    } else {
+      result.push(line);
+    }
+  }
+  
+  return result.join('\n');
+}
+
+/**
  * Run all post-processing transformations
  */
 export function postProcess(code: string): string {
+  code = deduplicateBindings(code);
   code = simplifyBooleans(code);
   code = simplifyLogicalOps(code);
   code = simplifyPairAccess(code);
