@@ -66,75 +66,133 @@ export type BindingPattern =
   | 'boolean_and'      // fn(a, b) { if a then b else False }
   | 'boolean_or'       // fn(a, b) { if a then True else b }
   | 'list_fold'        // Y combinator fold pattern
+  | 'z_combinator'     // fn(f) { f(f) } — self-application for recursion
   | 'unknown';
 
 /**
- * Binding environment built from AST traversal
+ * Binding environment built from AST traversal.
+ *
+ * Uses a scope stack for correct variable resolution in nested scopes.
+ * push()/pop() manage scope boundaries. get() searches innermost-first.
+ * The generator calls push/pop during code generation to track which
+ * bindings are visible at any point in the AST traversal.
  */
 export class BindingEnvironment {
-  private bindings = new Map<string, ResolvedBinding>();
-  
+  private scopes: Map<string, ResolvedBinding>[] = [new Map()];
+
   /**
-   * Build binding environment from a term
+   * Build binding environment from a term (initial analysis pass)
    */
   static build(term: UplcTerm): BindingEnvironment {
     const env = new BindingEnvironment();
     env.extract(term);
     return env;
   }
-  
+
   /**
-   * Get a binding by name
+   * Push a new scope (entering a let-body or lambda)
+   */
+  push(): void {
+    this.scopes.push(new Map());
+  }
+
+  /**
+   * Pop the current scope (exiting a let-body or lambda)
+   */
+  pop(): void {
+    if (this.scopes.length > 1) {
+      this.scopes.pop();
+    }
+  }
+
+  /**
+   * Set a binding in the current (innermost) scope
+   */
+  set(name: string, binding: ResolvedBinding): void {
+    this.scopes[this.scopes.length - 1].set(name, binding);
+  }
+
+  /**
+   * Check if a binding exists in the current (innermost) scope only
+   */
+  hasInCurrentScope(name: string): boolean {
+    return this.scopes[this.scopes.length - 1].has(name);
+  }
+
+  /**
+   * Get a binding by name, searching from innermost to outermost scope
    */
   get(name: string): ResolvedBinding | undefined {
-    return this.bindings.get(name);
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      const binding = this.scopes[i].get(name);
+      if (binding) return binding;
+    }
+    return undefined;
   }
-  
+
   /**
    * Check if a name should be inlined
    */
   shouldInline(name: string): boolean {
-    const binding = this.bindings.get(name);
+    const binding = this.get(name);
     return binding?.category === 'inline';
   }
-  
+
   /**
    * Get the inline value for a binding
    */
   getInlineValue(name: string): string | undefined {
-    const binding = this.bindings.get(name);
-    return binding?.inlineValue;
+    return this.get(name)?.inlineValue;
   }
-  
+
   /**
    * Get the semantic name for a binding
    */
   getSemanticName(name: string): string | undefined {
-    const binding = this.bindings.get(name);
-    return binding?.semanticName;
+    return this.get(name)?.semanticName;
   }
-  
+
   /**
-   * Get all bindings for debugging
+   * Get all bindings across all scopes (innermost shadows outermost)
    */
   all(): ResolvedBinding[] {
-    return Array.from(this.bindings.values());
+    const result: ResolvedBinding[] = [];
+    const seen = new Set<string>();
+    for (let i = this.scopes.length - 1; i >= 0; i--) {
+      for (const [name, binding] of this.scopes[i]) {
+        if (!seen.has(name)) {
+          seen.add(name);
+          result.push(binding);
+        }
+      }
+    }
+    return result;
   }
-  
+
   /**
-   * Extract bindings from a term (mutates this.bindings)
+   * Analyze a binding value and return its resolved metadata.
+   * Exposed so the generator can analyze inner bindings on-the-fly.
+   */
+  analyze(name: string, value: UplcTerm): ResolvedBinding {
+    return this.analyzeBinding(name, value);
+  }
+
+  /**
+   * Extract bindings from a term (mutates this.scopes)
    */
   private extract(term: UplcTerm): void {
     this.walk(term, new Set());
   }
-  
+
   /**
-   * Walk AST to find let bindings
+   * Walk AST to find and analyze let bindings.
+   * Pushes/pops scopes at let-body boundaries. After walk completes,
+   * only the root scope remains with outermost bindings.
    */
   private walk(term: UplcTerm, seen: Set<UplcTerm>): void {
     if (seen.has(term)) return;
     seen.add(term);
-    
+
     switch (term.tag) {
       case 'app': {
         // Check for let pattern: ((lam x body) value)
@@ -143,17 +201,23 @@ export class BindingEnvironment {
         let arg = term.arg;
         while (func && (func.tag === 'force' || func.tag === 'delay')) func = func.term;
         while (arg && (arg.tag === 'force' || arg.tag === 'delay')) arg = arg.term;
-        
+
         if (func?.tag === 'lam') {
           const name = func.param;
           const value = arg;
-          
-          // Analyze and store the binding
-          const resolved = this.analyzeBinding(name, value);
-          this.bindings.set(name, resolved);
-          
-          // Continue walking both parts
+
+          // Analyze and store the binding in the current scope.
+          // Only store if not already in current scope (avoids duplicates).
+          if (!this.hasInCurrentScope(name)) {
+            const resolved = this.analyzeBinding(name, value);
+            this.set(name, resolved);
+          }
+
+          // Push scope for the body — inner bindings can shadow outer ones
+          this.push();
           this.walk(func.body, seen);
+          this.pop();
+
           this.walk(value, seen);
         } else {
           this.walk(term.func, seen);
@@ -161,21 +225,29 @@ export class BindingEnvironment {
         }
       }
         break;
-        
+
       case 'lam':
         this.walk(term.body, seen);
         break;
-        
+
       case 'force':
       case 'delay':
         this.walk(term.term, seen);
         break;
-        
+
       case 'case':
         if (term.scrutinee) this.walk(term.scrutinee, seen);
         if (term.branches) {
           for (const branch of term.branches) {
             this.walk(branch, seen);
+          }
+        }
+        break;
+
+      case 'constr':
+        if (term.args) {
+          for (const arg of term.args) {
+            this.walk(arg, seen);
           }
         }
         break;
@@ -237,7 +309,7 @@ export class BindingEnvironment {
     
     const val = term.value;
     if (!val) {
-      return { name, value: term, category: 'inline', inlineValue: '()', pattern: 'constant_unit' };
+      return { name, value: term, category: 'inline', inlineValue: 'Void', pattern: 'constant_unit' };
     }
     
     switch (val.tag) {
@@ -264,7 +336,7 @@ export class BindingEnvironment {
           name,
           value: term,
           category: 'inline',
-          inlineValue: '()',
+          inlineValue: 'Void',
           pattern: 'constant_unit'
         };
         
@@ -344,7 +416,20 @@ export class BindingEnvironment {
         pattern: 'identity'
       };
     }
-    
+
+    // Z-combinator: fn(f) { f(f) } — self-application for recursion
+    if (body.tag === 'app' &&
+        body.func.tag === 'var' && body.func.name === param &&
+        body.arg.tag === 'var' && body.arg.name === param) {
+      return {
+        name,
+        value: term,
+        category: 'rename',
+        semanticName: 'z_combinator',
+        pattern: 'z_combinator'
+      };
+    }
+
     // Builtin wrapper: fn(x) { builtin(x) }
     if (body.tag === 'app') {
       const parts = flattenApp(body);
@@ -440,7 +525,7 @@ export class BindingEnvironment {
     // Y combinator application (recursion)
     // Pattern: Y(fn(self) { ... })
     if (head.tag === 'var') {
-      const headBinding = this.bindings.get(head.name);
+      const headBinding = this.get(head.name);
       if (headBinding?.pattern === 'unknown' && parts.length === 2 && parts[1].tag === 'lam') {
         // This might be Y combinator - check if the lambda references itself
         // For now, just mark as list_fold if it looks recursive

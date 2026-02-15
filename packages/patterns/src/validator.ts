@@ -24,7 +24,7 @@ export type ScriptPurpose =
   | 'unknown';
 
 export interface ScriptParameter {
-  name: string;      // Generated name like PARAM_0 or SCRIPT_HASH
+  name: string;      // Generated name like param_0 or script_hash_0
   type: string;      // 'bytestring' | 'integer' | 'data'
   value: string;     // Hex string or numeric value
 }
@@ -101,36 +101,36 @@ function extractConstantParam(term: any, index: number): ScriptParameter | null 
   if (type === 'bytestring' || value?.tag === 'bytestring') {
     const bytes = value?.value || value;
     const hex = bytesToHex(bytes);
-    const name = hex.length === 56 ? `SCRIPT_HASH_${index}` 
-               : hex.length === 64 ? `POLICY_ID_${index}`
-               : `PARAM_${index}`;
+    const name = hex.length === 56 ? `script_hash_${index}`
+               : hex.length === 64 ? `policy_id_${index}`
+               : `param_${index}`;
     return { name, type: 'bytestring', value: hex };
   }
-  
+
   if (type === 'integer' || value?.tag === 'integer') {
     const num = value?.value ?? value;
-    return { name: `PARAM_${index}`, type: 'integer', value: num.toString() };
+    return { name: `param_${index}`, type: 'integer', value: num.toString() };
   }
-  
+
   if (type === 'data' || value?.tag === 'data') {
     // Handle Data-encoded values — may be nested Constr structures
     const innerValue = value?.value || value;
     if (innerValue?.tag === 'bytes' || innerValue?.tag === 'B') {
-      const hex = typeof innerValue.value === 'string' 
-        ? innerValue.value 
+      const hex = typeof innerValue.value === 'string'
+        ? innerValue.value
         : bytesToHex(innerValue.value);
-      const name = hex.length === 56 ? `SCRIPT_HASH_${index}` 
-                 : hex.length === 64 ? `POLICY_ID_${index}`
-                 : `PARAM_${index}`;
+      const name = hex.length === 56 ? `script_hash_${index}`
+                 : hex.length === 64 ? `policy_id_${index}`
+                 : `param_${index}`;
       return { name, type: 'bytestring', value: hex };
     }
     if (innerValue?.tag === 'int' || innerValue?.tag === 'I') {
-      return { name: `PARAM_${index}`, type: 'integer', value: (innerValue.value ?? innerValue).toString() };
+      return { name: `param_${index}`, type: 'integer', value: (innerValue.value ?? innerValue).toString() };
     }
     // For complex Data structures (Constr, List, Map), serialize as readable representation
     const dataStr = serializeDataParam(innerValue);
     if (dataStr) {
-      return { name: `PARAM_${index}`, type: 'data', value: dataStr };
+      return { name: `param_${index}`, type: 'data', value: dataStr };
     }
   }
   
@@ -139,7 +139,7 @@ function extractConstantParam(term: any, index: number): ScriptParameter | null 
 
 /**
  * Serialize a Data parameter to a human-readable string
- * e.g., Constr 0 [Constr 0 [B #1510c33e...], I 0] → "Constr(0, [Constr(0, [#1510c33e...]), 0])"
+ * e.g., Constr 0 [Constr 0 [B #1510c33e...], I 0] → "builtin.constr_data(0, [builtin.constr_data(0, [#1510c33e...]), 0])"
  */
 function serializeDataParam(data: any): string | null {
   if (!data || typeof data !== 'object') return null;
@@ -149,15 +149,15 @@ function serializeDataParam(data: any): string | null {
   if (tag === 'constr' || data.fields) {
     const idx = data.index ?? data.constr ?? 0;
     const fields = data.fields || [];
-    if (fields.length === 0) return `Constr(${idx}, [])`;
+    if (fields.length === 0) return `builtin.constr_data(${idx}, [])`;
     const serializedFields = fields.map((f: any) => serializeDataParam(f) || '?').join(', ');
-    return `Constr(${idx}, [${serializedFields}])`;
+    return `builtin.constr_data(${idx}, [${serializedFields}])`;
   }
   
   if (tag === 'bytes' || tag === 'B') {
     const raw = data.value;
     const hex = (raw instanceof Uint8Array) ? bytesToHex(raw) : (typeof raw === 'string' ? raw : '');
-    return `#${hex}`;
+    return `#"${hex}"`;
   }
   
   if (tag === 'int' || tag === 'I') {

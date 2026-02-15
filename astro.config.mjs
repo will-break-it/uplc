@@ -6,7 +6,7 @@ export default defineConfig({
   output: 'static',
   vite: {
     ssr: {
-      external: ['@uplc/cache', '@uplc/parser', '@uplc/patterns', '@uplc/codegen']
+      external: ['@uplc/parser', '@uplc/patterns', '@uplc/codegen']
     }
   }
 });

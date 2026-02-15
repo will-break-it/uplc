@@ -13,34 +13,36 @@ export interface BuiltinMapping {
   inline?: string;
   /** Whether this is a method call style */
   method?: boolean;
+  /** Expected number of runtime arguments (for currying excess args) */
+  arity?: number;
 }
 
 /**
  * Map UPLC builtins to Aiken stdlib
  */
 export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
-  // List operations → aiken/list
-  headList: { module: 'aiken/list', aikenName: 'head', method: true },
-  tailList: { module: 'aiken/list', aikenName: 'tail', method: true },
-  nullList: { module: 'aiken/list', aikenName: 'is_empty', method: true },
-  mkCons: { module: 'aiken/list', inline: '[{0}, ..{1}]' },
+  // List operations → aiken/builtin (decompiled code is untyped, method syntax fails on Data)
+  headList: { module: 'aiken/builtin', aikenName: 'head_list', arity: 1 },
+  tailList: { module: 'aiken/builtin', aikenName: 'tail_list', arity: 1 },
+  nullList: { module: 'aiken/builtin', aikenName: 'null_list', arity: 1 },
+  mkCons: { module: 'aiken/collection/list', inline: '[{0}, ..{1}]' },
   
-  // Pair operations → tuple access
-  fstPair: { inline: '{0}.1st' },
-  sndPair: { inline: '{0}.2nd' },
+  // Pair operations → builtin function calls
+  fstPair: { module: 'aiken/builtin', aikenName: 'fst_pair', arity: 1 },
+  sndPair: { module: 'aiken/builtin', aikenName: 'snd_pair', arity: 1 },
   mkPairData: { inline: 'Pair({0}, {1})' },
   
-  // Data operations → pattern matching (usually inlined)
-  unConstrData: { inline: '{0}' },  // Becomes pattern match
-  constrData: { inline: 'Constr({0}, {1})' },
-  unIData: { inline: '{0}' },
-  iData: { inline: '{0}' },
-  unBData: { inline: '{0}' },
-  bData: { inline: '{0}' },
-  unListData: { inline: '{0}' },
-  listData: { inline: '{0}' },
-  unMapData: { inline: '{0}' },
-  mapData: { inline: '{0}' },
+  // Data operations → builtin calls for proper typing
+  unConstrData: { module: 'aiken/builtin', inline: 'builtin.un_constr_data({0})' },
+  constrData: { module: 'aiken/builtin', aikenName: 'constr_data', inline: 'builtin.constr_data({0}, {1})' },
+  unIData: { module: 'aiken/builtin', inline: 'builtin.un_i_data({0})' },
+  iData: { module: 'aiken/builtin', inline: 'builtin.i_data({0})' },
+  unBData: { module: 'aiken/builtin', inline: 'builtin.un_b_data({0})' },
+  bData: { module: 'aiken/builtin', inline: 'builtin.b_data({0})' },
+  unListData: { module: 'aiken/builtin', inline: 'builtin.un_list_data({0})' },
+  listData: { module: 'aiken/builtin', inline: 'builtin.list_data({0})' },
+  unMapData: { module: 'aiken/builtin', inline: 'builtin.un_map_data({0})' },
+  mapData: { module: 'aiken/builtin', inline: 'builtin.map_data({0})' },
   
   // Integer operations → native
   addInteger: { inline: '{0} + {1}' },
@@ -55,20 +57,20 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   lessThanEqualsInteger: { inline: '{0} <= {1}' },
   
   // ByteArray operations → aiken/bytearray or native
-  appendByteString: { module: 'aiken/bytearray', aikenName: 'concat', method: true },
-  consByteString: { module: 'aiken/bytearray', aikenName: 'push', method: true },
-  sliceByteString: { module: 'aiken/bytearray', aikenName: 'slice', method: true },
-  lengthOfByteString: { module: 'aiken/bytearray', aikenName: 'length', method: true },
-  indexByteString: { module: 'aiken/bytearray', aikenName: 'at', method: true },
-  equalsByteString: { inline: '{0} == {1}' },
-  lessThanByteString: { inline: '{0} < {1}' },
-  lessThanEqualsByteString: { inline: '{0} <= {1}' },
+  appendByteString: { module: 'aiken/builtin', aikenName: 'append_bytearray' },
+  consByteString: { module: 'aiken/builtin', aikenName: 'cons_bytearray' },
+  sliceByteString: { module: 'aiken/builtin', aikenName: 'slice_bytearray' },
+  lengthOfByteString: { module: 'aiken/builtin', aikenName: 'length_of_bytearray', arity: 1 },
+  indexByteString: { module: 'aiken/builtin', aikenName: 'index_bytearray' },
+  equalsByteString: { module: 'aiken/builtin', aikenName: 'equals_bytearray', inline: 'builtin.equals_bytearray({0}, {1})' },
+  lessThanByteString: { module: 'aiken/builtin', aikenName: 'less_than_bytearray', inline: 'builtin.less_than_bytearray({0}, {1})' },
+  lessThanEqualsByteString: { module: 'aiken/builtin', aikenName: 'less_than_equals_bytearray', inline: 'builtin.less_than_equals_bytearray({0}, {1})' },
   
   // String operations
   appendString: { inline: '{0} <> {1}' },
-  equalsString: { inline: '{0} == {1}' },
-  encodeUtf8: { module: 'aiken/bytearray', aikenName: 'from_string' },
-  decodeUtf8: { module: 'aiken/bytearray', aikenName: 'to_string', method: true },
+  equalsString: { module: 'aiken/builtin', aikenName: 'equals_string', inline: 'builtin.equals_string({0}, {1})' },
+  encodeUtf8: { module: 'aiken/builtin', aikenName: 'encode_utf8' },
+  decodeUtf8: { module: 'aiken/builtin', aikenName: 'decode_utf8' },
   
   // Crypto → aiken/crypto
   sha2_256: { module: 'aiken/crypto', aikenName: 'sha2_256' },
@@ -76,9 +78,9 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   blake2b_256: { module: 'aiken/crypto', aikenName: 'blake2b_256' },
   blake2b_224: { module: 'aiken/crypto', aikenName: 'blake2b_224' },
   keccak_256: { module: 'aiken/crypto', aikenName: 'keccak_256' },
-  verifyEd25519Signature: { module: 'aiken/crypto', aikenName: 'verify_signature' },
-  verifyEcdsaSecp256k1Signature: { module: 'aiken/crypto', aikenName: 'verify_ecdsa_signature' },
-  verifySchnorrSecp256k1Signature: { module: 'aiken/crypto', aikenName: 'verify_schnorr_signature' },
+  verifyEd25519Signature: { module: 'aiken/builtin', aikenName: 'verify_ed25519_signature' },
+  verifyEcdsaSecp256k1Signature: { module: 'aiken/builtin', aikenName: 'verify_ecdsa_secp256k1_signature' },
+  verifySchnorrSecp256k1Signature: { module: 'aiken/builtin', aikenName: 'verify_schnorr_secp256k1_signature' },
   
   // Boolean
   ifThenElse: { inline: 'if {0} { {1} } else { {2} }' },
@@ -91,8 +93,8 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   
   // Choose operations (polymorphic dispatch)
   chooseUnit: { inline: '{1}' },  // Returns second arg when unit
-  chooseList: { inline: 'if list.is_empty({0}) { {1} } else { {2} }' },
-  chooseData: { inline: 'choose_data({0}, {1}, {2}, {3}, {4}, {5})' },  // constr, map, list, int, bytes branches
+  chooseList: { module: 'aiken/builtin', inline: 'if builtin.null_list({0}) { {1} } else { {2} }' },
+  chooseData: { module: 'aiken/builtin', inline: 'builtin.choose_data({0}, {1}, {2}, {3}, {4}, {5})' },
   
   // Data equality
   equalsData: { inline: '{0} == {1}' },
@@ -102,46 +104,47 @@ export const BUILTIN_MAP: Record<string, BuiltinMapping> = {
   mkNilPairData: { inline: '[]' },
   
   // Serialization
-  serialiseData: { module: 'aiken/cbor', aikenName: 'serialise' },
+  serialiseData: { module: 'aiken/builtin', aikenName: 'serialise_data' },
   
   // Integer/ByteString conversion (Plutus V3)
-  integerToByteString: { module: 'aiken/bytearray', aikenName: 'from_int' },
-  byteStringToInteger: { module: 'aiken/bytearray', aikenName: 'to_int' },
+  integerToByteString: { module: 'aiken/builtin', aikenName: 'integer_to_bytearray' },
+  byteStringToInteger: { module: 'aiken/builtin', aikenName: 'bytearray_to_integer' },
   
   // Bitwise operations (Plutus V3)
-  andByteString: { module: 'aiken/bytearray', aikenName: 'and', inline: '{0} & {1}' },
-  orByteString: { module: 'aiken/bytearray', aikenName: 'or', inline: '{0} | {1}' },
-  xorByteString: { module: 'aiken/bytearray', aikenName: 'xor', inline: '{0} ^ {1}' },
-  complementByteString: { module: 'aiken/bytearray', aikenName: 'complement', inline: '~{0}' },
-  readBit: { module: 'aiken/bytearray', aikenName: 'test_bit' },
-  writeBits: { module: 'aiken/bytearray', aikenName: 'set_bit' },
-  replicateByte: { module: 'aiken/bytearray', aikenName: 'replicate' },
-  shiftByteString: { module: 'aiken/bytearray', aikenName: 'shift' },
-  rotateByteString: { module: 'aiken/bytearray', aikenName: 'rotate' },
-  countSetBits: { module: 'aiken/bytearray', aikenName: 'popcount' },
-  findFirstSetBit: { module: 'aiken/bytearray', aikenName: 'first_set_bit' },
+  andByteString: { module: 'aiken/builtin', aikenName: 'and_bytearray' },
+  orByteString: { module: 'aiken/builtin', aikenName: 'or_bytearray' },
+  xorByteString: { module: 'aiken/builtin', aikenName: 'xor_bytearray' },
+  complementByteString: { module: 'aiken/builtin', aikenName: 'complement_bytearray' },
+  readBit: { module: 'aiken/builtin', aikenName: 'read_bit' },
+  writeBits: { module: 'aiken/builtin', aikenName: 'write_bits' },
+  replicateByte: { module: 'aiken/builtin', aikenName: 'replicate_byte' },
+  shiftByteString: { module: 'aiken/builtin', aikenName: 'shift_bytearray' },
+  rotateByteString: { module: 'aiken/builtin', aikenName: 'rotate_bytearray' },
+  countSetBits: { module: 'aiken/builtin', aikenName: 'count_set_bits' },
+  findFirstSetBit: { module: 'aiken/builtin', aikenName: 'find_first_set_bit' },
   
   // Additional crypto
   ripemd_160: { module: 'aiken/crypto', aikenName: 'ripemd_160' },
   
   // BLS (Plutus V3)
-  bls12_381_G1_add: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_add' },
-  bls12_381_G1_neg: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_neg' },
-  bls12_381_G1_scalarMul: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_scalar_mul' },
-  bls12_381_G1_equal: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_equal' },
-  bls12_381_G1_hashToGroup: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_hash_to_group' },
-  bls12_381_G1_compress: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_compress' },
-  bls12_381_G1_uncompress: { module: 'aiken/crypto/bls12_381', aikenName: 'g1_uncompress' },
-  bls12_381_G2_add: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_add' },
-  bls12_381_G2_neg: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_neg' },
-  bls12_381_G2_scalarMul: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_scalar_mul' },
-  bls12_381_G2_equal: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_equal' },
-  bls12_381_G2_hashToGroup: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_hash_to_group' },
-  bls12_381_G2_compress: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_compress' },
-  bls12_381_G2_uncompress: { module: 'aiken/crypto/bls12_381', aikenName: 'g2_uncompress' },
-  bls12_381_millerLoop: { module: 'aiken/crypto/bls12_381', aikenName: 'miller_loop' },
-  bls12_381_mulMlResult: { module: 'aiken/crypto/bls12_381', aikenName: 'mul_ml_result' },
-  bls12_381_finalVerify: { module: 'aiken/crypto/bls12_381', aikenName: 'final_verify' },
+  // BLS12-381 — use builtin module for untyped decompiled code
+  bls12_381_G1_add: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_add' },
+  bls12_381_G1_neg: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_neg' },
+  bls12_381_G1_scalarMul: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_scalar_mul' },
+  bls12_381_G1_equal: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_equal' },
+  bls12_381_G1_hashToGroup: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_hash_to_group' },
+  bls12_381_G1_compress: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_compress' },
+  bls12_381_G1_uncompress: { module: 'aiken/builtin', aikenName: 'bls12_381_g1_uncompress' },
+  bls12_381_G2_add: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_add' },
+  bls12_381_G2_neg: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_neg' },
+  bls12_381_G2_scalarMul: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_scalar_mul' },
+  bls12_381_G2_equal: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_equal' },
+  bls12_381_G2_hashToGroup: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_hash_to_group' },
+  bls12_381_G2_compress: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_compress' },
+  bls12_381_G2_uncompress: { module: 'aiken/builtin', aikenName: 'bls12_381_g2_uncompress' },
+  bls12_381_millerLoop: { module: 'aiken/builtin', aikenName: 'bls12_381_miller_loop' },
+  bls12_381_mulMlResult: { module: 'aiken/builtin', aikenName: 'bls12_381_mul_miller_loop_result' },
+  bls12_381_finalVerify: { module: 'aiken/builtin', aikenName: 'bls12_381_final_verify' },
 };
 
 /**

@@ -1139,7 +1139,7 @@ export default function ScriptAnalyzer({ initialHash }: ScriptAnalyzerProps) {
         {loading && (
           <div className="loading">
             <div className="spinner" />
-            <p>Fetching from Koios and decoding UPLC...</p>
+            <p>Fetching script and decoding UPLC...</p>
           </div>
         )}
 

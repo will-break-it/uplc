@@ -1,9 +1,107 @@
 /**
  * Verification module for decompiled Aiken code quality
- * 
+ *
  * Compares decompiled code against ground-truth constants from UPLC bytecode
  * to assess confidence in the decompilation quality.
  */
+
+// ─── Structural Checks ──────────────────────────────────────────
+
+export interface StructuralCheck {
+  ok: boolean;
+  issues: string[];
+}
+
+/**
+ * Check that all delimiters are balanced: {}, (), []
+ */
+export function checkBalancedDelimiters(code: string): StructuralCheck {
+  const issues: string[] = [];
+
+  // Count delimiters directly — generated Aiken code's string/hex literals
+  // (#"hex", @""trace"", "text") don't contain delimiter characters, so
+  // raw counting is both simpler and more accurate than regex-based stripping.
+  const pairs: [string, string, string][] = [
+    ['{', '}', 'braces'],
+    ['(', ')', 'parentheses'],
+    ['[', ']', 'brackets'],
+  ];
+
+  for (const [open, close, name] of pairs) {
+    let count = 0;
+    for (const ch of code) {
+      if (ch === open) count++;
+      else if (ch === close) count--;
+    }
+    if (count !== 0) {
+      issues.push(`Unbalanced ${name}: ${count > 0 ? '+' : ''}${count} unclosed`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Check that the code has a validator block with a handler matching the expected type
+ */
+export function checkValidatorStructure(code: string, expectedType?: string): StructuralCheck {
+  const issues: string[] = [];
+
+  // Must have a validator block
+  if (!/\bvalidator\b/.test(code)) {
+    issues.push('Missing validator block');
+  }
+
+  // If expectedType provided, check for matching handler
+  if (expectedType && expectedType !== 'unknown') {
+    const handlerRe = new RegExp(`\\b${expectedType}\\s*\\(`);
+    if (!handlerRe.test(code)) {
+      issues.push(`Missing ${expectedType} handler in validator`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Check for syntax issues: unfilled templates, fallback markers, standalone placeholders
+ */
+export function checkSyntaxIssues(code: string): StructuralCheck {
+  const issues: string[] = [];
+  const lines = code.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineNum = i + 1;
+
+    // Double semicolons (but not inside strings)
+    if (/;;/.test(line) && !/"[^"]*;;[^"]*"/.test(line)) {
+      issues.push(`Line ${lineNum}: double semicolon`);
+    }
+
+    // <data> or <unknown> fallback type markers
+    if (/<data>/.test(line)) {
+      issues.push(`Line ${lineNum}: <data> fallback type marker`);
+    }
+    if (/<unknown>/.test(line)) {
+      issues.push(`Line ${lineNum}: <unknown> fallback type marker`);
+    }
+
+    // Standalone ??? (not inside strings or comments)
+    const noStrings = line.replace(/"[^"]*"/g, '""');
+    const noComments = noStrings.replace(/\/\/.*$/, '');
+    if (/\?\?\?/.test(noComments)) {
+      issues.push(`Line ${lineNum}: standalone ??? placeholder`);
+    }
+
+    // Unfilled {0}, {1} etc. template markers
+    if (/\{[0-9]+\}/.test(noComments)) {
+      issues.push(`Line ${lineNum}: unfilled template marker`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
 
 export interface VerificationResult {
   confidence: 'high' | 'medium' | 'low';
@@ -61,6 +159,14 @@ const AIKEN_STDLIB = new Set([
   'cbor.serialise', 'cbor.diagnostic',
   // hash module
   'hash.sha2_256', 'hash.sha3_256', 'hash.blake2b_224', 'hash.blake2b_256',
+  // crypto module
+  'crypto.sha2_256', 'crypto.sha3_256', 'crypto.blake2b_256', 'crypto.blake2b_224',
+  'crypto.keccak_256', 'crypto.ripemd_160',
+  'crypto.verify_signature', 'crypto.verify_ecdsa_signature', 'crypto.verify_schnorr_signature',
+  // BLS12-381 submodules
+  'g1.add', 'g1.negate', 'g1.scale', 'g1.equal', 'g1.hash_to_group', 'g1.compress', 'g1.decompress',
+  'g2.add', 'g2.negate', 'g2.scale', 'g2.equal', 'g2.hash_to_group', 'g2.compress', 'g2.decompress',
+  'pairing.miller_loop', 'pairing.mul_miller_loop_result', 'pairing.final_verify',
 ]);
 
 // Type constructors that don't need definitions
@@ -70,7 +176,7 @@ const TYPE_CONSTRUCTORS = new Set([
   'ScriptCredential', 'VerificationKeyCredential', 'Inline', 'Pointer',
   'Mint', 'Spend', 'Withdraw', 'Publish', 'NoDatum', 'DatumHash', 'InlineDatum',
   'Input', 'Output', 'Redeemer', 'TransactionId', 'OutputReference',
-  'Constr', 'List', 'Map', 'Pair',
+  'List', 'Map', 'Pair',
   // Lowercase type names (appear in type annotations like <list(pair)>)
   'list', 'pair', 'data', 'int', 'bool', 'string', 'bytestring', 'void',
 ]);
@@ -298,7 +404,7 @@ function extractFunctionCalls(code: string): Set<string> {
       if (AIKEN_STDLIB.has(name)) continue;
       
       const modulePrefix = parts[0];
-      const knownModules = ['list', 'dict', 'value', 'bytearray', 'string', 'math', 'option', 'interval', 'cbor', 'hash', 'tx', 'transaction', 'builtin'];
+      const knownModules = ['list', 'dict', 'value', 'bytearray', 'string', 'math', 'option', 'interval', 'cbor', 'hash', 'tx', 'transaction', 'builtin', 'crypto', 'int', 'g1', 'g2', 'pairing', 'scalar', 'rational', 'pairs'];
       if (knownModules.includes(modulePrefix)) continue;
       
       // Skip if the prefix is a generated binding name (variable.method pattern)

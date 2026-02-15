@@ -11,7 +11,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "test": "pnpm -r test && pnpm test:e2e",
-    "test:e2e": "vitest run test/",
+    "test:e2e": "vitest run test/popular-contracts.test.ts",
+    "test:aiken-compile": "vitest run test/aiken-compile.test.ts",
     "test:packages": "pnpm -r test",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=uplc --commit-dirty=true"
   },

@@ -34,15 +34,18 @@ export interface ScriptParameterDef {
 export interface GeneratedCode {
   /** The validator block */
   validator: ValidatorBlock;
-  
+
   /** Type definitions needed */
   types: TypeDefinition[];
-  
+
   /** Import statements */
   imports: string[];
-  
+
   /** Script-level parameters (hardcoded constants) */
   scriptParams?: ScriptParameterDef[];
+
+  /** Module-level recursive functions hoisted from validator body */
+  hoistedFunctions?: string[];
 }
 
 /**

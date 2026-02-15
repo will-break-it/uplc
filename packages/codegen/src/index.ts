@@ -27,8 +27,8 @@ export { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch, 
 export type { DetectedPattern, PatternKind } from './patterns.js';
 export { estimateCost, getCostWarnings, parseCostModelJSON, BUILTIN_CPU_COSTS, TX_BUDGET } from './costs.js';
 export type { CostEstimate, AstStats, MachineCostParams } from './costs.js';
-export { verifyCode } from './verify.js';
-export type { VerificationResult, UplcConstants } from './verify.js';
+export { verifyCode, checkBalancedDelimiters, checkValidatorStructure, checkSyntaxIssues } from './verify.js';
+export type { VerificationResult, UplcConstants, StructuralCheck } from './verify.js';
 export { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP } from './helpers.js';
 export type { BuiltinMapping } from './stdlib.js';
 export type { ExtractedHelper, HelperPattern } from './helpers.js';
@@ -52,10 +52,25 @@ export function generate(structure: ContractStructure, options?: Partial<import(
   // (scriptParams are extracted at the top-level and are authoritative)
   if (!generated.scriptParams || generated.scriptParams.length === 0) {
     const { code: finalCode, constants } = extractConstants(code);
-    
-    // Prepend constants if any
+
+    // Insert constants after `use` imports (Aiken requires `use` before `const`)
     if (constants.length > 0) {
-      code = constants.join('\n') + '\n\n' + finalCode;
+      const lines = finalCode.split('\n');
+      let insertIdx = 0;
+      // Find end of `use` block
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].startsWith('use ')) {
+          insertIdx = i + 1;
+        } else if (lines[i].trim() === '' && insertIdx > 0) {
+          insertIdx = i + 1; // skip blank line after use block
+          break;
+        } else if (insertIdx > 0) {
+          break; // first non-use, non-blank line
+        }
+      }
+      const before = lines.slice(0, insertIdx).join('\n');
+      const after = lines.slice(insertIdx).join('\n');
+      code = before + (before ? '\n' : '') + constants.join('\n') + '\n\n' + after;
     } else {
       code = finalCode;
     }

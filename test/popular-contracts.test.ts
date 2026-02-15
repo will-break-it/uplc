@@ -19,7 +19,7 @@ import { fileURLToPath } from 'url';
 import { UPLCDecoder, showUPLC } from '@harmoniclabs/uplc';
 import { convertFromHarmoniclabs } from '@uplc/parser';
 import { analyzeContract } from '@uplc/patterns';
-import { generate, verifyCode } from '@uplc/codegen';
+import { generate, verifyCode, checkBalancedDelimiters, checkValidatorStructure, checkSyntaxIssues } from '@uplc/codegen';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, 'fixtures', 'cbor');
@@ -176,6 +176,7 @@ function extractConstants(ast: any): ExtractedConstants {
 interface QualityReport {
   hash: string;
   type: string;
+  code: string;
   codeLength: number;
   // Constants
   totalConstants: number;
@@ -186,6 +187,9 @@ interface QualityReport {
   questionMarks: number; // count of '???' in output
   // Confidence
   confidence: string;
+  // Structural
+  undefinedFunctions: string[];
+  placeholderScore: number;
 }
 
 /** Extract constants from raw harmoniclabs AST (catches data-embedded values the converter may not expose) */
@@ -280,6 +284,7 @@ function analyzeQuality(hash: string): QualityReport {
   return {
     hash,
     type: structure.type,
+    code,
     codeLength: code.length,
     totalConstants: verification.totalConstants,
     foundConstants: verification.foundConstants,
@@ -289,12 +294,25 @@ function analyzeQuality(hash: string): QualityReport {
     missingConstants: verification.missingConstants,
     questionMarks,
     confidence: verification.confidence,
+    undefinedFunctions: verification.undefinedFunctions,
+    placeholderScore: verification.placeholderScore,
   };
 }
 
 // ─── Tests ───────────────────────────────────────────────────────
 
 const fixtures = discoverFixtures();
+
+// Cache pipeline results — each fixture runs the full pipeline once
+const reportCache = new Map<string, QualityReport>();
+function getReport(hash: string): QualityReport {
+  let report = reportCache.get(hash);
+  if (!report) {
+    report = analyzeQuality(hash);
+    reportCache.set(hash, report);
+  }
+  return report;
+}
 
 describe('Fixture Pipeline', () => {
   it('has fixture files', () => {
@@ -306,24 +324,57 @@ describe('Fixture Pipeline', () => {
 
     describe(shortHash, () => {
       it('decodes and decompiles without crashing', () => {
-        const report = analyzeQuality(hash);
+        const report = getReport(hash);
         expect(report.codeLength).toBeGreaterThan(0);
         expect(report.type).toBeDefined();
       });
 
       it('preserves all constants', () => {
-        const report = analyzeQuality(hash);
+        const report = getReport(hash);
         if (report.missingConstants.length > 0) {
           console.log(`  ${shortHash}: ${report.foundConstants}/${report.totalConstants} — missing: ${report.missingConstants.join(', ')}`);
         }
-        // Ratchet: all fixtures must be at 100% constant recovery
         expect(report.constantScore).toBe(1);
+      });
+
+      it('has balanced delimiters', () => {
+        const report = getReport(hash);
+        const check = checkBalancedDelimiters(report.code);
+        if (!check.ok) {
+          console.log(`  ${shortHash}: ${check.issues.join(', ')}`);
+        }
+        expect(check.ok, check.issues.join('; ')).toBe(true);
+      });
+
+      it('has valid validator structure', () => {
+        const report = getReport(hash);
+        const check = checkValidatorStructure(report.code, report.type);
+        expect(check.ok, check.issues.join('; ')).toBe(true);
+      });
+
+      it('has no syntax issues', () => {
+        const report = getReport(hash);
+        const check = checkSyntaxIssues(report.code);
+        if (!check.ok) {
+          console.log(`  ${shortHash}: ${check.issues.join(', ')}`);
+        }
+        expect(check.ok, check.issues.join('; ')).toBe(true);
+      });
+
+      it('has no undefined functions', () => {
+        const report = getReport(hash);
+        expect(report.undefinedFunctions.length, `undefined: ${report.undefinedFunctions.join(', ')}`).toBe(0);
+      });
+
+      it('has no placeholder patterns', () => {
+        const report = getReport(hash);
+        expect(report.placeholderScore).toBe(1.0);
       });
     });
   }
 
   it('quality summary', () => {
-    const reports = fixtures.map(analyzeQuality);
+    const reports = fixtures.map(getReport);
 
     console.log('\n=== Decompilation Quality ===');
     console.log(
@@ -358,7 +409,6 @@ describe('Fixture Pipeline', () => {
     console.log(`Confidence: 🟢 ${highConf}  🟡 ${reports.filter(r => r.confidence === 'medium').length}  🔴 ${reports.filter(r => r.confidence === 'low').length}`);
     console.log(`Total ???: ${totalQuestionMarks} across all contracts`);
 
-    // All fixtures must process
     expect(reports.length).toBe(fixtures.length);
   });
 });

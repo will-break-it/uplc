@@ -28,3 +28,7 @@ test/fixtures/build/
 test/fixtures/docs/
 # Admin scripts (contain namespace IDs)
 scripts/
+
+# Test artifacts
+test/.aiken-tmp/
+test/reports/

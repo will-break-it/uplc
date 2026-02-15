@@ -12,23 +12,29 @@
  */
 export function simplifyBooleans(code: string): string {
   // Pattern: if X { True } else { False } → X
+  // Use [^{}] to prevent crossing brace boundaries
   code = code.replace(
-    /if\s+(.+?)\s*\{\s*True\s*\}\s*else\s*\{\s*False\s*\}/g,
+    /if\s+([^{}]+?)\s*\{\s*True\s*\}\s*else\s*\{\s*False\s*\}/g,
     '$1'
   );
-  
+
   // Pattern: if X { False } else { True } → !X
+  // Skip when captured expression starts with if/when/fn to avoid !(if ...) parse errors
   code = code.replace(
-    /if\s+(.+?)\s*\{\s*False\s*\}\s*else\s*\{\s*True\s*\}/g,
-    '!($1)'
+    /if\s+([^{}]+?)\s*\{\s*False\s*\}\s*else\s*\{\s*True\s*\}/g,
+    (match, expr) => {
+      const trimmed = expr.trim();
+      if (/^[\(]*(if |when |fn\()/.test(trimmed)) return match;
+      return `!(${trimmed})`;
+    }
   );
-  
+
   // Simplify double negation: !(!X) → X
   code = code.replace(/!\s*\(\s*!\s*\(([^)]+)\)\s*\)/g, '$1');
-  
+
   // Simplify: !(X == Y) → X != Y
-  code = code.replace(/!\s*\(\s*(.+?)\s*==\s*(.+?)\s*\)/g, '$1 != $2');
-  
+  code = code.replace(/!\s*\(\s*([^{}]+?)\s*==\s*([^{}]+?)\s*\)/g, '$1 != $2');
+
   return code;
 }
 
@@ -125,8 +131,9 @@ export function simplifyPairAccess(code: string): string {
  */
 export function simplifyTailChains(code: string): string {
   // Count consecutive .tail() calls followed by .head()
-  const tailChainPattern = /(\w+(?:\.\w+)*)((?:\.tail\(\))+)\.head\(\)/g;
-  
+  // Base must start with a letter or _ (not a digit like 2nd)
+  const tailChainPattern = /([a-zA-Z_]\w*(?:\.\w+)*)((?:\.tail\(\))+)\.head\(\)/g;
+
   return code.replace(tailChainPattern, (match, base, tails) => {
     const count = (tails.match(/\.tail\(\)/g) || []).length;
     if (count >= 3) {
@@ -152,14 +159,14 @@ export function extractConstants(code: string): { code: string; constants: strin
       return seen.get(hex)!;
     }
     
-    // Generate name based on length
+    // Generate name based on length (lowercase for valid Aiken identifiers)
     let name: string;
     if (hex.length === 56) {
-      name = `SCRIPT_HASH_${constIndex}`;
+      name = `script_hash_${constIndex}`;
     } else if (hex.length === 64) {
-      name = `POLICY_ID_${constIndex}`;
+      name = `policy_id_${constIndex}`;
     } else {
-      name = `CONST_${constIndex}`;
+      name = `const_${constIndex}`;
     }
     
     seen.set(hex, name);
@@ -200,68 +207,15 @@ export function detectRecursion(code: string): string {
 }
 
 /**
- * Fix malformed if expressions
- * - `if X)` → `X`  (broken partial application)
- * - `if if X { Y } else { if Z) }` → `if X { Y } else { Z }`
- */
-export function fixMalformedIf(code: string): string {
-  // Pattern: `if VAR)` - broken partial ifThenElse, replace with just the var
-  code = code.replace(/if\s+([a-z0-9_]+)\)/gi, '$1');
-  
-  // Pattern: `{ if VAR) }` - inside braces
-  code = code.replace(/\{\s*if\s+([a-z0-9_]+)\)\s*\}/gi, '{ $1 }');
-  
-  return code;
-}
-
-/**
- * Remove duplicate let bindings
- * Keeps first definition, removes subsequent identical definitions
- */
-export function deduplicateBindings(code: string): string {
-  const seen = new Map<string, string>(); // name -> first definition
-  const lines = code.split('\n');
-  const result: string[] = [];
-  
-  for (const line of lines) {
-    // Match let binding: `let name = ...`
-    const match = line.match(/^(\s*)let\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/);
-    
-    if (match) {
-      const [, indent, name, value] = match;
-      const existingValue = seen.get(name);
-      
-      if (existingValue === undefined) {
-        // First time seeing this name - keep it
-        seen.set(name, value);
-        result.push(line);
-      } else if (existingValue === value) {
-        // Exact duplicate - skip
-        continue;
-      } else {
-        // Same name, different value - keep (might be intentional shadowing)
-        result.push(line);
-      }
-    } else {
-      result.push(line);
-    }
-  }
-  
-  return result.join('\n');
-}
-
-/**
  * Run all post-processing transformations
  */
 export function postProcess(code: string): string {
-  code = deduplicateBindings(code);
   code = simplifyBooleans(code);
   code = simplifyLogicalOps(code);
-  code = simplifyPairAccess(code);
+  // simplifyPairAccess removed — no longer matches after builtin.fst_pair/snd_pair changes
   code = simplifyTailChains(code);
   code = formatArithmetic(code);
   code = detectRecursion(code);
-  code = fixMalformedIf(code);
-  
+
   return code;
 }

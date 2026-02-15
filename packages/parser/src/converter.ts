@@ -242,13 +242,22 @@ function convertConstValue(type: ConstType, value: ConstValue): UplcValue {
 }
 
 /**
+ * Shared mutable counter for generating globally unique variable names.
+ * Using a reference type ensures counter increments propagate across all
+ * branches of the AST (Application, Case, Constr).
+ */
+interface Counter {
+  value: number;
+}
+
+/**
  * Conversion context - tracks lambda bindings for de Bruijn → name resolution
  */
 interface ConversionContext {
   /** Stack of bound variable names (most recent first) */
   bindings: string[];
-  /** Counter for generating unique names */
-  nameCounter: number;
+  /** Shared counter for generating unique names */
+  counter: Counter;
 }
 
 /**
@@ -309,10 +318,10 @@ function convertTerm(term: UPLCTerm, ctx: ConversionContext): UplcTerm {
   
   // Lambda - NOTE: harmoniclabs Lambda has no param name, just body
   if (isLambda(term)) {
-    const paramName = indexToName(ctx.nameCounter++);
+    const paramName = indexToName(ctx.counter.value++);
     const newCtx: ConversionContext = {
       bindings: [paramName, ...ctx.bindings],
-      nameCounter: ctx.nameCounter,
+      counter: ctx.counter, // Same reference — mutations propagate to siblings
     };
     return {
       tag: 'lam',
@@ -397,5 +406,5 @@ function convertTerm(term: UPLCTerm, ctx: ConversionContext): UplcTerm {
  * @returns Our AST representation
  */
 export function convertFromHarmoniclabs(term: UPLCTerm): UplcTerm {
-  return convertTerm(term, { bindings: [], nameCounter: 0 });
+  return convertTerm(term, { bindings: [], counter: { value: 0 } });
 }

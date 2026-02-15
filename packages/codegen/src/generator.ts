@@ -3,14 +3,14 @@
  */
 
 import type { ContractStructure, RedeemerVariant, ValidationCheck, ScriptPurpose } from '@uplc/patterns';
-import type { 
-  GeneratorOptions, 
-  GeneratedCode, 
-  ValidatorBlock, 
-  HandlerBlock, 
+import type {
+  GeneratorOptions,
+  GeneratedCode,
+  ValidatorBlock,
+  HandlerBlock,
   CodeBlock,
   TypeDefinition,
-  ParameterInfo 
+  ParameterInfo
 } from './types.js';
 import { BUILTIN_MAP, getRequiredImports } from './stdlib.js';
 import { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP, type ExtractedHelper } from './helpers.js';
@@ -18,24 +18,88 @@ import { BindingEnvironment } from './bindings.js';
 import { extractFragments, type CodeFragment } from './fragments.js';
 import { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch } from './patterns.js';
 
-// Track builtins used during code generation (reset per generateValidator call)
-let usedBuiltins: Set<string> = new Set();
+// ============ CodegenContext ============
 
-// Track extracted helpers during code generation
-let extractedHelpers: Map<string, ExtractedHelper> = new Map();
+/**
+ * Shared module-level state, mutated across all scopes.
+ */
+interface SharedState {
+  usedBuiltins: Set<string>;
+  extractedHelpers: Map<string, ExtractedHelper>;
+  txContextParam: string | null;
+  currentUtilityBindings: Record<string, string>;
+  fullAstRef: any;
+  hoistedFunctions: string[];
+  hoistedFnCounter: number;
+  selfRecursiveParams: Map<string, string>;
+  selfRecursiveCaptured: Map<string, string[]>;
+  selfRecursiveArity: Map<string, number>;
+}
 
-// Track which parameters are the transaction context
-let txContextParam: string | null = null;
+/**
+ * Encapsulates all generation state. Replaces 14 mutable globals.
+ *
+ * - `params`, `depth` are per-scope (change via helper methods)
+ * - `emittedBindings` is shared normally, isolated for hoisted functions
+ * - `bindingEnv` is shared; scope tracked via push/pop
+ * - Everything in `shared` is module-level mutable state
+ */
+class CodegenContext {
+  constructor(
+    readonly params: string[],
+    readonly depth: number,
+    readonly bindingEnv: BindingEnvironment,
+    readonly emittedBindings: Set<string>,
+    readonly failBindings: Map<string, string>,
+    readonly inliningStack: Set<string>,
+    readonly pendingKeepBindings: Set<string>,
+    readonly shared: SharedState,
+  ) {}
 
-// Binding environment for resolving let-bound variables
-let bindingEnv: BindingEnvironment | null = null;
+  /** New context with extra params and incremented depth */
+  withExtraParams(extra: string[]): CodegenContext {
+    return new CodegenContext(
+      [...this.params, ...extra],
+      this.depth + 1,
+      this.bindingEnv,
+      this.emittedBindings,
+      this.failBindings,
+      this.inliningStack,
+      this.pendingKeepBindings,
+      this.shared,
+    );
+  }
 
-// Track bindings currently being inlined to prevent infinite recursion
-let inliningStack: Set<string> = new Set();
+  /** New context at depth+1 */
+  deeper(): CodegenContext {
+    return new CodegenContext(
+      this.params,
+      this.depth + 1,
+      this.bindingEnv,
+      this.emittedBindings,
+      this.failBindings,
+      this.inliningStack,
+      this.pendingKeepBindings,
+      this.shared,
+    );
+  }
 
-// When true, don't inline 'keep' bindings from BindingEnvironment
-// (used when bodyWithBindings includes let-bindings in the AST)
-let skipKeepInlining = false;
+  /** New context with isolated emittedBindings (for hoisted function bodies) */
+  withIsolatedEmitted(): CodegenContext {
+    return new CodegenContext(
+      this.params,
+      this.depth,
+      this.bindingEnv,
+      new Set<string>(),
+      this.failBindings,
+      this.inliningStack,
+      this.pendingKeepBindings,
+      this.shared,
+    );
+  }
+}
+
+// ============ Constants ============
 
 const DEFAULT_OPTIONS: GeneratorOptions = {
   comments: true,
@@ -44,9 +108,239 @@ const DEFAULT_OPTIONS: GeneratorOptions = {
   indent: '  '
 };
 
+// Common variant names for redeemer types
+const VARIANT_NAMES = ['Cancel', 'Update', 'Claim', 'Execute', 'Withdraw', 'Deposit'];
+
+// ============ Public API ============
+
 /**
- * Generate validator name based on script purpose
+ * Generate code structure from contract analysis
  */
+export function generateValidator(
+  structure: ContractStructure,
+  options?: Partial<GeneratorOptions>
+): GeneratedCode {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // Build binding environment from full AST
+  let bindingEnv = new BindingEnvironment();
+  if (structure.fullAst) {
+    bindingEnv = BindingEnvironment.build(structure.fullAst);
+  }
+
+  // Extract helpers from raw body
+  let extractedHelpersMap = new Map<string, ExtractedHelper>();
+  if (structure.rawBody) {
+    extractedHelpersMap = extractHelpers(structure.rawBody);
+  }
+
+  // Create shared state
+  const shared: SharedState = {
+    usedBuiltins: new Set(),
+    extractedHelpers: extractedHelpersMap,
+    txContextParam: structure.params[structure.params.length - 1] || null,
+    currentUtilityBindings: structure.utilityBindings || {},
+    fullAstRef: structure.fullAst || null,
+    hoistedFunctions: [],
+    hoistedFnCounter: 0,
+    selfRecursiveParams: new Map(),
+    selfRecursiveCaptured: new Map(),
+    selfRecursiveArity: new Map(),
+  };
+
+  // Create initial context
+  const ctx = new CodegenContext(
+    structure.params,
+    0,
+    bindingEnv,
+    new Set(),
+    new Map(),
+    new Set(),
+    new Set(),
+    shared,
+  );
+
+  const types: TypeDefinition[] = [];
+
+  // Generate datum type if used with fields
+  if (structure.datum?.isUsed && structure.datum.fields.length > 0) {
+    types.push(generateDatumType(structure.datum.fields));
+  }
+
+  // Generate redeemer type if we have variants
+  if (structure.redeemer?.variants?.length > 0) {
+    types.push(generateRedeemerType(structure.redeemer.variants, opts));
+  }
+
+  // Determine handler kind based on script purpose
+  const handlerKind = purposeToHandlerKind(structure.type);
+
+  // Generate handler body (this populates usedBuiltins)
+  const body = generateHandlerBody(structure, opts, ctx);
+
+  // Build handler
+  const handler: HandlerBlock = {
+    kind: handlerKind,
+    params: generateParams(structure, opts),
+    body
+  };
+
+  // Build validator with purpose-based name
+  const validatorName = getValidatorName(structure.type);
+  const validator: ValidatorBlock = {
+    name: validatorName,
+    params: [],
+    handlers: [handler]
+  };
+
+  // Collect required imports from used builtins
+  const imports = getRequiredImports(Array.from(shared.usedBuiltins));
+
+  // Convert script parameters to output format
+  const scriptParams = structure.scriptParams?.map(p => ({
+    name: p.name,
+    type: p.type as 'bytestring' | 'integer' | 'data',
+    value: p.value
+  }));
+
+  return {
+    validator,
+    types,
+    imports,
+    scriptParams,
+    hoistedFunctions: shared.hoistedFunctions.length > 0 ? shared.hoistedFunctions : undefined,
+  };
+}
+
+/**
+ * Fragmented output structure for AI processing
+ */
+export interface FragmentedOutput {
+  fragments: Array<{
+    id: string;
+    role: string;
+    suggestedName: string;
+    params: string[];
+    returnType: string;
+    builtins: string[];
+    code: string;
+  }>;
+  mainCode: string;
+  fullOutput: string;
+}
+
+/**
+ * Generate fragmented output for AI consumption
+ */
+export function generateFragmented(structure: ContractStructure): FragmentedOutput {
+  // Build binding environment
+  const bindingEnv = BindingEnvironment.build(structure.fullAst || structure.rawBody || { tag: 'error' } as any);
+
+  const shared: SharedState = {
+    usedBuiltins: new Set(),
+    extractedHelpers: new Map(),
+    txContextParam: null,
+    currentUtilityBindings: structure.utilityBindings || {},
+    fullAstRef: null,
+    hoistedFunctions: [],
+    hoistedFnCounter: 0,
+    selfRecursiveParams: new Map(),
+    selfRecursiveCaptured: new Map(),
+    selfRecursiveArity: new Map(),
+  };
+
+  if (!structure.rawBody) {
+    return { fragments: [], mainCode: '', fullOutput: '' };
+  }
+
+  const ctx = new CodegenContext(
+    [],
+    0,
+    bindingEnv,
+    new Set(),
+    new Map(),
+    new Set(),
+    new Set(),
+    shared,
+  );
+
+  // Extract fragments
+  const bindings = bindingEnv.all();
+  const fragmented = extractFragments(bindings, structure.rawBody, structure.params);
+
+  // Generate code for each fragment
+  const fragmentOutputs = fragmented.fragments.map(frag => {
+    const code = termToExpression(frag.body, ctx);
+    return {
+      id: frag.id,
+      role: frag.role,
+      suggestedName: frag.suggestedName || frag.name,
+      params: frag.params,
+      returnType: frag.returnType,
+      builtins: frag.builtinsUsed.slice(0, 5),
+      code
+    };
+  });
+
+  // Generate main validator code
+  const mainCtx = new CodegenContext(
+    structure.params,
+    0,
+    bindingEnv,
+    new Set(),
+    new Map(),
+    new Set(),
+    new Set(),
+    shared,
+  );
+  const mainCode = termToExpression(structure.rawBody, mainCtx);
+
+  // Build combined output
+  const sections: string[] = [];
+
+  const byRole = new Map<string, typeof fragmentOutputs>();
+  for (const frag of fragmentOutputs) {
+    if (!byRole.has(frag.role)) byRole.set(frag.role, []);
+    byRole.get(frag.role)!.push(frag);
+  }
+
+  const roleOrder = ['fold', 'calculator', 'validator', 'extractor', 'combinator', 'constructor', 'helper'];
+  for (const role of roleOrder) {
+    const frags = byRole.get(role);
+    if (!frags || frags.length === 0) continue;
+
+    sections.push(`\n// ========== ${role.toUpperCase()} FRAGMENTS ==========`);
+
+    for (const frag of frags) {
+      sections.push(`
+// [${frag.id}] ${frag.suggestedName}
+// Role: ${frag.role} | Returns: ${frag.returnType}
+// Uses: ${frag.builtins.join(', ') || 'none'}
+fn ${frag.suggestedName}(${frag.params.join(', ')}) -> ${frag.returnType} {
+  ${frag.code}
+}`);
+    }
+  }
+
+  sections.push(`\n// ========== MAIN VALIDATOR ==========`);
+  sections.push(`validator {
+  ${structure.type}(${structure.params.map((p, i) => {
+    const types = ['Option<Datum>', 'Redeemer', 'OutputReference', 'Transaction'];
+    return `${p}: ${types[i] || 'Data'}`;
+  }).join(', ')}) {
+    ${mainCode}
+  }
+}`);
+
+  return {
+    fragments: fragmentOutputs,
+    mainCode,
+    fullOutput: sections.join('\n')
+  };
+}
+
+// ============ Internal: Validator scaffolding ============
+
 function getValidatorName(purpose: ScriptPurpose): string {
   switch (purpose) {
     case 'spend': return 'script';
@@ -59,9 +353,6 @@ function getValidatorName(purpose: ScriptPurpose): string {
   }
 }
 
-/**
- * Map script purpose to handler kind
- */
 function purposeToHandlerKind(purpose: ScriptPurpose): HandlerBlock['kind'] {
   switch (purpose) {
     case 'spend': return 'spend';
@@ -70,96 +361,14 @@ function purposeToHandlerKind(purpose: ScriptPurpose): HandlerBlock['kind'] {
     case 'publish': return 'publish';
     case 'vote': return 'vote';
     case 'propose': return 'propose';
-    default: return 'spend';  // Default fallback
+    default: return 'spend';
   }
 }
 
-/**
- * Generate code structure from contract analysis
- */
-export function generateValidator(
-  structure: ContractStructure, 
-  options?: Partial<GeneratorOptions>
-): GeneratedCode {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  
-  // Reset tracking state
-  usedBuiltins = new Set();
-  extractedHelpers = new Map();
-  bindingEnv = null;
-  inliningStack = new Set();
-  
-  // Build binding environment from full AST (includes all let-bindings)
-  // Extract helpers from raw body (the validator body after stripping params)
-  if (structure.fullAst) {
-    bindingEnv = BindingEnvironment.build(structure.fullAst);
-  }
-  if (structure.rawBody) {
-    extractedHelpers = extractHelpers(structure.rawBody);
-  }
-  
-  // Determine transaction context parameter
-  txContextParam = structure.params[structure.params.length - 1] || null;
-  
-  const types: TypeDefinition[] = [];
-  
-  // Generate datum type if used with fields
-  if (structure.datum?.isUsed && structure.datum.fields.length > 0) {
-    types.push(generateDatumType(structure.datum.fields));
-  }
-  
-  // Generate redeemer type if we have variants
-  if (structure.redeemer?.variants?.length > 0) {
-    types.push(generateRedeemerType(structure.redeemer.variants, opts));
-  }
-  
-  // Determine handler kind based on script purpose
-  const handlerKind = purposeToHandlerKind(structure.type);
-  
-  // Generate handler body (this populates usedBuiltins)
-  const body = generateHandlerBody(structure, opts);
-  
-  // Build handler
-  const handler: HandlerBlock = {
-    kind: handlerKind,
-    params: generateParams(structure, opts),
-    body
-  };
-  
-  // Build validator with purpose-based name
-  const validatorName = getValidatorName(structure.type);
-  const validator: ValidatorBlock = {
-    name: validatorName,
-    params: [], // No validator-level params detected yet
-    handlers: [handler]
-  };
-  
-  // Collect required imports from used builtins
-  const imports = getRequiredImports(Array.from(usedBuiltins));
-  
-  // Convert script parameters to output format
-  const scriptParams = structure.scriptParams?.map(p => ({
-    name: p.name,
-    type: p.type as 'bytestring' | 'integer' | 'data',
-    value: p.value
-  }));
-  
-  return { validator, types, imports, scriptParams };
-}
-
-// Common variant names for redeemer types
-const VARIANT_NAMES = ['Cancel', 'Update', 'Claim', 'Execute', 'Withdraw', 'Deposit'];
-
-/**
- * Get variant name for a given index
- */
 function getVariantName(index: number): string {
   return index < VARIANT_NAMES.length ? VARIANT_NAMES[index] : `Variant${index}`;
 }
 
-/**
- * Generate redeemer type definition
- */
 function generateRedeemerType(variants: RedeemerVariant[], opts: GeneratorOptions): TypeDefinition {
   return {
     name: 'Action',
@@ -174,13 +383,8 @@ function generateRedeemerType(variants: RedeemerVariant[], opts: GeneratorOption
   };
 }
 
-/**
- * Generate datum type definition from field info
- */
 function generateDatumType(fields: import('@uplc/patterns').FieldInfo[]): TypeDefinition {
-  // Common datum field names based on position
   const fieldNameHints = ['owner', 'beneficiary', 'deadline', 'amount', 'token', 'data'];
-  
   return {
     name: 'Datum',
     kind: 'struct',
@@ -191,23 +395,16 @@ function generateDatumType(fields: import('@uplc/patterns').FieldInfo[]): TypeDe
   };
 }
 
-/**
- * Infer a field name based on index and type
- */
 function inferFieldName(index: number, inferredType: string): string {
   const hints: Record<string, string[]> = {
     'ByteArray': ['owner', 'beneficiary', 'token_name', 'signature'],
     'Int': ['amount', 'deadline', 'index', 'count'],
     'unknown': ['value', 'data', 'param', 'arg']
   };
-  
   const typeHints = hints[inferredType] || hints['unknown'];
   return index < typeHints.length ? typeHints[index] : `field_${index}`;
 }
 
-/**
- * Map inferred types to Aiken types
- */
 function mapToAikenType(inferredType: string): string {
   switch (inferredType) {
     case 'integer': return 'Int';
@@ -219,744 +416,94 @@ function mapToAikenType(inferredType: string): string {
     case 'unknown':
     case 'custom':
     default:
-      return 'Data';  // Escape hatch for unknown types
+      return 'Data';
   }
 }
 
-/**
- * Generate handler parameters based on script purpose
- * 
- * Plutus V3 handler signatures:
- * - spend(datum?, redeemer, output_ref, tx) - 4 params
- * - mint(redeemer, policy_id, tx) - 3 params  
- * - withdraw(redeemer, credential, tx) - 3 params
- * - publish(redeemer, certificate, tx) - 3 params
- * - vote(redeemer, voter, governance_action_id, tx) - 4 params
- * - propose(redeemer, proposal_procedure, tx) - 3 params
- */
 function generateParams(structure: ContractStructure, opts: GeneratorOptions): ParameterInfo[] {
   const params = structure.params;
   const redeemerType = structure.redeemer?.variants?.length > 0 ? 'Action' : 'Data';
   const datumType = structure.datum?.isUsed && structure.datum.fields.length > 0 ? 'Datum' : 'Data';
-  
+
   switch (structure.type) {
     case 'spend':
       return [
         { name: params[0] || 'datum', type: `Option<${datumType}>`, isOptional: true },
         { name: params[1] || 'redeemer', type: redeemerType },
-        { name: params[2] || 'own_ref', type: 'OutputReference' },
-        { name: params[3] || 'tx', type: 'Transaction' }
+        { name: params[2] || 'own_ref', type: 'Data' },
+        { name: params[3] || 'tx', type: 'Data' }
       ];
-      
     case 'mint':
       return [
         { name: params[0] || 'redeemer', type: redeemerType },
-        { name: params[1] || 'policy_id', type: 'PolicyId' },
-        { name: params[2] || 'tx', type: 'Transaction' }
+        { name: params[1] || 'policy_id', type: 'Data' },
+        { name: params[2] || 'tx', type: 'Data' }
       ];
-      
     case 'withdraw':
       return [
         { name: params[0] || 'redeemer', type: redeemerType },
-        { name: params[1] || 'credential', type: 'Credential' },
-        { name: params[2] || 'tx', type: 'Transaction' }
+        { name: params[1] || 'credential', type: 'Data' },
+        { name: params[2] || 'tx', type: 'Data' }
       ];
-      
     case 'publish':
       return [
         { name: params[0] || 'redeemer', type: redeemerType },
-        { name: params[1] || 'certificate', type: 'Certificate' },
-        { name: params[2] || 'tx', type: 'Transaction' }
+        { name: params[1] || 'certificate', type: 'Data' },
+        { name: params[2] || 'tx', type: 'Data' }
       ];
-      
     case 'vote':
       return [
         { name: params[0] || 'redeemer', type: redeemerType },
-        { name: params[1] || 'voter', type: 'Voter' },
-        { name: params[2] || 'governance_action_id', type: 'GovernanceActionId' },
-        { name: params[3] || 'tx', type: 'Transaction' }
+        { name: params[1] || 'voter', type: 'Data' },
+        { name: params[2] || 'governance_action_id', type: 'Data' },
+        { name: params[3] || 'tx', type: 'Data' }
       ];
-      
     case 'propose':
       return [
         { name: params[0] || 'redeemer', type: redeemerType },
-        { name: params[1] || 'proposal', type: 'ProposalProcedure' },
-        { name: params[2] || 'tx', type: 'Transaction' }
+        { name: params[1] || 'proposal', type: 'Data' },
+        { name: params[2] || 'tx', type: 'Data' }
       ];
-      
     default:
-      // Unknown - use generic spend-like signature
       return [
         { name: params[0] || 'datum', type: 'Option<Data>', isOptional: true },
         { name: params[1] || 'redeemer', type: redeemerType },
-        { name: params[2] || 'ctx', type: 'ScriptContext' }
+        { name: params[2] || 'ctx', type: 'Data' }
       ];
   }
 }
 
-// Global context for utility bindings during code generation
-let currentUtilityBindings: Record<string, string> = {};
+// ============ Internal: Handler body generation ============
 
-/**
- * Generate the handler body
- */
-function generateHandlerBody(structure: ContractStructure, opts: GeneratorOptions): CodeBlock {
-  const { redeemer, checks, rawBody, params, utilityBindings } = structure;
-  
-  // Set utility bindings for substitution
-  currentUtilityBindings = utilityBindings || {};
-  
+function generateHandlerBody(structure: ContractStructure, opts: GeneratorOptions, ctx: CodegenContext): CodeBlock {
+  const { redeemer, checks, rawBody } = structure;
+
   // If we have multiple redeemer variants, generate a when expression
   if (redeemer.variants.length > 1) {
-    return generateWhenBlock(redeemer.variants, opts);
+    return generateWhenBlock(redeemer.variants, opts, ctx);
   }
-  
+
   // If we have a raw body, try to generate code from it
-  // Prefer bodyWithBindings (includes let-binding chain with constants)
   const bodyToProcess = structure.bodyWithBindings || rawBody;
   if (bodyToProcess) {
-    // Emit referenced keep-bindings as let-statements to preserve constants.
-    // This avoids exponential blowup from inlining (each binding computed once).
-    skipKeepInlining = true;
-    const preamble = emitReferencedBindings(bodyToProcess, params);
-    const expr = termToExpression(bodyToProcess, params, 0);
-    skipKeepInlining = false;
+    const preamble = emitReferencedBindings(bodyToProcess, ctx);
+    const expr = termToExpression(bodyToProcess, ctx);
     if (expr !== '???' && expr !== 'True') {
       const content = preamble ? preamble + '\n' + expr : expr;
-      return {
-        kind: 'expression',
-        content
-      };
+      return { kind: 'expression', content };
     }
   }
-  
+
   // If we have checks, generate condition chain
   if (checks.length > 0) {
     return generateChecksBlock(checks, opts);
   }
-  
-  // Fallback - just return True (always-succeeding validator)
-  return {
-    kind: 'expression',
-    content: 'True'
-  };
+
+  // Fallback
+  return { kind: 'expression', content: 'True' };
 }
 
-/**
- * Emit referenced keep-bindings as let-statements in dependency order.
- * Each binding is computed exactly once — no exponential blowup.
- */
-function emitReferencedBindings(body: any, params: string[]): string {
-  if (!bindingEnv) return '';
-  
-  // Step 1: Find all variables referenced from the body
-  const referencedVars = new Set<string>();
-  collectVarNames(body, referencedVars);
-  
-  // Step 2: Transitively collect all keep-bindings needed
-  const needed = new Set<string>();
-  const queue = [...referencedVars];
-  while (queue.length > 0) {
-    const name = queue.pop()!;
-    if (needed.has(name) || params.includes(name)) continue;
-    const resolved = bindingEnv.get(name);
-    if (!resolved || resolved.category !== 'keep') continue;
-    needed.add(name);
-    // Find vars referenced by this binding's value
-    const deps = new Set<string>();
-    collectVarNames(resolved.value, deps);
-    for (const dep of deps) {
-      if (!needed.has(dep)) queue.push(dep);
-    }
-  }
-  
-  if (needed.size === 0) return '';
-  
-  // Step 3: Topological sort (dependencies first)
-  const sorted: string[] = [];
-  const visited = new Set<string>();
-  const visiting = new Set<string>(); // cycle detection
-  
-  function visit(name: string) {
-    if (visited.has(name) || !needed.has(name)) return;
-    if (visiting.has(name)) return; // break cycles
-    visiting.add(name);
-    
-    const resolved = bindingEnv!.get(name);
-    if (resolved) {
-      const deps = new Set<string>();
-      collectVarNames(resolved.value, deps);
-      for (const dep of deps) {
-        if (needed.has(dep) && dep !== name) visit(dep);
-      }
-    }
-    
-    visiting.delete(name);
-    visited.add(name);
-    sorted.push(name);
-  }
-  
-  for (const name of needed) {
-    visit(name);
-  }
-  
-  // Step 4: Emit let-statements in order
-  // Each binding is processed with skipKeepInlining=true,
-  // so vars reference names (not inline) — no exponential expansion
-  const lets: string[] = [];
-  for (const name of sorted) {
-    const resolved = bindingEnv!.get(name);
-    if (!resolved) continue;
-    
-    inliningStack.add(name); // prevent self-reference
-    const valueExpr = termToExpression(resolved.value, params, 0);
-    inliningStack.delete(name);
-    
-    if (valueExpr !== '???' && valueExpr !== name) {
-      const displayName = resolved.semanticName || name;
-      lets.push(`let ${displayName} = ${valueExpr}`);
-    }
-  }
-  
-  return lets.join('\n');
-}
-
-/** Collect all variable names referenced in a term */
-function collectVarNames(term: any, vars: Set<string>) {
-  if (!term) return;
-  switch (term.tag) {
-    case 'var': vars.add(term.name); break;
-    case 'app': collectVarNames(term.func, vars); collectVarNames(term.arg, vars); break;
-    case 'lam': collectVarNames(term.body, vars); break;
-    case 'force': case 'delay': collectVarNames(term.term, vars); break;
-    case 'case':
-      collectVarNames(term.scrutinee, vars);
-      term.branches?.forEach((b: any) => collectVarNames(b, vars));
-      break;
-    case 'constr':
-      term.args?.forEach((a: any) => collectVarNames(a, vars));
-      break;
-  }
-}
-
-/**
- * Flatten a chain of nested lambdas into a list of params and the inner body
- * fn(a) { fn(b) { fn(c) { body } } } → params: [a, b, c], body: body
- * 
- * Only flattens up to 6 consecutive lambdas to keep readability
- */
-function flattenLambdaChain(term: any, maxDepth: number = 6): { flatParams: string[], innerBody: any } {
-  const flatParams: string[] = [];
-  let current = term;
-  
-  while (current.tag === 'lam' && flatParams.length < maxDepth) {
-    flatParams.push(current.param);
-    current = current.body;
-  }
-  
-  return { flatParams, innerBody: current };
-}
-
-/**
- * Convert a UPLC term to an Aiken-style expression string
- */
-function termToExpression(term: any, params: string[], depth: number): string {
-  if (!term || depth > 1000) return '???';
-  
-  switch (term.tag) {
-    case 'con':
-      return constToExpression(term);
-      
-    case 'var':
-      // Check binding environment for resolved bindings - AGGRESSIVE INLINING
-      if (bindingEnv && !inliningStack.has(term.name)) {
-        const resolved = bindingEnv.get(term.name);
-        if (resolved) {
-          // Always inline constants
-          if (resolved.category === 'inline' && resolved.inlineValue) {
-            return resolved.inlineValue;
-          }
-          
-          // Inline renamed bindings as their semantic name for predicates
-          if (resolved.category === 'rename') {
-            // For is_constr_N, keep as function name (used as predicate)
-            if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
-              return resolved.semanticName;
-            }
-            // For builtin wrappers, use builtin name
-            if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
-              return resolved.semanticName;
-            }
-            // For boolean combinators, use operator name
-            if (resolved.pattern === 'boolean_and') return 'and';
-            if (resolved.pattern === 'boolean_or') return 'or';
-            // For partial builtins, use semantic name
-            if (resolved.semanticName) {
-              return resolved.semanticName;
-            }
-          }
-          
-          // 'keep' bindings are emitted as let-statements by emitReferencedBindings()
-          // No inline expansion needed — just reference by name (falls through below)
-        }
-      }
-      
-      // Check if this variable is a utility binding (substitute with builtin or predicate)
-      if (currentUtilityBindings[term.name]) {
-        const binding = currentUtilityBindings[term.name];
-        if (binding.startsWith('is_constr_')) {
-          return binding;
-        }
-        return binding;
-      }
-      
-      // Check if this is an extracted helper that should be renamed
-      const helper = extractedHelpers.get(term.name);
-      if (helper && helper.helperName !== term.name) {
-        return helper.helperName;
-      }
-      return term.name;
-      
-    case 'builtin':
-      return `builtin::${term.name}`;
-      
-    case 'lam':
-      // Try to flatten consecutive lambdas into multi-param function
-      const { flatParams, innerBody } = flattenLambdaChain(term);
-      const allParams = [...params, ...flatParams];
-      const body = termToExpression(innerBody, allParams, depth + 1);
-      
-      // If we flattened multiple params, show as multi-param function
-      if (flatParams.length > 1) {
-        return `fn(${flatParams.join(', ')}) { ${body} }`;
-      }
-      return `fn(${term.param}) { ${body} }`;
-      
-    case 'app':
-      return appToExpression(term, params, depth);
-      
-    case 'force':
-      // Force just unwraps delay - invisible in Aiken
-      return termToExpression(term.term, params, depth + 1);
-      
-    case 'delay':
-      // Delay is for lazy evaluation - Aiken is strict, so just emit the inner term
-      return termToExpression(term.term, params, depth + 1);
-      
-    case 'error':
-      return 'fail';
-      
-    case 'case':
-      return caseToExpression(term, params, depth);
-      
-    case 'constr':
-      const args = term.args?.map((a: any) => termToExpression(a, params, depth + 1)).join(', ') || '';
-      return `Constr(${term.index}${args ? ', ' + args : ''})`;
-      
-    default:
-      return '???';
-  }
-}
-
-/**
- * Convert a constant to expression
- */
-function constToExpression(term: any): string {
-  if (!term.value) return '()';
-  
-  switch (term.value.tag) {
-    case 'integer':
-      return term.value.value.toString();
-    case 'bool':
-      return term.value.value ? 'True' : 'False';
-    case 'unit':
-      return '()';
-    case 'bytestring': {
-      const val = term.value.value;
-      // Handle both Uint8Array and plain object with numeric indices
-      const bytes = val instanceof Uint8Array ? val : (Array.isArray(val) ? val : Object.values(val));
-      const hex = Array.from(bytes as number[])
-        .map((b: number) => b.toString(16).padStart(2, '0'))
-        .join('');
-      return `#"${hex}"`;
-    }
-    case 'string':
-      return `"${term.value.value}"`;
-    case 'data':
-      // Handle Data-encoded values (con data B #..., con data I ..., etc.)
-      return dataToExpression(term.value.value);
-    case 'list': {
-      // Handle list constants: con (list data) [item1, item2, ...]
-      const items = term.value.items || term.value.value || term.value.list || [];
-      if (!Array.isArray(items) || items.length === 0) return '[]';
-      const itemExprs = items.map((item: any) => {
-        if (item?.tag === 'data' && item?.value) return dataToExpression(item.value);
-        if (item?.tag) return constToExpression({ value: item });
-        return dataToExpression(item);
-      });
-      return `[${itemExprs.join(', ')}]`;
-    }
-    case 'pair': {
-      // Handle pair constants: con (pair data data) (fst, snd)
-      const fst = term.value.fst ? dataToExpression(term.value.fst) : '???';
-      const snd = term.value.snd ? dataToExpression(term.value.snd) : '???';
-      return `(${fst}, ${snd})`;
-    }
-    default:
-      return `<${term.type || 'data'}>`;
-  }
-}
-
-/**
- * Convert a PlutusData value to expression
- * Handles: B (bytes), I (integer), List, Constr, Map
- */
-function dataToExpression(data: any): string {
-  if (!data) return '<data>';
-  
-  switch (data.tag) {
-    case 'bytes': {
-      // Data-encoded bytestring: B #hex
-      const hex = typeof data.value === 'string' 
-        ? data.value 
-        : Array.from(data.value as number[]).map((b: number) => b.toString(16).padStart(2, '0')).join('');
-      return `#"${hex}"`;
-    }
-    case 'int':
-      return data.value.toString();
-    case 'list':
-      if (!data.value || data.value.length === 0) return '[]';
-      return `[${data.value.map(dataToExpression).join(', ')}]`;
-    case 'constr':
-      const fields = data.fields?.map(dataToExpression).join(', ') || '';
-      return `Constr(${data.index}${fields ? ', ' + fields : ''})`;
-    case 'map':
-      if (!data.value || data.value.length === 0) return '{}';
-      const entries = data.value.map(([k, v]: [any, any]) => 
-        `${dataToExpression(k)}: ${dataToExpression(v)}`
-      ).join(', ');
-      return `{ ${entries} }`;
-    default:
-      // Unknown data format - try to extract useful info
-      if (typeof data === 'string') return `#"${data}"`;
-      if (typeof data === 'bigint' || typeof data === 'number') return data.toString();
-      return '<data>';
-  }
-}
-
-/**
- * Unwrap force/delay wrappers to get the underlying term
- */
-function unwrapForceDelay(term: any): any {
-  while (term && (term.tag === 'force' || term.tag === 'delay')) {
-    term = term.term;
-  }
-  return term;
-}
-
-/**
- * Flatten a nested application chain into [head, arg1, arg2, ...]
- * Unwraps force/delay at the head.
- */
-function flattenAppParts(term: any): any[] {
-  const parts: any[] = [];
-  let current = term;
-  while (current?.tag === 'app') {
-    parts.unshift(current.arg);
-    current = current.func;
-  }
-  // Unwrap force/delay at the head
-  while (current && (current.tag === 'force' || current.tag === 'delay')) {
-    current = current.term;
-  }
-  parts.unshift(current);
-  return parts;
-}
-
-/**
- * Get the builtin name from a term (unwrapping force/delay)
- */
-function getBuiltinHead(term: any): string | null {
-  let current = term;
-  while (current && (current.tag === 'force' || current.tag === 'delay')) {
-    current = current.term;
-  }
-  return current?.tag === 'builtin' ? current.name : null;
-}
-
-/**
- * Convert function application to expression
- */
-function appToExpression(term: any, params: string[], depth: number): string {
-  // CRITICAL: Check for let-binding pattern ((lam x body) value)
-  // Need to unwrap force/delay first: app(force(lam x body), delay(value))
-  const unwrappedFunc = unwrapForceDelay(term.func);
-  if (unwrappedFunc?.tag === 'lam') {
-    // This is a let-binding: ((lam x body) value)
-    const paramName = unwrappedFunc.param;
-    const value = unwrapForceDelay(term.arg) || term.arg;
-    
-    // Check if BindingEnvironment can resolve this binding
-    if (bindingEnv) {
-      const resolved = bindingEnv.get(paramName);
-      if (resolved && resolved.category === 'inline' && resolved.inlineValue) {
-        // Simple constant — BindingEnvironment handles it, skip the let
-        return termToExpression(unwrappedFunc.body, params, depth + 1);
-      }
-      if (resolved && resolved.category === 'rename' && resolved.semanticName) {
-        // Named builtin/predicate — BindingEnvironment handles it, skip the let
-        return termToExpression(unwrappedFunc.body, params, depth + 1);
-      }
-    }
-    
-    // For complex values: emit as let-binding to preserve constants
-    const valueExpr = termToExpression(value, params, depth + 1);
-    
-    // Trivial = just a variable name (renaming only, no info to preserve)
-    // Non-trivial = numbers, hex literals, expressions — must emit as let to preserve constants
-    const isTrivialValue = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr);
-    
-    // If emitting a let, prevent inlining this variable in the body
-    if (!isTrivialValue) {
-      inliningStack.add(paramName);
-    }
-    const bodyExpr = termToExpression(unwrappedFunc.body, params, depth + 1);
-    if (!isTrivialValue) {
-      inliningStack.delete(paramName);
-    }
-    
-    // For trivial values, skip the let and just return the body (which has inlined refs)
-    if (isTrivialValue) {
-      return bodyExpr;
-    }
-    
-    // Get the semantic name if available
-    const name = bindingEnv?.getSemanticName(paramName) || paramName;
-    
-    return `let ${name} = ${valueExpr}\n${bodyExpr}`;
-  }
-  
-  // Flatten nested applications
-  const parts: any[] = [];
-  let current = term;
-  while (current.tag === 'app') {
-    parts.unshift(current.arg);
-    current = current.func;
-  }
-  // Handle force at the head
-  while (current.tag === 'force') {
-    current = current.term;
-  }
-  parts.unshift(current);
-  
-  // Check for transaction field access using new pattern detection
-  if (txContextParam && parts[0]?.tag === 'builtin' && parts[0].name === 'headList') {
-    const txField = detectTxField(term, txContextParam);
-    if (txField) {
-      return `tx.${txField}`;
-    }
-    
-    // Also try legacy detection
-    const txFieldLegacy = detectTxFieldAccess(term, txContextParam);
-    if (txFieldLegacy) {
-      return `tx.${txFieldLegacy.name}`;
-    }
-  }
-  
-  // Check for constructor match pattern → when/is
-  if (parts[0]?.tag === 'builtin' && parts[0].name === 'ifThenElse') {
-    const match = detectConstrMatch(term);
-    if (match && match.branches.length >= 2) {
-      const scrutinee = termToExpression(match.scrutinee, params, depth + 1);
-      const branches = match.branches.map(b => 
-        `    ${b.index} -> ${termToExpression(b.body, params, depth + 1)}`
-      ).join('\n');
-      const defaultBr = match.default 
-        ? `\n    _ -> ${termToExpression(match.default, params, depth + 1)}`
-        : '';
-      return `when ${scrutinee} is {\n${branches}${defaultBr}\n  }`;
-    }
-    
-    // Check for boolean chain → a && b && c
-    const boolChain = detectBooleanChain(term);
-    if (boolChain && boolChain.operands.length >= 2) {
-      const op = boolChain.kind === 'and' ? ' && ' : ' || ';
-      const operandStrs = boolChain.operands.map(o => termToExpression(o, params, depth + 1));
-      return `(${operandStrs.join(op)})`;
-    }
-  }
-  
-  // Check binding environment for function calls
-  if (parts[0]?.tag === 'var' && bindingEnv) {
-    const resolved = bindingEnv.get(parts[0].name);
-    if (resolved) {
-      // Inline identity: id(x) → x
-      if (resolved.pattern === 'identity' && parts.length === 2) {
-        return termToExpression(parts[1], params, depth + 1);
-      }
-      // Inline apply: apply(f, x) → f(x)
-      if (resolved.pattern === 'apply' && parts.length === 3) {
-        const f = termToExpression(parts[1], params, depth + 1);
-        const x = termToExpression(parts[2], params, depth + 1);
-        return `${f}(${x})`;
-      }
-      // Use builtin for wrapper functions: to_int(x) → builtin call
-      if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
-        return builtinCallToExpression(resolved.semanticName, parts.slice(1), params, depth);
-      }
-      // Expand partial builtins: o4(n) where o4 = indexByteString(#"01...") → indexByteString(#"01...", n)
-      if (resolved.pattern === 'partial_builtin' && resolved.value) {
-        const boundParts = flattenAppParts(resolved.value);
-        const builtinHead = getBuiltinHead(boundParts[0]);
-        if (builtinHead) {
-          const boundArgs = boundParts.slice(1);
-          const allArgs = [...boundArgs, ...parts.slice(1)];
-          return builtinCallToExpression(builtinHead, allArgs, params, depth);
-        }
-      }
-      // Use semantic name for is_constr_N predicates
-      if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
-        const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
-        return `${resolved.semanticName}(${argExprs.join(', ')})`;
-      }
-      // Use semantic name for field accessors
-      if (resolved.pattern === 'field_accessor' && resolved.semanticName) {
-        const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
-        return `${resolved.semanticName}(${argExprs.join(', ')})`;
-      }
-      // Use semantic name for boolean and/or
-      if ((resolved.pattern === 'boolean_and' || resolved.pattern === 'boolean_or') && resolved.semanticName) {
-        const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
-        if (resolved.pattern === 'boolean_and' && argExprs.length === 2) {
-          return `(${argExprs[0]} && ${argExprs[1]})`;
-        }
-        if (resolved.pattern === 'boolean_or' && argExprs.length === 2) {
-          return `(${argExprs[0]} || ${argExprs[1]})`;
-        }
-      }
-    }
-  }
-  
-  // Check if function is an extracted helper that can be inlined (legacy path)
-  if (parts[0]?.tag === 'var') {
-    const helper = extractedHelpers.get(parts[0].name);
-    if (helper) {
-      // Inline identity function: id(x) → x
-      if (helper.pattern === 'identity' && parts.length === 2) {
-        return termToExpression(parts[1], params, depth + 1);
-      }
-      // Inline apply function: apply(f, x) → f(x)
-      if (helper.pattern === 'apply' && parts.length === 3) {
-        const f = termToExpression(parts[1], params, depth + 1);
-        const x = termToExpression(parts[2], params, depth + 1);
-        return `${f}(${x})`;
-      }
-    }
-  }
-  
-  // Check if it's a builtin call
-  if (parts[0]?.tag === 'builtin') {
-    return builtinCallToExpression(parts[0].name, parts.slice(1), params, depth);
-  }
-  
-  // Check if it's a utility binding being called (e.g., c(x) where c = headList)
-  if (parts[0]?.tag === 'var' && currentUtilityBindings[parts[0].name]) {
-    const bindingName = currentUtilityBindings[parts[0].name];
-    
-    // is_constr_N predicates are not builtins - call as regular function
-    if (bindingName.startsWith('is_constr_')) {
-      const argExprs = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
-      return `${bindingName}(${argExprs.join(', ')})`;
-    }
-    
-    return builtinCallToExpression(bindingName, parts.slice(1), params, depth);
-  }
-  
-  // Regular function call - use helper name if available
-  let funcName: string;
-  if (parts[0]?.tag === 'var') {
-    const helper = extractedHelpers.get(parts[0].name);
-    funcName = helper?.helperName || parts[0].name;
-  } else {
-    funcName = termToExpression(parts[0], params, depth + 1);
-  }
-  
-  const args = parts.slice(1).map((a: any) => termToExpression(a, params, depth + 1));
-  
-  if (args.length === 0) return funcName;
-  return `${funcName}(${args.join(', ')})`;
-}
-
-/**
- * Convert builtin call to Aiken expression using stdlib mapping
- */
-function builtinCallToExpression(name: string, args: any[], params: string[], depth: number): string {
-  const argExprs = args.map((a: any) => termToExpression(a, params, depth + 1));
-  
-  // Track this builtin usage for import collection
-  usedBuiltins.add(name);
-  
-  const mapping = BUILTIN_MAP[name];
-  
-  if (!mapping) {
-    // Unknown builtin - use as-is
-    return `${name}(${argExprs.join(', ')})`;
-  }
-  
-  // Handle inline templates (operators, simple expressions)
-  // Only use inline if we have enough arguments to fill all placeholders
-  if (mapping.inline) {
-    // Count required placeholders in template
-    const placeholderCount = (mapping.inline.match(/\{\d+\}/g) || []).length;
-    
-    // Only use inline template if we have all required arguments
-    if (argExprs.length >= placeholderCount) {
-      let result = mapping.inline;
-      argExprs.forEach((arg, i) => {
-        result = result.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
-      });
-      return result;
-    }
-    
-    // Fall through to function call for partial applications
-  }
-  
-  const fnName = mapping.aikenName || name;
-  
-  // Handle method call style: x.method() or x.method(y)
-  if (mapping.method && argExprs.length > 0) {
-    const [first, ...rest] = argExprs;
-    return rest.length > 0 
-      ? `${first}.${fnName}(${rest.join(', ')})`
-      : `${first}.${fnName}()`;
-  }
-  
-  // Regular function call
-  return `${fnName}(${argExprs.join(', ')})`;
-}
-
-/**
- * Convert case expression to when block
- */
-function caseToExpression(term: any, params: string[], depth: number): string {
-  const scrutinee = termToExpression(term.scrutinee, params, depth + 1);
-  
-  if (!term.branches || term.branches.length === 0) {
-    return `when ${scrutinee} is { }`;
-  }
-  
-  const branches = term.branches.map((b: any, i: number) => {
-    const body = termToExpression(b, params, depth + 1);
-    return `  ${i} -> ${body}`;
-  }).join('\n');
-  
-  return `when ${scrutinee} is {\n${branches}\n}`;
-}
-
-/**
- * Generate a when expression for redeemer variants
- */
-function generateWhenBlock(variants: RedeemerVariant[], opts: GeneratorOptions): CodeBlock {
+function generateWhenBlock(variants: RedeemerVariant[], opts: GeneratorOptions, ctx: CodegenContext): CodeBlock {
   return {
     kind: 'when',
     content: 'redeemer',
@@ -964,33 +511,22 @@ function generateWhenBlock(variants: RedeemerVariant[], opts: GeneratorOptions):
       pattern: getVariantName(i),
       body: {
         kind: 'expression',
-        content: termToExpression(v.body, [], 0)
+        content: termToExpression(v.body, new CodegenContext([], 0, ctx.bindingEnv, ctx.emittedBindings, ctx.failBindings, ctx.inliningStack, ctx.pendingKeepBindings, ctx.shared))
       }
     }))
   };
 }
 
-/**
- * Generate validation checks block
- */
 function generateChecksBlock(checks: ValidationCheck[], opts: GeneratorOptions): CodeBlock {
   if (checks.length === 1) {
-    return {
-      kind: 'expression',
-      content: formatCheck(checks[0])
-    };
+    return { kind: 'expression', content: formatCheck(checks[0]) };
   }
-  
-  // Multiple checks - combine with and
   return {
     kind: 'expression',
     content: checks.map(formatCheck).join(' && ')
   };
 }
 
-/**
- * Format a single validation check
- */
 function formatCheck(check: ValidationCheck): string {
   switch (check.type) {
     case 'signature':
@@ -1008,111 +544,1200 @@ function formatCheck(check: ValidationCheck): string {
   }
 }
 
+// ============ Internal: Preamble emission ============
+
 /**
- * Fragmented output structure for AI processing
+ * Emit referenced keep-bindings as let-statements in dependency order.
  */
-export interface FragmentedOutput {
-  /** Fragment definitions with metadata */
-  fragments: Array<{
-    id: string;
-    role: string;
-    suggestedName: string;
-    params: string[];
-    returnType: string;
-    builtins: string[];
-    code: string;
-  }>;
-  /** Main validator code using fragments */
-  mainCode: string;
-  /** Combined output for AI */
-  fullOutput: string;
+function emitReferencedBindings(body: any, ctx: CodegenContext): string {
+  const { bindingEnv, params, shared } = ctx;
+
+  // Step 1: Find all free variables referenced from the body
+  const referencedVars = new Set<string>();
+  collectFreeVars(body, referencedVars);
+
+  // Step 2: Transitively collect all keep-bindings needed
+  const needed = new Set<string>();
+  const queue = [...referencedVars];
+  while (queue.length > 0) {
+    const name = queue.pop()!;
+    if (needed.has(name) || params.includes(name)) continue;
+    const resolved = bindingEnv.get(name);
+    if (!resolved || resolved.category !== 'keep') continue;
+    const deps = new Set<string>();
+    collectFreeVars(resolved.value, deps);
+    let hasUndefinedDep = false;
+    for (const dep of deps) {
+      if (!params.includes(dep) && !bindingEnv.get(dep)) {
+        hasUndefinedDep = true;
+        break;
+      }
+    }
+    if (hasUndefinedDep) continue;
+    needed.add(name);
+    for (const dep of deps) {
+      if (!needed.has(dep)) queue.push(dep);
+    }
+  }
+
+  if (needed.size === 0) return '';
+
+  // Step 3: Topological sort
+  const sorted: string[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+
+  function visit(name: string) {
+    if (visited.has(name) || !needed.has(name)) return;
+    if (visiting.has(name)) return;
+    visiting.add(name);
+
+    const resolved = bindingEnv.get(name);
+    if (resolved) {
+      const deps = new Set<string>();
+      collectFreeVars(resolved.value, deps);
+      for (const dep of deps) {
+        if (needed.has(dep) && dep !== name) visit(dep);
+      }
+    }
+
+    visiting.delete(name);
+    visited.add(name);
+    sorted.push(name);
+  }
+
+  for (const name of needed) {
+    visit(name);
+  }
+
+  // Step 4: Emit let-statements
+  ctx.pendingKeepBindings.clear();
+  for (const s of sorted) ctx.pendingKeepBindings.add(s);
+
+  const lets: string[] = [];
+  for (const name of sorted) {
+    const resolved = bindingEnv.get(name);
+    if (!resolved) continue;
+
+    // Detect self-recursive lambdas → hoist to module level
+    const value = unwrapForceDelay(resolved.value);
+    if (value?.tag === 'lam' && isSelfRecursiveLambda(value)) {
+      ctx.emittedBindings.add(name);
+      const hoistResult = tryHoistSelfRecursive(value, name, { tag: 'var', name }, ctx.deeper());
+      if (hoistResult !== null) {
+        continue;
+      }
+    }
+
+    ctx.inliningStack.add(name);
+    const valueExpr = termToExpression(resolved.value, ctx.deeper());
+    ctx.inliningStack.delete(name);
+
+    if (valueExpr !== '???' && valueExpr !== name) {
+      if (/^(trace @"[^"]*": )?fail$/.test(valueExpr.trim())) {
+        ctx.failBindings.set(name, valueExpr);
+        ctx.emittedBindings.add(name);
+        continue;
+      }
+      lets.push(`let ${name} = ${valueExpr}`);
+      ctx.emittedBindings.add(name);
+    }
+  }
+
+  return lets.join('\n');
+}
+
+// ============ Internal: AST utilities (pure functions) ============
+
+/** Collect free variable names referenced in a term */
+function collectFreeVars(term: any, freeVars: Set<string>, bound: Set<string> = new Set()) {
+  if (!term) return;
+  switch (term.tag) {
+    case 'var':
+      if (!bound.has(term.name)) freeVars.add(term.name);
+      break;
+    case 'lam': {
+      const inner = new Set(bound);
+      inner.add(term.param);
+      collectFreeVars(term.body, freeVars, inner);
+      break;
+    }
+    case 'app':
+      collectFreeVars(term.func, freeVars, bound);
+      collectFreeVars(term.arg, freeVars, bound);
+      break;
+    case 'force': case 'delay':
+      collectFreeVars(term.term, freeVars, bound);
+      break;
+    case 'case':
+      collectFreeVars(term.scrutinee, freeVars, bound);
+      term.branches?.forEach((b: any) => collectFreeVars(b, freeVars, bound));
+      break;
+    case 'constr':
+      term.args?.forEach((a: any) => collectFreeVars(a, freeVars, bound));
+      break;
+  }
 }
 
 /**
- * Generate fragmented output for AI consumption
- * 
- * This breaks the code into logical fragments that can be
- * processed and named individually by AI.
+ * Search the full AST for a let-binding of `name` whose value is a self-recursive lambda.
  */
-export function generateFragmented(structure: ContractStructure): FragmentedOutput {
-  // Reset state
-  usedBuiltins = new Set();
-  extractedHelpers = new Map();
-  bindingEnv = null;
-  currentUtilityBindings = {};
-  
-  if (!structure.rawBody) {
-    return { fragments: [], mainCode: '', fullOutput: '' };
+function findSelfRecursiveLambdaBinding(ast: any, name: string): any | null {
+  if (!ast) return null;
+  if (ast.tag === 'app') {
+    const func = unwrapForceDelay(ast.func);
+    if (func?.tag === 'lam' && func.param === name) {
+      const val = unwrapForceDelay(ast.arg);
+      if (val?.tag === 'lam' && isSelfRecursiveLambda(val)) {
+        return val;
+      }
+    }
+    return findSelfRecursiveLambdaBinding(ast.func, name) || findSelfRecursiveLambdaBinding(ast.arg, name);
   }
-  
-  // Build binding environment from full AST (includes all let-bindings)
-  bindingEnv = BindingEnvironment.build(structure.fullAst || structure.rawBody);
-  currentUtilityBindings = structure.utilityBindings || {};
-  
-  // Extract fragments
-  const bindings = bindingEnv.all();
-  const fragmented = extractFragments(bindings, structure.rawBody, structure.params);
-  
-  // Generate code for each fragment
-  const fragmentOutputs = fragmented.fragments.map(frag => {
-    const code = termToExpression(frag.body, [], 0);
-    return {
-      id: frag.id,
-      role: frag.role,
-      suggestedName: frag.suggestedName || frag.name,
-      params: frag.params,
-      returnType: frag.returnType,
-      builtins: frag.builtinsUsed.slice(0, 5),
-      code
-    };
-  });
-  
-  // Generate main validator code (will use fragment references)
-  const mainCode = termToExpression(structure.rawBody, structure.params, 0);
-  
-  // Build combined output
-  const sections: string[] = [];
-  
-  // Group fragments by role
-  const byRole = new Map<string, typeof fragmentOutputs>();
-  for (const frag of fragmentOutputs) {
-    if (!byRole.has(frag.role)) byRole.set(frag.role, []);
-    byRole.get(frag.role)!.push(frag);
-  }
-  
-  // Output fragments by role
-  const roleOrder = ['fold', 'calculator', 'validator', 'extractor', 'combinator', 'constructor', 'helper'];
-  for (const role of roleOrder) {
-    const frags = byRole.get(role);
-    if (!frags || frags.length === 0) continue;
-    
-    sections.push(`\n// ========== ${role.toUpperCase()} FRAGMENTS ==========`);
-    
-    for (const frag of frags) {
-      sections.push(`
-// [${frag.id}] ${frag.suggestedName}
-// Role: ${frag.role} | Returns: ${frag.returnType}
-// Uses: ${frag.builtins.join(', ') || 'none'}
-fn ${frag.suggestedName}(${frag.params.join(', ')}) -> ${frag.returnType} {
-  ${frag.code}
-}`);
+  if (ast.tag === 'lam') return findSelfRecursiveLambdaBinding(ast.body, name);
+  if (ast.tag === 'force' || ast.tag === 'delay') return findSelfRecursiveLambdaBinding(ast.term, name);
+  if (ast.tag === 'case') {
+    let result = findSelfRecursiveLambdaBinding(ast.scrutinee, name);
+    if (result) return result;
+    for (const b of (ast.branches || [])) {
+      result = findSelfRecursiveLambdaBinding(b, name);
+      if (result) return result;
     }
   }
-  
-  // Add main validator
-  sections.push(`\n// ========== MAIN VALIDATOR ==========`);
-  sections.push(`validator {
-  ${structure.type}(${structure.params.map((p, i) => {
-    const types = ['Option<Datum>', 'Redeemer', 'OutputReference', 'Transaction'];
-    return `${p}: ${types[i] || 'Data'}`;
-  }).join(', ')}) {
-    ${mainCode}
+  if (ast.tag === 'constr') {
+    for (const a of (ast.args || [])) {
+      const result = findSelfRecursiveLambdaBinding(a, name);
+      if (result) return result;
+    }
   }
-}`);
-  
-  return {
-    fragments: fragmentOutputs,
-    mainCode,
-    fullOutput: sections.join('\n')
+  return null;
+}
+
+function detectSelfRecursiveLambda(term: any): string | null {
+  let unwrapped = term;
+  while (unwrapped?.tag === 'force' || unwrapped?.tag === 'delay') unwrapped = unwrapped.term;
+  if (unwrapped?.tag !== 'lam') return null;
+  const selfParam = unwrapped.param;
+  if (hasSelfCall(unwrapped.body, selfParam)) return selfParam;
+  return null;
+}
+
+/** Check if a term contains self-application: param(param, ...) */
+function hasSelfCall(term: any, selfParam: string): boolean {
+  if (!term) return false;
+  if (term.tag === 'app') {
+    const parts = flattenAppParts(term);
+    if (parts[0]?.tag === 'var' && parts[0].name === selfParam &&
+        parts[1]?.tag === 'var' && parts[1].name === selfParam) {
+      return true;
+    }
+    return hasSelfCall(term.func, selfParam) || hasSelfCall(term.arg, selfParam);
+  }
+  if (term.tag === 'lam') {
+    if (term.param === selfParam) return false;
+    return hasSelfCall(term.body, selfParam);
+  }
+  if (term.tag === 'force' || term.tag === 'delay') return hasSelfCall(term.term, selfParam);
+  if (term.tag === 'case') {
+    return hasSelfCall(term.scrutinee, selfParam) ||
+      (term.branches || []).some((b: any) => hasSelfCall(b, selfParam));
+  }
+  if (term.tag === 'constr') {
+    return (term.args || []).some((a: any) => hasSelfCall(a, selfParam));
+  }
+  return false;
+}
+
+function flattenLambdaChain(term: any, maxDepth: number = 6): { flatParams: string[], innerBody: any } {
+  const flatParams: string[] = [];
+  let current = term;
+  while (current.tag === 'lam' && flatParams.length < maxDepth) {
+    flatParams.push(current.param);
+    current = current.body;
+  }
+  return { flatParams, innerBody: current };
+}
+
+function isSelfRecursiveLambda(term: any): boolean {
+  if (term.tag !== 'lam') return false;
+  const selfParam = term.param;
+  if (term.body?.tag !== 'lam') return false;
+  return hasSelfCall(term.body, selfParam);
+}
+
+function flattenAppParts(term: any): any[] {
+  const parts: any[] = [];
+  let current = term;
+  while (current?.tag === 'app') {
+    parts.unshift(current.arg);
+    current = current.func;
+  }
+  while (current && (current.tag === 'force' || current.tag === 'delay')) {
+    current = current.term;
+  }
+  parts.unshift(current);
+  return parts;
+}
+
+function getBuiltinHead(term: any): string | null {
+  let current = term;
+  while (current && (current.tag === 'force' || current.tag === 'delay')) {
+    current = current.term;
+  }
+  return current?.tag === 'builtin' ? current.name : null;
+}
+
+function unwrapForceDelay(term: any): any {
+  while (term && (term.tag === 'force' || term.tag === 'delay')) {
+    term = term.term;
+  }
+  return term;
+}
+
+// ============ Internal: Self-recursive function hoisting ============
+
+function tryHoistSelfRecursive(value: any, paramName: string, continuation: any, ctx: CodegenContext): string | null {
+  const { bindingEnv, params, shared } = ctx;
+  const selfParam = value.param;
+
+  // Collect real params (all after self)
+  const recParams: string[] = [];
+  let innerBody = value.body;
+  while (innerBody.tag === 'lam') {
+    recParams.push(innerBody.param);
+    innerBody = innerBody.body;
+  }
+
+  // Find free variables
+  const freeInBody = new Set<string>();
+  collectFreeVars(innerBody, freeInBody);
+  freeInBody.delete(selfParam);
+  for (const p of recParams) freeInBody.delete(p);
+
+  // Check resolvability
+  const isResolvableChecked = new Set<string>();
+  const isResolvable = (v: string): boolean => {
+    if (params.includes(v) || ctx.emittedBindings.has(v) || ctx.failBindings.has(v)) return true;
+    if (ctx.pendingKeepBindings.has(v)) return true;
+    if (isResolvableChecked.has(v)) return false;
+    isResolvableChecked.add(v);
+    const resolved = bindingEnv.get(v);
+    if (!resolved) { isResolvableChecked.delete(v); return false; }
+    if (resolved.category === 'inline' && resolved.inlineValue) { isResolvableChecked.delete(v); return true; }
+    if (resolved.category === 'rename' && resolved.semanticName) {
+      if (resolved.pattern === 'builtin_wrapper' || resolved.pattern === 'boolean_and' ||
+          resolved.pattern === 'boolean_or' || resolved.pattern === 'is_constr_n' ||
+          resolved.pattern === 'z_combinator' || resolved.pattern === 'list_fold') {
+        isResolvableChecked.delete(v);
+        return true;
+      }
+      if (resolved.value) {
+        const deps = new Set<string>();
+        collectFreeVars(resolved.value, deps);
+        for (const dep of deps) {
+          if (!params.includes(dep) && !ctx.emittedBindings.has(dep) && dep !== v) {
+            if (!isResolvable(dep)) { isResolvableChecked.delete(v); return false; }
+          }
+        }
+        isResolvableChecked.delete(v);
+        return true;
+      }
+    }
+    isResolvableChecked.delete(v);
+    return false;
   };
+
+  const hasUnresolvable = [...freeInBody].some(v => !isResolvable(v));
+  if (hasUnresolvable) return null;
+
+  const capturedVars = [...freeInBody].filter(isResolvable);
+  const fnName = `rec_${shared.hoistedFnCounter++}`;
+
+  shared.selfRecursiveParams.set(selfParam, fnName);
+
+  const allParams = [...capturedVars, ...recParams];
+
+  shared.selfRecursiveCaptured.set(selfParam, capturedVars);
+  shared.selfRecursiveCaptured.set(paramName, capturedVars);
+  shared.selfRecursiveArity.set(selfParam, recParams.length);
+  shared.selfRecursiveArity.set(paramName, recParams.length);
+
+  // Inner self-recursive lambda hoisting
+  const innerHoisted: string[] = [];
+
+  const hoistInnerSelfRecursive = (varName: string, cvValue: any) => {
+    const innerSelf = cvValue.param;
+    const innerRecParams: string[] = [];
+    let innerInnerBody = cvValue.body;
+    while (innerInnerBody.tag === 'lam') {
+      innerRecParams.push(innerInnerBody.param);
+      innerInnerBody = innerInnerBody.body;
+    }
+    const innerFree = new Set<string>();
+    collectFreeVars(innerInnerBody, innerFree);
+    innerFree.delete(innerSelf);
+    for (const p of innerRecParams) innerFree.delete(p);
+    const innerCaptured = [...innerFree].filter(v =>
+      params.includes(v) || ctx.emittedBindings.has(v) || ctx.failBindings.has(v) ||
+      capturedVars.includes(v) || recParams.includes(v) ||
+      (bindingEnv.get(v)?.category === 'inline') ||
+      (bindingEnv.get(v)?.category === 'rename')
+    );
+    const innerFnName = `rec_${shared.hoistedFnCounter++}`;
+    shared.selfRecursiveParams.set(innerSelf, innerFnName);
+    shared.selfRecursiveParams.set(varName, innerFnName);
+    shared.selfRecursiveCaptured.set(innerSelf, innerCaptured);
+    shared.selfRecursiveCaptured.set(varName, innerCaptured);
+    shared.selfRecursiveArity.set(innerSelf, innerRecParams.length);
+    shared.selfRecursiveArity.set(varName, innerRecParams.length);
+    const innerAllParams = [...innerCaptured, ...innerRecParams];
+    const innerCtx = ctx.withIsolatedEmitted().withExtraParams(innerRecParams);
+    const innerFuncBody = termToExpression(innerInnerBody, innerCtx);
+    shared.selfRecursiveParams.delete(innerSelf);
+    shared.hoistedFunctions.push(`fn ${innerFnName}(${innerAllParams.join(', ')}) {\n  ${innerFuncBody}\n}`);
+    innerHoisted.push(varName);
+  };
+
+  // Check captured vars for inner self-recursive lambdas
+  for (const cv of capturedVars) {
+    const cvResolved = bindingEnv.get(cv);
+    let foundSelfRec = false;
+    if (cvResolved?.value) {
+      const cvValue = unwrapForceDelay(cvResolved.value);
+      if (cvValue?.tag === 'lam' && isSelfRecursiveLambda(cvValue)) {
+        hoistInnerSelfRecursive(cv, cvValue);
+        foundSelfRec = true;
+      }
+    }
+    if (!foundSelfRec && hasSelfCall(innerBody, cv) && shared.fullAstRef) {
+      const selfRecLam = findSelfRecursiveLambdaBinding(shared.fullAstRef, cv);
+      if (selfRecLam) {
+        hoistInnerSelfRecursive(cv, selfRecLam);
+      }
+    }
+  }
+
+  // Check recParams for self-application
+  for (const rp of recParams) {
+    if (hasSelfCall(innerBody, rp)) {
+      let foundSelfRec = false;
+      const rpResolved = bindingEnv.get(rp);
+      if (rpResolved?.value) {
+        const rpValue = unwrapForceDelay(rpResolved.value);
+        if (rpValue?.tag === 'lam' && isSelfRecursiveLambda(rpValue)) {
+          hoistInnerSelfRecursive(rp, rpValue);
+          foundSelfRec = true;
+        }
+      }
+      if (!foundSelfRec && shared.fullAstRef) {
+        const selfRecLam = findSelfRecursiveLambdaBinding(shared.fullAstRef, rp);
+        if (selfRecLam) {
+          hoistInnerSelfRecursive(rp, selfRecLam);
+        }
+      }
+    }
+  }
+
+  // Generate function body with isolated emittedBindings
+  const bodyCtx = ctx.withIsolatedEmitted().withExtraParams(recParams);
+  const funcBody = termToExpression(innerBody, bodyCtx);
+
+  shared.selfRecursiveParams.delete(selfParam);
+
+  shared.hoistedFunctions.push(`fn ${fnName}(${allParams.join(', ')}) {\n  ${funcBody}\n}`);
+
+  // Generate continuation
+  shared.selfRecursiveParams.set(paramName, fnName);
+  const contExpr = termToExpression(continuation, ctx);
+  shared.selfRecursiveParams.delete(paramName);
+
+  return contExpr;
+}
+
+// ============ Internal: Term → Expression ============
+
+/**
+ * Convert a UPLC term to an Aiken-style expression string
+ */
+function termToExpression(term: any, ctx: CodegenContext): string {
+  if (!term || ctx.depth > 1000) return '???';
+  const { params, depth, shared } = ctx;
+
+  switch (term.tag) {
+    case 'con':
+      return constToExpression(term);
+
+    case 'var':
+      return varToExpression(term, ctx);
+
+    case 'builtin':
+      return bareBuiltinToExpression(term.name, shared.usedBuiltins);
+
+    case 'lam': {
+      const { flatParams, innerBody } = flattenLambdaChain(term);
+      const lamCtx = ctx.withExtraParams(flatParams);
+      const body = termToExpression(innerBody, lamCtx);
+      if (flatParams.length > 1) {
+        return `fn(${flatParams.join(', ')}) { ${body} }`;
+      }
+      return `fn(${term.param}) { ${body} }`;
+    }
+
+    case 'app':
+      return appToExpression(term, ctx);
+
+    case 'force':
+      return termToExpression(term.term, ctx.deeper());
+
+    case 'delay':
+      return termToExpression(term.term, ctx.deeper());
+
+    case 'error':
+      return 'fail';
+
+    case 'case':
+      return caseToExpression(term, ctx);
+
+    case 'constr': {
+      shared.usedBuiltins.add('constrData');
+      const constrArgs = term.args?.map((a: any) => {
+        const expr = termToExpression(a, ctx.deeper());
+        return wrapBoolAsData(expr, shared.usedBuiltins);
+      }) || [];
+      const constrFields = constrArgs.map((expr: string, i: number) => {
+        const argNode = term.args?.[i];
+        const unwrappedArg = argNode ? unwrapForceDelay(argNode) : null;
+        if (unwrappedArg?.tag === 'lam' && !isBoolExpr(expr)) {
+          return '[]';
+        }
+        return expr;
+      });
+      const fieldsList = constrFields.length > 0 ? `[${constrFields.join(', ')}]` : '[]';
+      return `builtin.constr_data(${term.index}, ${fieldsList})`;
+    }
+
+    default:
+      return '???';
+  }
+}
+
+/**
+ * Resolve a variable reference
+ */
+function varToExpression(term: any, ctx: CodegenContext): string {
+  const { params, shared, bindingEnv } = ctx;
+  const name = term.name;
+
+  // Self-recursive params: remap self → function name
+  if (shared.selfRecursiveParams.has(name)) {
+    return shared.selfRecursiveParams.get(name)!;
+  }
+
+  // Lambda parameters shadow outer bindings
+  if (params.includes(name)) {
+    return name;
+  }
+
+  // Check fail-bindings
+  if (ctx.failBindings.has(name)) {
+    return ctx.failBindings.get(name)!;
+  }
+
+  // Check binding environment - AGGRESSIVE INLINING
+  if (bindingEnv && !ctx.inliningStack.has(name)) {
+    const resolved = bindingEnv.get(name);
+    if (resolved) {
+      // Always inline constants
+      if (resolved.category === 'inline' && resolved.inlineValue) {
+        return resolved.inlineValue;
+      }
+
+      // Inline renamed bindings
+      if (resolved.category === 'rename') {
+        if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
+          const n = resolved.semanticName.replace('is_constr_', '');
+          shared.usedBuiltins.add('fstPair');
+          shared.usedBuiltins.add('unConstrData');
+          return `fn(x) { builtin.fst_pair(builtin.un_constr_data(x)) == ${n} }`;
+        }
+        if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
+          return bareBuiltinToExpression(resolved.semanticName, shared.usedBuiltins);
+        }
+        if (resolved.pattern === 'boolean_and') return 'and';
+        if (resolved.pattern === 'boolean_or') return 'or';
+        if (resolved.pattern === 'z_combinator') return name;
+        if (resolved.pattern === 'list_fold') return name;
+
+        // For partial builtins used as bare values
+        if (resolved.pattern === 'partial_builtin' && resolved.value) {
+          const boundParts = flattenAppParts(resolved.value);
+          const builtinHead = getBuiltinHead(boundParts[0]);
+          if (builtinHead) {
+            const mapping = BUILTIN_MAP[builtinHead];
+            const boundArgs = boundParts.slice(1);
+            const remainingArity = (mapping?.arity || 2) - boundArgs.length;
+            if (remainingArity > 0) {
+              shared.usedBuiltins.add(builtinHead);
+              const extraParams = Array.from({ length: remainingArity }, (_, i) =>
+                String.fromCharCode(120 + i)
+              );
+              ctx.inliningStack.add(name);
+              const boundArgExprs = boundArgs.map((a: any) => termToExpression(a, ctx.deeper()));
+              ctx.inliningStack.delete(name);
+              let body = mapping.inline;
+              if (body) {
+                const allExprs = [...boundArgExprs, ...extraParams];
+                allExprs.forEach((arg, i) => {
+                  body = body!.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
+                });
+                return `fn(${extraParams.join(', ')}) { ${body} }`;
+              }
+              const fnName = mapping.aikenName || builtinHead;
+              const modulePrefix = mapping.module ? mapping.module.split('/').pop() : null;
+              const qualifiedName = modulePrefix ? `${modulePrefix}.${fnName}` : fnName;
+              return `fn(${extraParams.join(', ')}) { ${qualifiedName}(${[...boundArgExprs, ...extraParams].join(', ')}) }`;
+            }
+          }
+        }
+
+        // Other renames: try expanding semantic name
+        if (resolved.semanticName) {
+          const expanded = expandSemanticName(resolved.semanticName);
+          if (expanded !== resolved.semanticName) {
+            return expanded;
+          }
+          if (BUILTIN_MAP[resolved.semanticName]) {
+            return bareBuiltinToExpression(resolved.semanticName, shared.usedBuiltins);
+          }
+        }
+
+        // Inline the binding's value if not in scope
+        if (resolved.value && !params.includes(name) && !ctx.emittedBindings.has(name)) {
+          const freeVars = new Set<string>();
+          collectFreeVars(resolved.value, freeVars);
+          const hasRenameCycle = [...freeVars].some(fv => {
+            if (ctx.inliningStack.has(fv)) return true;
+            const dep = bindingEnv.get(fv);
+            return dep?.category === 'rename' && !params.includes(fv) && !ctx.emittedBindings.has(fv);
+          });
+          if (!hasRenameCycle) {
+            ctx.inliningStack.add(name);
+            const result = termToExpression(resolved.value, ctx.deeper());
+            ctx.inliningStack.delete(name);
+            return result;
+          }
+        }
+      }
+
+      // 'keep' bindings whose value is fail
+      if (resolved.category === 'keep' && ctx.failBindings.has(name)) {
+        return ctx.failBindings.get(name)!;
+      }
+    }
+  }
+
+  // Utility bindings
+  if (shared.currentUtilityBindings[name]) {
+    const binding = shared.currentUtilityBindings[name];
+    if (binding.startsWith('is_constr_')) {
+      const n = binding.replace('is_constr_', '');
+      shared.usedBuiltins.add('fstPair');
+      shared.usedBuiltins.add('unConstrData');
+      return `fn(x) { builtin.fst_pair(builtin.un_constr_data(x)) == ${n} }`;
+    }
+    if (BUILTIN_MAP[binding]) {
+      return bareBuiltinToExpression(binding, shared.usedBuiltins);
+    }
+    return expandSemanticName(binding);
+  }
+
+  // Extracted helper rename
+  const helper = shared.extractedHelpers.get(name);
+  if (helper && helper.helperName !== name) {
+    return helper.helperName;
+  }
+  return name;
+}
+
+// ============ Internal: Application → Expression ============
+
+/**
+ * Handle a let-binding pattern: ((lam x body) value)
+ * Returns the generated expression, or null if not a let-binding.
+ */
+function handleLetBinding(term: any, unwrappedFunc: any, ctx: CodegenContext): string | null {
+  if (unwrappedFunc?.tag !== 'lam') return null;
+
+  const { depth, shared, bindingEnv } = ctx;
+  const paramName = unwrappedFunc.param;
+  const value = unwrapForceDelay(term.arg) || term.arg;
+
+  // Check if BindingEnvironment can resolve this binding (skip the let)
+  if (bindingEnv) {
+    const resolved = bindingEnv.get(paramName);
+    const isSameBinding = resolved && (resolved.value === value || resolved.value === term.arg);
+    if (isSameBinding && resolved.category === 'inline' && resolved.inlineValue) {
+      return termToExpression(unwrappedFunc.body, ctx.deeper());
+    }
+    if (isSameBinding && resolved.category === 'rename' && resolved.semanticName) {
+      return termToExpression(unwrappedFunc.body, ctx.deeper());
+    }
+    if (isSameBinding && ctx.emittedBindings.has(paramName)) {
+      return termToExpression(unwrappedFunc.body, ctx.deeper());
+    }
+  }
+
+  // Self-recursive function detection → hoist to module level
+  if (value.tag === 'lam' && isSelfRecursiveLambda(value)) {
+    const hoistResult = tryHoistSelfRecursive(value, paramName, unwrappedFunc.body, ctx);
+    if (hoistResult !== null) return hoistResult;
+  }
+
+  // Z/omega-combinator: fn(c) { c(c) }(fn(d, e) { ... d(d, ...) ... })
+  const zResult = handleZCombinator(term, unwrappedFunc, ctx);
+  if (zResult !== null) return zResult;
+
+  // Analyze and register this inner binding in a new scope
+  bindingEnv.push();
+  const analyzed = bindingEnv.analyze(paramName, value);
+  bindingEnv.set(paramName, analyzed);
+
+  const valueExpr = termToExpression(value, ctx.deeper());
+
+  // Skip `let x = fail` — inline fail at usage sites
+  if (/^(trace @"[^"]*": )?fail$/.test(valueExpr.trim())) {
+    ctx.failBindings.set(paramName, valueExpr);
+    const bodyExpr = termToExpression(unwrappedFunc.body, ctx.deeper());
+    bindingEnv.pop();
+    return bodyExpr;
+  }
+
+  const isTrivialValue = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr);
+
+  if (!isTrivialValue) {
+    ctx.inliningStack.add(paramName);
+  }
+  const bodyExpr = termToExpression(unwrappedFunc.body, ctx.deeper());
+  if (!isTrivialValue) {
+    ctx.inliningStack.delete(paramName);
+  }
+
+  bindingEnv.pop();
+
+  if (isTrivialValue) return bodyExpr;
+
+  if (bodyExpr === 'fail') {
+    const traceMatch = valueExpr.match(/^trace @"([^"]*)": .+$/);
+    if (traceMatch) return `trace @"${traceMatch[1]}": fail`;
+    return 'fail';
+  }
+
+  const letExpr = `let ${paramName} = ${valueExpr}\n${bodyExpr}`;
+  return depth > 0 ? `{\n${letExpr}\n}` : letExpr;
+}
+
+/**
+ * Detect and handle Z/omega-combinator pattern:
+ * fn(c) { c(c) }(fn(d, e) { ... d(d, ...) ... })
+ */
+function handleZCombinator(term: any, unwrappedFunc: any, ctx: CodegenContext): string | null {
+  if (unwrappedFunc?.tag !== 'lam') return null;
+  const zParam = unwrappedFunc.param;
+  const zBody = unwrapForceDelay(unwrappedFunc.body);
+  if (!(zBody?.tag === 'app' && zBody.func?.tag === 'var' && zBody.func.name === zParam
+      && zBody.arg?.tag === 'var' && zBody.arg.name === zParam)) {
+    return null;
+  }
+  const innerValue = unwrapForceDelay(term.arg);
+  if (innerValue?.tag === 'lam' && isSelfRecursiveLambda(innerValue)) {
+    const syntheticName = `_z${ctx.shared.hoistedFnCounter}`;
+    return tryHoistSelfRecursive(innerValue, syntheticName, { tag: 'var', name: syntheticName }, ctx);
+  }
+  return null;
+}
+
+/**
+ * Handle self-recursive call: self(self, args) → name(captured..., args)
+ */
+function handleSelfRecursiveCall(parts: any[], ctx: CodegenContext): string | null {
+  const { shared } = ctx;
+  if (!(parts[0]?.tag === 'var' && shared.selfRecursiveParams.has(parts[0].name))) return null;
+
+  const fnName = shared.selfRecursiveParams.get(parts[0].name)!;
+  const captured = shared.selfRecursiveCaptured.get(parts[0].name) || [];
+  const expectedArity = shared.selfRecursiveArity.get(parts[0].name) || 0;
+  const startIdx = (parts[1]?.tag === 'var' && parts[1].name === parts[0].name) ? 2 : 1;
+  const argExprs = parts.slice(startIdx).map((p: any) => termToExpression(p, ctx.deeper()));
+  const resolvedCaptured = captured.map(v =>
+    termToExpression({ tag: 'var', name: v }, ctx.deeper())
+  );
+  const allArgs = [...resolvedCaptured, ...argExprs];
+  if (argExprs.length < expectedArity) {
+    const missing = expectedArity - argExprs.length;
+    const etaParams = Array.from({ length: missing }, (_, i) => `_eta${i}`);
+    const fullArgs = [...allArgs, ...etaParams];
+    return `fn(${etaParams.join(', ')}) { ${fnName}(${fullArgs.join(', ')}) }`;
+  }
+  return allArgs.length > 0 ? `${fnName}(${allArgs.join(', ')})` : fnName;
+}
+
+/**
+ * Handle calls to bindings with known patterns (identity, apply, builtin_wrapper, etc.)
+ */
+function handlePatternCall(parts: any[], ctx: CodegenContext): string | null {
+  const { shared, bindingEnv } = ctx;
+
+  if (!(parts[0]?.tag === 'var' && bindingEnv)) return null;
+  const resolved = bindingEnv.get(parts[0].name);
+  if (!resolved) return null;
+
+  if (resolved.pattern === 'identity' && parts.length === 2) {
+    return termToExpression(parts[1], ctx.deeper());
+  }
+  if (resolved.pattern === 'apply' && parts.length === 3) {
+    const f = termToExpression(parts[1], ctx.deeper());
+    const x = termToExpression(parts[2], ctx.deeper());
+    return `${f}(${x})`;
+  }
+  if (resolved.pattern === 'builtin_wrapper' && resolved.semanticName) {
+    return builtinCallToExpression(resolved.semanticName, parts.slice(1), ctx);
+  }
+  if (resolved.pattern === 'partial_builtin' && resolved.value) {
+    const boundParts = flattenAppParts(resolved.value);
+    const builtinHead = getBuiltinHead(boundParts[0]);
+    if (builtinHead) {
+      const boundArgs = boundParts.slice(1);
+      const allArgs = [...boundArgs, ...parts.slice(1)];
+      return builtinCallToExpression(builtinHead, allArgs, ctx);
+    }
+  }
+  if (resolved.pattern === 'is_constr_n' && resolved.semanticName) {
+    const n = resolved.semanticName.replace('is_constr_', '');
+    shared.usedBuiltins.add('fstPair');
+    shared.usedBuiltins.add('unConstrData');
+    const argExprs = parts.slice(1).map((a: any) => termToExpression(a, ctx.deeper()));
+    if (argExprs.length === 1) {
+      return `builtin.fst_pair(builtin.un_constr_data(${argExprs[0]})) == ${n}`;
+    }
+    return `builtin.fst_pair(builtin.un_constr_data(${argExprs.join(', ')})) == ${n}`;
+  }
+  if (resolved.pattern === 'field_accessor' && resolved.semanticName) {
+    const argExprs = parts.slice(1).map((a: any) => termToExpression(a, ctx.deeper()));
+    return `${resolved.semanticName}(${argExprs.join(', ')})`;
+  }
+  if ((resolved.pattern === 'boolean_and' || resolved.pattern === 'boolean_or') && resolved.semanticName) {
+    const argExprs = parts.slice(1).map((a: any) => termToExpression(a, ctx.deeper()));
+    if (resolved.pattern === 'boolean_and' && argExprs.length === 2) {
+      return `(${argExprs[0]} && ${argExprs[1]})`;
+    }
+    if (resolved.pattern === 'boolean_or' && argExprs.length === 2) {
+      return `(${argExprs[0]} || ${argExprs[1]})`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Handle calls to extracted helper functions (legacy path)
+ */
+function handleHelperCall(parts: any[], ctx: CodegenContext): string | null {
+  if (!(parts[0]?.tag === 'var')) return null;
+  const helper = ctx.shared.extractedHelpers.get(parts[0].name);
+  if (!helper) return null;
+
+  if (helper.pattern === 'identity' && parts.length === 2) {
+    return termToExpression(parts[1], ctx.deeper());
+  }
+  if (helper.pattern === 'apply' && parts.length === 3) {
+    const f = termToExpression(parts[1], ctx.deeper());
+    const x = termToExpression(parts[2], ctx.deeper());
+    return `${f}(${x})`;
+  }
+  return null;
+}
+
+function appToExpression(term: any, ctx: CodegenContext): string {
+  const { shared, bindingEnv } = ctx;
+
+  // Check for let-binding pattern ((lam x body) value)
+  const unwrappedFunc = unwrapForceDelay(term.func);
+  const letResult = handleLetBinding(term, unwrappedFunc, ctx);
+  if (letResult !== null) return letResult;
+
+  // Flatten nested applications
+  const parts: any[] = [];
+  let current = term;
+  while (current.tag === 'app') {
+    parts.unshift(current.arg);
+    current = current.func;
+  }
+  while (current.tag === 'force') {
+    current = current.term;
+  }
+  parts.unshift(current);
+
+  // Check for transaction field access
+  if (shared.txContextParam && parts[0]?.tag === 'builtin' && parts[0].name === 'headList') {
+    const txField = detectTxField(term, shared.txContextParam);
+    if (txField) {
+      return `tx.${txField}`;
+    }
+    const txFieldLegacy = detectTxFieldAccess(term, shared.txContextParam);
+    if (txFieldLegacy) {
+      return `tx.${txFieldLegacy.name}`;
+    }
+  }
+
+  // Check for constructor match pattern → when/is
+  if (parts[0]?.tag === 'builtin' && parts[0].name === 'ifThenElse') {
+    const match = detectConstrMatch(term);
+    if (match && match.branches.length >= 2) {
+      const scrutinee = termToExpression(match.scrutinee, ctx.deeper());
+      const branches = match.branches.map(b =>
+        `    ${b.index} -> ${termToExpression(b.body, ctx.deeper())}`
+      ).join('\n');
+      const defaultBr = match.default
+        ? `\n    _ -> ${termToExpression(match.default, ctx.deeper())}`
+        : '';
+      return `when ${scrutinee} is {\n${branches}${defaultBr}\n  }`;
+    }
+
+    const boolChain = detectBooleanChain(term);
+    if (boolChain && boolChain.operands.length >= 2) {
+      const op = boolChain.kind === 'and' ? ' && ' : ' || ';
+      const operandStrs = boolChain.operands.map(o => termToExpression(o, ctx.deeper()));
+      return `(${operandStrs.join(op)})`;
+    }
+  }
+
+  // Self-recursive call: self(self, args) → name(captured..., args)
+  const selfRecResult = handleSelfRecursiveCall(parts, ctx);
+  if (selfRecResult !== null) return selfRecResult;
+
+  // Check binding environment for function calls
+  const patternResult = handlePatternCall(parts, ctx);
+  if (patternResult !== null) return patternResult;
+
+  // Check extracted helpers (legacy path)
+  const helperResult = handleHelperCall(parts, ctx);
+  if (helperResult !== null) return helperResult;
+
+  // Error applied to arguments
+  if (parts[0]?.tag === 'error') {
+    return 'fail';
+  }
+
+  // Builtin call
+  if (parts[0]?.tag === 'builtin') {
+    return builtinCallToExpression(parts[0].name, parts.slice(1), ctx);
+  }
+
+  // Utility binding call
+  if (parts[0]?.tag === 'var' && shared.currentUtilityBindings[parts[0].name]) {
+    const bindingName = shared.currentUtilityBindings[parts[0].name];
+    if (bindingName.startsWith('is_constr_')) {
+      const n = bindingName.replace('is_constr_', '');
+      shared.usedBuiltins.add('fstPair');
+      shared.usedBuiltins.add('unConstrData');
+      const argExprs = parts.slice(1).map((a: any) => termToExpression(a, ctx.deeper()));
+      if (argExprs.length === 1) {
+        return `builtin.fst_pair(builtin.un_constr_data(${argExprs[0]})) == ${n}`;
+      }
+      return `builtin.fst_pair(builtin.un_constr_data(${argExprs.join(', ')})) == ${n}`;
+    }
+    return builtinCallToExpression(bindingName, parts.slice(1), ctx);
+  }
+
+  // Regular function call
+  let funcName: string;
+  if (parts[0]?.tag === 'var') {
+    const helper = shared.extractedHelpers.get(parts[0].name);
+    funcName = helper?.helperName || parts[0].name;
+  } else {
+    funcName = termToExpression(parts[0], ctx.deeper());
+  }
+
+  const args = parts.slice(1).map((a: any) => termToExpression(a, ctx.deeper()));
+
+  if (args.length === 0) return funcName;
+  return `${funcName}(${args.join(', ')})`;
+}
+
+// ============ Internal: Builtin expression generation ============
+
+function expandSemanticName(name: string): string {
+  const match = name.match(/^(is_constr|eq|lt|lte|gt|gte|add|sub|mul|div|mod|quotient|remainder)_(\d+)$/);
+  if (!match) return name;
+  const [, op, numStr] = match;
+  const n = numStr;
+  switch (op) {
+    case 'is_constr': return `fn(x) { builtin.fst_pair(builtin.un_constr_data(x)) == ${n} }`;
+    case 'eq': return `fn(x) { x == ${n} }`;
+    case 'lt': return `fn(x) { x < ${n} }`;
+    case 'lte': return `fn(x) { x <= ${n} }`;
+    case 'gt': return `fn(x) { x > ${n} }`;
+    case 'gte': return `fn(x) { x >= ${n} }`;
+    case 'add': return `fn(x) { x + ${n} }`;
+    case 'sub': return `fn(x) { x - ${n} }`;
+    case 'mul': return `fn(x) { x * ${n} }`;
+    case 'div': return `fn(x) { x / ${n} }`;
+    case 'mod': return `fn(x) { x % ${n} }`;
+    case 'quotient': return `fn(x) { x / ${n} }`;
+    case 'remainder': return `fn(x) { x % ${n} }`;
+    default: return name;
+  }
+}
+
+function bareBuiltinToExpression(name: string, usedBuiltins: Set<string>): string {
+  usedBuiltins.add(name);
+  const mapping = BUILTIN_MAP[name];
+  if (!mapping) {
+    return name;
+  }
+
+  if (mapping.inline) {
+    const placeholders = mapping.inline.match(/\{\d+\}/g) || [];
+    const argCount = new Set(placeholders.map(p => p.replace(/[{}]/g, ''))).size;
+    const argNames = Array.from({ length: argCount }, (_, i) =>
+      String.fromCharCode(97 + i)
+    );
+    let body = mapping.inline;
+    argNames.forEach((arg, i) => {
+      body = body.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
+    });
+    return argCount === 0 ? body : `fn(${argNames.join(', ')}) { ${body} }`;
+  }
+
+  const fnName = mapping.aikenName || name;
+  if (mapping.method) {
+    return `fn(a) { a.${fnName}() }`;
+  }
+
+  const modulePrefix = mapping.module ? mapping.module.split('/').pop() : null;
+  const qualifiedName = modulePrefix ? `${modulePrefix}.${fnName}` : fnName;
+  return `fn(a) { ${qualifiedName}(a) }`;
+}
+
+function isBoolExpr(expr: string): boolean {
+  const trimmed = expr.trim();
+  if (trimmed === 'True' || trimmed === 'False') return true;
+  if (/[^=!<>]==[^=]/.test(trimmed) || /!=/.test(trimmed)) return true;
+  if (/[^<]<[^<]/.test(trimmed) || /[^>]>[^>]/.test(trimmed)) return true;
+  if (/<=/.test(trimmed) || />=/.test(trimmed)) return true;
+  if (/\&\&/.test(trimmed) || /\|\|/.test(trimmed)) return true;
+  if (/builtin\.(equals_bytearray|less_than_bytearray|less_than_equals_bytearray|equals_string)\(/.test(trimmed)) return true;
+  return false;
+}
+
+function wrapBoolAsData(expr: string, usedBuiltins: Set<string>): string {
+  if (!isBoolExpr(expr)) return expr;
+  usedBuiltins.add('constrData');
+  return `if ${expr} { builtin.constr_data(1, []) } else { builtin.constr_data(0, []) }`;
+}
+
+function builtinCallToExpression(name: string, args: any[], ctx: CodegenContext): string {
+  const { shared } = ctx;
+
+  // Church-pair detection for fst_pair/snd_pair
+  if ((name === 'fstPair' || name === 'sndPair') && args.length >= 1) {
+    const pairArg = unwrapForceDelay(args[0]);
+    const isChurchPair = pairArg?.tag === 'lam';
+    if (isChurchPair) {
+      const pairExpr = termToExpression(args[0], ctx.deeper());
+      if (name === 'fstPair') {
+        return `${pairExpr}(True)(Void)`;
+      } else {
+        return `${pairExpr}(Void)(True)`;
+      }
+    }
+  }
+
+  // Church-boolean in if condition
+  if (name === 'ifThenElse' && args.length >= 3) {
+    const condArg = unwrapForceDelay(args[0]);
+    if (condArg?.tag === 'lam') {
+      const condExpr = termToExpression(args[0], ctx.deeper());
+      const thenExpr = termToExpression(args[1], ctx.deeper());
+      const elseExpr = termToExpression(args[2], ctx.deeper());
+      return `{ let cond_tmp = ${condExpr}(True)\n  if cond_tmp { ${thenExpr} } else { ${elseExpr} } }`;
+    }
+  }
+
+  const argExprs = args.map((a: any) => termToExpression(a, ctx.deeper()));
+
+  shared.usedBuiltins.add(name);
+
+  const mapping = BUILTIN_MAP[name];
+
+  if (!mapping) {
+    return `${name}(${argExprs.join(', ')})`;
+  }
+
+  // Special handling for ifThenElse
+  if (name === 'ifThenElse' && argExprs.length >= 3) {
+    let cond = argExprs[0];
+    if (/^(if |when |let |fn\()/.test(cond.trim())) {
+      return `{ let cond_tmp = ${cond}\n  if cond_tmp { ${argExprs[1]} } else { ${argExprs[2]} } }`;
+    }
+    return `if ${cond} { ${argExprs[1]} } else { ${argExprs[2]} }`;
+  }
+
+  // Handle inline templates
+  if (mapping.inline) {
+    const placeholderCount = (mapping.inline.match(/\{\d+\}/g) || []).length;
+
+    if (argExprs.length >= placeholderCount) {
+      let result = mapping.inline;
+      const templateArgs = [...argExprs];
+      if (name === 'trace') {
+        let msg = templateArgs[0] || '';
+        if (msg.startsWith('"') && msg.endsWith('"')) {
+          msg = msg.slice(1, -1);
+        }
+        templateArgs[0] = msg.replace(/"/g, "'");
+      }
+      templateArgs.forEach((arg, i) => {
+        result = result.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
+      });
+      return result;
+    }
+
+    if (argExprs.length > 0 && argExprs.length < placeholderCount) {
+      const remaining = placeholderCount - argExprs.length;
+      const extraParams = Array.from({ length: remaining }, (_, i) =>
+        String.fromCharCode(112 + i)
+      );
+      let body = mapping.inline;
+      const allArgs = [...argExprs, ...extraParams];
+      if (name === 'trace') {
+        let msg = allArgs[0] || '';
+        if (msg.startsWith('"') && msg.endsWith('"')) {
+          msg = msg.slice(1, -1);
+        }
+        allArgs[0] = msg.replace(/"/g, "'");
+      }
+      allArgs.forEach((arg, i) => {
+        body = body.replace(new RegExp(`\\{${i}\\}`, 'g'), arg);
+      });
+      return `fn(${extraParams.join(', ')}) { ${body} }`;
+    }
+  }
+
+  const fnName = mapping.aikenName || name;
+
+  // Method call style
+  if (mapping.method && argExprs.length > 0) {
+    const [first, ...rest] = argExprs;
+    if (first.startsWith('fn(') || first.startsWith('if ') || first.startsWith('when ')) {
+      const modulePrefix = mapping.module ? mapping.module.split('/').pop() : null;
+      const qualifiedName = modulePrefix ? `${modulePrefix}.${fnName}` : fnName;
+      return `${qualifiedName}(${argExprs.join(', ')})`;
+    }
+    return rest.length > 0
+      ? `${first}.${fnName}(${rest.join(', ')})`
+      : `${first}.${fnName}()`;
+  }
+
+  // Regular function call
+  const modulePrefix = mapping.module ? mapping.module.split('/').pop() : null;
+  const qualifiedName = modulePrefix ? `${modulePrefix}.${fnName}` : fnName;
+  if (mapping.arity && argExprs.length > mapping.arity) {
+    const primary = argExprs.slice(0, mapping.arity);
+    const excess = argExprs.slice(mapping.arity);
+    return `${qualifiedName}(${primary.join(', ')})(${excess.join(', ')})`;
+  }
+  return `${qualifiedName}(${argExprs.join(', ')})`;
+}
+
+// ============ Internal: Constant/data expressions ============
+
+function constToExpression(term: any): string {
+  if (!term.value) return 'Void';
+
+  switch (term.value.tag) {
+    case 'integer':
+      return term.value.value.toString();
+    case 'bool':
+      return term.value.value ? 'True' : 'False';
+    case 'unit':
+      return 'Void';
+    case 'bytestring': {
+      const val = term.value.value;
+      const bytes = val instanceof Uint8Array ? val : (Array.isArray(val) ? val : Object.values(val));
+      const hex = Array.from(bytes as number[])
+        .map((b: number) => b.toString(16).padStart(2, '0'))
+        .join('');
+      return `#"${hex}"`;
+    }
+    case 'string':
+      return `"${term.value.value}"`;
+    case 'data':
+      return dataToExpression(term.value.value);
+    case 'list': {
+      const items = term.value.items || term.value.value || term.value.list || [];
+      if (!Array.isArray(items) || items.length === 0) return '[]';
+      const itemExprs = items.map((item: any) => {
+        if (item?.tag === 'data' && item?.value) return dataToExpression(item.value);
+        if (item?.tag) return constToExpression({ value: item });
+        return dataToExpression(item);
+      });
+      return `[${itemExprs.join(', ')}]`;
+    }
+    case 'pair': {
+      const fst = term.value.fst ? dataToExpression(term.value.fst) : '???';
+      const snd = term.value.snd ? dataToExpression(term.value.snd) : '???';
+      return `(${fst}, ${snd})`;
+    }
+    default:
+      return 'Void';
+  }
+}
+
+function dataToExpression(data: any): string {
+  if (!data) return 'Void';
+
+  switch (data.tag) {
+    case 'bytes': {
+      const hex = typeof data.value === 'string'
+        ? data.value
+        : Array.from(data.value as number[]).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+      return `#"${hex}"`;
+    }
+    case 'int':
+      return data.value.toString();
+    case 'list':
+      if (!data.value || data.value.length === 0) return '[]';
+      return `[${data.value.map(dataToExpression).join(', ')}]`;
+    case 'constr': {
+      const dataFields = data.fields?.map(dataToExpression).join(', ') || '';
+      const dataFieldsList = dataFields ? `[${dataFields}]` : '[]';
+      return `builtin.constr_data(${data.index}, ${dataFieldsList})`;
+    }
+    case 'map':
+      if (!data.value || data.value.length === 0) return '[]';
+      const entries = data.value.map(([k, v]: [any, any]) =>
+        `Pair(${dataToExpression(k)}, ${dataToExpression(v)})`
+      ).join(', ');
+      return `[${entries}]`;
+    default:
+      if (typeof data === 'string') return `#"${data}"`;
+      if (typeof data === 'bigint' || typeof data === 'number') return data.toString();
+      return 'Void';
+  }
+}
+
+function caseToExpression(term: any, ctx: CodegenContext): string {
+  const scrutinee = termToExpression(term.scrutinee, ctx.deeper());
+
+  if (!term.branches || term.branches.length === 0) {
+    return `when ${scrutinee} is { }`;
+  }
+
+  const branches = term.branches.map((b: any, i: number) => {
+    const body = termToExpression(b, ctx.deeper());
+    return `  ${i} -> ${body}`;
+  }).join('\n');
+
+  return `when ${scrutinee} is {\n${branches}\n}`;
 }

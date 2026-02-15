@@ -29,15 +29,37 @@ export function formatCode(code: GeneratedCode): string {
   
   // Format script-level parameters (hardcoded constants)
   if (code.scriptParams && code.scriptParams.length > 0) {
-    parts.push('// Script parameters (hardcoded constants)');
+    const constLines: string[] = [];
+    let dataConstIdx = 0;
     for (const param of code.scriptParams) {
       if (param.type === 'bytestring') {
-        parts.push(`const ${param.name} = #"${param.value}"`);
-      } else {
-        parts.push(`const ${param.name} = ${param.value}`);
+        constLines.push(`const ${param.name} = #"${param.value}"`);
+      } else if (param.type === 'integer') {
+        constLines.push(`const ${param.name} = ${param.value}`);
+      } else if (param.type === 'data') {
+        // Data params contain expressions (builtin.constr_data) that aren't valid
+        // as Aiken const values. Extract embedded hex literals as separate constants
+        // so they're preserved in the output, and add the full structure as a comment.
+        const hexPattern = /#"([a-f0-9]+)"/gi;
+        let hexMatch;
+        while ((hexMatch = hexPattern.exec(param.value)) !== null) {
+          const hex = hexMatch[1];
+          if (hex.length >= 16) {
+            const name = hex.length === 56 ? `script_hash_${dataConstIdx}`
+                       : hex.length === 64 ? `policy_id_${dataConstIdx}`
+                       : `data_const_${dataConstIdx}`;
+            constLines.push(`const ${name} = #"${hex}"`);
+            dataConstIdx++;
+          }
+        }
+        constLines.push(`// ${param.name}: ${param.value}`);
       }
     }
-    parts.push('');
+    if (constLines.length > 0) {
+      parts.push('// Script parameters (hardcoded constants)');
+      parts.push(...constLines);
+      parts.push('');
+    }
   }
   
   // Format type definitions
@@ -46,6 +68,14 @@ export function formatCode(code: GeneratedCode): string {
     parts.push('');
   }
   
+  // Format hoisted functions (recursive helpers moved to module level)
+  if (code.hoistedFunctions && code.hoistedFunctions.length > 0) {
+    for (const fn of code.hoistedFunctions) {
+      parts.push(fn);
+      parts.push('');
+    }
+  }
+
   // Format validator
   parts.push(formatValidator(code.validator));
   
