@@ -1399,9 +1399,11 @@ function handleLetBinding(term: any, unwrappedFunc: any, ctx: CodegenContext): s
 
   const valueExpr = termToExpression(value, ctx.deeper());
 
-  // Track the type of this binding
-  const valueType = getExpressionType(valueExpr);
-  ctx.typeContext.setType(paramName, valueType);
+  // Special handling for Z-combinator patterns that weren't caught earlier
+  if (analyzed.pattern === 'z_combinator') {
+    // For Z-combinator bindings, generate the let-binding normally
+    // The self-application fix will be handled in appToExpression
+  }
 
   // Mark fixpoint wrapper: fn(x) { fn(_eta) { rec_N(x, _eta) } }
   if (/^fn\(.+\) \{ fn\(.+\) \{ rec_\d+\(/.test(valueExpr)) {
