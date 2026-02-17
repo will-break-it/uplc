@@ -17,6 +17,7 @@ import { extractHelpers, detectTxFieldAccess, TX_FIELD_MAP, type ExtractedHelper
 import { BindingEnvironment } from './bindings.js';
 import { extractFragments, type CodeFragment } from './fragments.js';
 import { detectTxField, detectDataField, detectBooleanChain, detectConstrMatch } from './patterns.js';
+import { TypeContext, insertBuiltinCasts, getBuiltinReturnType, getExpressionType, insertExpectCast, type AikenType } from './type-casts.js';
 
 // ============ CodegenContext ============
 
@@ -34,6 +35,7 @@ interface SharedState {
   selfRecursiveParams: Map<string, string>;
   selfRecursiveCaptured: Map<string, string[]>;
   selfRecursiveArity: Map<string, number>;
+  fixpointWrappers: Set<string>;
 }
 
 /**
@@ -54,10 +56,13 @@ class CodegenContext {
     readonly inliningStack: Set<string>,
     readonly pendingKeepBindings: Set<string>,
     readonly shared: SharedState,
+    readonly typeContext: TypeContext = new TypeContext(),
   ) {}
 
   /** New context with extra params and incremented depth */
   withExtraParams(extra: string[]): CodegenContext {
+    const newTypeContext = this.typeContext.clone();
+    newTypeContext.addParams(extra);
     return new CodegenContext(
       [...this.params, ...extra],
       this.depth + 1,
@@ -67,6 +72,7 @@ class CodegenContext {
       this.inliningStack,
       this.pendingKeepBindings,
       this.shared,
+      newTypeContext,
     );
   }
 
@@ -81,6 +87,7 @@ class CodegenContext {
       this.inliningStack,
       this.pendingKeepBindings,
       this.shared,
+      this.typeContext.clone(),
     );
   }
 
@@ -95,6 +102,7 @@ class CodegenContext {
       this.inliningStack,
       this.pendingKeepBindings,
       this.shared,
+      this.typeContext.clone(),
     );
   }
 }
@@ -146,9 +154,20 @@ export function generateValidator(
     selfRecursiveParams: new Map(),
     selfRecursiveCaptured: new Map(),
     selfRecursiveArity: new Map(),
+    fixpointWrappers: new Set(),
   };
 
-  // Create initial context
+  // Create initial context with type information for parameters
+  const typeContext = new TypeContext();
+  // Add parameter types based on script purpose
+  if (structure.type === 'spend') {
+    typeContext.addParams(structure.params, ['Data', 'Data', 'Data', 'Data']);
+  } else if (structure.type === 'mint') {
+    typeContext.addParams(structure.params, ['Data', 'Data', 'Data']);
+  } else {
+    typeContext.addParams(structure.params);
+  }
+
   const ctx = new CodegenContext(
     structure.params,
     0,
@@ -158,6 +177,7 @@ export function generateValidator(
     new Set(),
     new Set(),
     shared,
+    typeContext,
   );
 
   const types: TypeDefinition[] = [];
@@ -247,6 +267,7 @@ export function generateFragmented(structure: ContractStructure): FragmentedOutp
     selfRecursiveParams: new Map(),
     selfRecursiveCaptured: new Map(),
     selfRecursiveArity: new Map(),
+    fixpointWrappers: new Set(),
   };
 
   if (!structure.rawBody) {
@@ -262,6 +283,7 @@ export function generateFragmented(structure: ContractStructure): FragmentedOutp
     new Set(),
     new Set(),
     shared,
+    new TypeContext(),
   );
 
   // Extract fragments
@@ -283,6 +305,8 @@ export function generateFragmented(structure: ContractStructure): FragmentedOutp
   });
 
   // Generate main validator code
+  const mainTypeContext = new TypeContext();
+  mainTypeContext.addParams(structure.params);
   const mainCtx = new CodegenContext(
     structure.params,
     0,
@@ -292,6 +316,7 @@ export function generateFragmented(structure: ContractStructure): FragmentedOutp
     new Set(),
     new Set(),
     shared,
+    mainTypeContext,
   );
   const mainCode = termToExpression(structure.rawBody, mainCtx);
 
@@ -475,6 +500,40 @@ function generateParams(structure: ContractStructure, opts: GeneratorOptions): P
 
 // ============ Internal: Handler body generation ============
 
+/**
+ * Unwrap "if COND { Void } else { fail }" to just "COND".
+ * 
+ * Plutus validators use the pattern: ifThenElse(check, unit, error)
+ * meaning "if check succeeds return unit, else abort".
+ * In Aiken, validator handlers must return Bool, so we strip
+ * the wrapper and return just the boolean condition.
+ */
+function unwrapValidatorGuard(expr: string): string {
+  const trimmed = expr.trim();
+  const suffix = ' { Void } else { fail }';
+  if (!trimmed.endsWith(suffix)) return expr;
+  
+  // Strip the suffix to get "if COND"
+  const withoutSuffix = trimmed.slice(0, -suffix.length);
+  
+  // Must start with "if "
+  if (!withoutSuffix.startsWith('if ')) return expr;
+  
+  // Extract the condition (everything after "if ")
+  const cond = withoutSuffix.slice(3).trim();
+  
+  // Verify braces are balanced in the condition
+  let depth = 0;
+  for (const ch of cond) {
+    if (ch === '{' || ch === '(' || ch === '[') depth++;
+    if (ch === '}' || ch === ')' || ch === ']') depth--;
+    if (depth < 0) return expr; // unbalanced
+  }
+  if (depth !== 0) return expr; // unbalanced
+  
+  return cond;
+}
+
 function generateHandlerBody(structure: ContractStructure, opts: GeneratorOptions, ctx: CodegenContext): CodeBlock {
   const { redeemer, checks, rawBody } = structure;
 
@@ -487,7 +546,12 @@ function generateHandlerBody(structure: ContractStructure, opts: GeneratorOption
   const bodyToProcess = structure.bodyWithBindings || rawBody;
   if (bodyToProcess) {
     const preamble = emitReferencedBindings(bodyToProcess, ctx);
-    const expr = termToExpression(bodyToProcess, ctx);
+    let expr = termToExpression(bodyToProcess, ctx);
+    
+    // Aiken validators return Bool, not Void. Unwrap the common Plutus pattern
+    // "if condition { Void } else { fail }" → just "condition"
+    expr = unwrapValidatorGuard(expr);
+    
     if (expr !== '???' && expr !== 'True') {
       const content = preamble ? preamble + '\n' + expr : expr;
       return { kind: 'expression', content };
@@ -814,16 +878,22 @@ function tryHoistSelfRecursive(value: any, paramName: string, continuation: any,
   freeInBody.delete(selfParam);
   for (const p of recParams) freeInBody.delete(p);
 
-  // Check resolvability
+  // Check resolvability — can this variable be resolved at the hoisted call site?
   const isResolvableChecked = new Set<string>();
   const isResolvable = (v: string): boolean => {
     if (params.includes(v) || ctx.emittedBindings.has(v) || ctx.failBindings.has(v)) return true;
     if (ctx.pendingKeepBindings.has(v)) return true;
+    // Utility bindings are always resolvable
+    if (shared.currentUtilityBindings[v]) return true;
+    // Hoisted recursive functions are resolvable (they become module-level fn declarations)
+    if (shared.selfRecursiveParams.has(v)) return true;
     if (isResolvableChecked.has(v)) return false;
     isResolvableChecked.add(v);
     const resolved = bindingEnv.get(v);
     if (!resolved) { isResolvableChecked.delete(v); return false; }
     if (resolved.category === 'inline' && resolved.inlineValue) { isResolvableChecked.delete(v); return true; }
+    // 'keep' bindings in the binding env will be emitted as lets before the call site
+    if (resolved.category === 'keep') { isResolvableChecked.delete(v); return true; }
     if (resolved.category === 'rename' && resolved.semanticName) {
       if (resolved.pattern === 'builtin_wrapper' || resolved.pattern === 'boolean_and' ||
           resolved.pattern === 'boolean_or' || resolved.pattern === 'is_constr_n' ||
@@ -850,7 +920,24 @@ function tryHoistSelfRecursive(value: any, paramName: string, continuation: any,
   const hasUnresolvable = [...freeInBody].some(v => !isResolvable(v));
   if (hasUnresolvable) return null;
 
-  const capturedVars = [...freeInBody].filter(isResolvable);
+  // When a free var resolves to a hoisted recursive function (via selfRecursiveParams),
+  // calling it requires passing its captured vars. Add those to freeInBody so they
+  // get captured by the inner function too.
+  for (const v of [...freeInBody]) {
+    if (shared.selfRecursiveParams.has(v)) {
+      const outerCaptured = shared.selfRecursiveCaptured.get(v);
+      if (outerCaptured) {
+        for (const cv of outerCaptured) freeInBody.add(cv);
+      }
+    }
+  }
+
+  // Exclude utility bindings from captured vars — varToExpression resolves them via
+  // currentUtilityBindings, so they don't need to be function parameters.
+  // This avoids function-typed params that cause Aiken's recursive type inference to loop.
+  const capturedVars = [...freeInBody].filter(v =>
+    isResolvable(v) && !shared.currentUtilityBindings[v]
+  );
   const fnName = `rec_${shared.hoistedFnCounter++}`;
 
   shared.selfRecursiveParams.set(selfParam, fnName);
@@ -954,6 +1041,95 @@ function tryHoistSelfRecursive(value: any, paramName: string, continuation: any,
   return contExpr;
 }
 
+/**
+ * Hoist a Z-combinator application: zCombinator(fn(self, args) { body })
+ * In this pattern, `self` is called directly (self(x)) not as self(self, x).
+ * Returns the generated expression, or null if hoisting fails.
+ */
+function tryHoistZCombinatorApp(innerLam: any, remainingArgs: any[], ctx: CodegenContext): string | null {
+  const { params, shared, bindingEnv } = ctx;
+  const selfParam = innerLam.param;
+
+  // Collect actual params (after self)
+  const recParams: string[] = [];
+  let innerBody = innerLam.body;
+  while (innerBody.tag === 'lam') {
+    recParams.push(innerBody.param);
+    innerBody = innerBody.body;
+  }
+
+  // Skip hoisting when there are no params after self — creates degenerate
+  // fn rec_N() { rec_N } which Aiken can't type. Let the expression emit inline.
+  if (recParams.length === 0) return null;
+
+  // Find free variables
+  const freeInBody = new Set<string>();
+  collectFreeVars(innerBody, freeInBody);
+  freeInBody.delete(selfParam);
+  for (const p of recParams) freeInBody.delete(p);
+
+  // Check resolvability (reuse same logic as tryHoistSelfRecursive)
+  const isResolvable = (v: string): boolean => {
+    if (params.includes(v) || ctx.emittedBindings.has(v) || ctx.failBindings.has(v)) return true;
+    if (ctx.pendingKeepBindings.has(v)) return true;
+    if (shared.currentUtilityBindings[v]) return true;
+    if (shared.selfRecursiveParams.has(v)) return true;
+    const resolved = bindingEnv.get(v);
+    if (!resolved) return false;
+    if (resolved.category === 'inline' && resolved.inlineValue) return true;
+    if (resolved.category === 'keep') return true;
+    if (resolved.category === 'rename') return true;
+    return false;
+  };
+
+  if ([...freeInBody].some(v => !isResolvable(v))) return null;
+
+  // When a free var resolves to a hoisted recursive function, add its captured vars
+  for (const v of [...freeInBody]) {
+    if (shared.selfRecursiveParams.has(v)) {
+      const outerCaptured = shared.selfRecursiveCaptured.get(v);
+      if (outerCaptured) {
+        for (const cv of outerCaptured) freeInBody.add(cv);
+      }
+    }
+  }
+
+  // Exclude utility bindings from captured vars.
+  const capturedVars = [...freeInBody].filter(v =>
+    isResolvable(v) && !shared.currentUtilityBindings[v]
+  );
+  const fnName = `rec_${shared.hoistedFnCounter++}`;
+  const allParams = [...capturedVars, ...recParams];
+
+  // Register self → fnName so handleSelfRecursiveCall can rewrite self(args) → fnName(captured, args)
+  shared.selfRecursiveParams.set(selfParam, fnName);
+  shared.selfRecursiveCaptured.set(selfParam, capturedVars);
+  shared.selfRecursiveArity.set(selfParam, recParams.length);
+
+  // Generate function body
+  const bodyCtx = ctx.withIsolatedEmitted().withExtraParams(recParams);
+  const funcBody = termToExpression(innerBody, bodyCtx);
+  shared.selfRecursiveParams.delete(selfParam);
+
+  // Add type annotations to help Aiken type inference
+  const typedParams = allParams.map(param => `${param}: Data`);
+  shared.hoistedFunctions.push(`fn ${fnName}(${typedParams.join(', ')}) -> Data {\n  ${funcBody}\n}`);
+
+  // Generate call expression with remaining args
+  const resolvedCaptured = capturedVars.map(v =>
+    termToExpression({ tag: 'var', name: v }, ctx.deeper())
+  );
+  if (remainingArgs.length > 0) {
+    const argExprs = remainingArgs.map((a: any) => termToExpression(a, ctx.deeper()));
+    const allArgs = [...resolvedCaptured, ...argExprs];
+    return `${fnName}(${allArgs.join(', ')})`;
+  }
+  if (resolvedCaptured.length > 0) {
+    return `fn(${recParams.join(', ')}) { ${fnName}(${[...resolvedCaptured, ...recParams].join(', ')}) }`;
+  }
+  return fnName;
+}
+
 // ============ Internal: Term → Expression ============
 
 /**
@@ -974,6 +1150,15 @@ function termToExpression(term: any, ctx: CodegenContext): string {
       return bareBuiltinToExpression(term.name, shared.usedBuiltins);
 
     case 'lam': {
+      // Check if this lambda is a phantom lambda wrapping a force-polymorphic builtin
+      if (isPhantomBuiltinWrapper(term)) {
+        // Extract the actual builtin call and strip the phantom wrapper
+        const builtin = extractBuiltinFromPhantomWrapper(term);
+        if (builtin) {
+          return termToExpression(builtin, ctx);
+        }
+      }
+
       const { flatParams, innerBody } = flattenLambdaChain(term);
       const lamCtx = ctx.withExtraParams(flatParams);
       const body = termToExpression(innerBody, lamCtx);
@@ -1145,6 +1330,16 @@ function varToExpression(term: any, ctx: CodegenContext): string {
       shared.usedBuiltins.add('unConstrData');
       return `fn(x) { builtin.fst_pair(builtin.un_constr_data(x)) == ${n} }`;
     }
+    if (binding === 'constr_tag') {
+      shared.usedBuiltins.add('fstPair');
+      shared.usedBuiltins.add('unConstrData');
+      return `fn(x) { builtin.fst_pair(builtin.un_constr_data(x)) }`;
+    }
+    if (binding === 'constr_fields') {
+      shared.usedBuiltins.add('sndPair');
+      shared.usedBuiltins.add('unConstrData');
+      return `fn(x) { builtin.snd_pair(builtin.un_constr_data(x)) }`;
+    }
     if (BUILTIN_MAP[binding]) {
       return bareBuiltinToExpression(binding, shared.usedBuiltins);
     }
@@ -1204,6 +1399,15 @@ function handleLetBinding(term: any, unwrappedFunc: any, ctx: CodegenContext): s
 
   const valueExpr = termToExpression(value, ctx.deeper());
 
+  // Track the type of this binding
+  const valueType = getExpressionType(valueExpr);
+  ctx.typeContext.setType(paramName, valueType);
+
+  // Mark fixpoint wrapper: fn(x) { fn(_eta) { rec_N(x, _eta) } }
+  if (/^fn\(.+\) \{ fn\(.+\) \{ rec_\d+\(/.test(valueExpr)) {
+    shared.fixpointWrappers.add(paramName);
+  }
+
   // Skip `let x = fail` — inline fail at usage sites
   if (/^(trace @"[^"]*": )?fail$/.test(valueExpr.trim())) {
     ctx.failBindings.set(paramName, valueExpr);
@@ -1213,18 +1417,21 @@ function handleLetBinding(term: any, unwrappedFunc: any, ctx: CodegenContext): s
   }
 
   const isTrivialValue = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(valueExpr);
+  // Only skip the let for trivial values when the binding env will resolve
+  // the reference (inline or rename). 'keep' bindings need the let emitted.
+  const canSkipLet = isTrivialValue && analyzed.category !== 'keep';
 
-  if (!isTrivialValue) {
+  if (!canSkipLet) {
     ctx.inliningStack.add(paramName);
   }
   const bodyExpr = termToExpression(unwrappedFunc.body, ctx.deeper());
-  if (!isTrivialValue) {
+  if (!canSkipLet) {
     ctx.inliningStack.delete(paramName);
   }
 
   bindingEnv.pop();
 
-  if (isTrivialValue) return bodyExpr;
+  if (canSkipLet) return bodyExpr;
 
   if (bodyExpr === 'fail') {
     const traceMatch = valueExpr.match(/^trace @"([^"]*)": .+$/);
@@ -1411,6 +1618,39 @@ function appToExpression(term: any, ctx: CodegenContext): string {
     }
   }
 
+  // Z-combinator application: f(fn(self, args) { body }) where f wraps a fixpoint combinator
+  // Must come before handleSelfRecursiveCall to prevent wrong matching
+  if (parts[0]?.tag === 'var' && parts.length >= 2) {
+    const arg1 = unwrapForceDelay(parts[1]) || parts[1];
+    if (arg1?.tag === 'lam') {
+      const resolved = bindingEnv?.get(parts[0].name);
+      const isZCombinator = resolved?.pattern === 'z_combinator' ||
+        shared.selfRecursiveParams.has(parts[0].name) ||
+        shared.fixpointWrappers.has(parts[0].name);
+      if (isZCombinator) {
+        const result = tryHoistZCombinatorApp(arg1, parts.slice(2), ctx);
+        if (result !== null) return result;
+      }
+    }
+  }
+
+  // Detect direct self-application patterns: var(var, args) → add type annotation
+  if (parts.length >= 2 && 
+      parts[0]?.tag === 'var' && 
+      parts[1]?.tag === 'var' && 
+      parts[0].name === parts[1].name) {
+    // This is a self-application pattern that needs type annotation to compile
+    const varName = parts[0].name;
+    const restArgs = parts.slice(2).map((a: any) => termToExpression(a, ctx.deeper()));
+    
+    // Add explicit type annotation to help Aiken's type inference
+    if (restArgs.length > 0) {
+      return `(${varName} as fn(fn(Data) -> Data, Data) -> Data)(${varName} as fn(Data) -> Data, ${restArgs.join(', ')})`;
+    } else {
+      return `(${varName} as fn(fn(Data) -> Data) -> Data)(${varName} as fn(Data) -> Data)`;
+    }
+  }
+
   // Self-recursive call: self(self, args) → name(captured..., args)
   const selfRecResult = handleSelfRecursiveCall(parts, ctx);
   if (selfRecResult !== null) return selfRecResult;
@@ -1446,6 +1686,18 @@ function appToExpression(term: any, ctx: CodegenContext): string {
       }
       return `builtin.fst_pair(builtin.un_constr_data(${argExprs.join(', ')})) == ${n}`;
     }
+    if (bindingName === 'constr_tag' && parts.length === 2) {
+      shared.usedBuiltins.add('fstPair');
+      shared.usedBuiltins.add('unConstrData');
+      const argExpr = termToExpression(parts[1], ctx.deeper());
+      return `builtin.fst_pair(builtin.un_constr_data(${argExpr}))`;
+    }
+    if (bindingName === 'constr_fields' && parts.length === 2) {
+      shared.usedBuiltins.add('sndPair');
+      shared.usedBuiltins.add('unConstrData');
+      const argExpr = termToExpression(parts[1], ctx.deeper());
+      return `builtin.snd_pair(builtin.un_constr_data(${argExpr}))`;
+    }
     return builtinCallToExpression(bindingName, parts.slice(1), ctx);
   }
 
@@ -1461,7 +1713,135 @@ function appToExpression(term: any, ctx: CodegenContext): string {
   const args = parts.slice(1).map((a: any) => termToExpression(a, ctx.deeper()));
 
   if (args.length === 0) return funcName;
+
+  // When parts[0] is a lambda, chain calls by its arity to avoid passing more
+  // args than the lambda accepts (e.g. fn(x){body}(a)(b) not fn(x){body}(a, b))
+  if (parts[0]?.tag === 'lam') {
+    const { flatParams } = flattenLambdaChain(parts[0]);
+    const lamArity = flatParams.length;
+    if (lamArity > 0 && lamArity < args.length) {
+      const firstArgs = args.slice(0, lamArity);
+      const restArgs = args.slice(lamArity);
+      let result = `${funcName}(${firstArgs.join(', ')})`;
+      for (const a of restArgs) {
+        result = `${result}(${a})`;
+      }
+      return result;
+    }
+  }
+
   return `${funcName}(${args.join(', ')})`;
+}
+
+// ============ Internal: Force-polymorphic builtin information ============
+
+/**
+ * Map of force-polymorphic builtins to their force parameter count.
+ * These builtins have phantom type arguments that should be stripped.
+ */
+const FORCE_POLYMORPHIC_BUILTINS: Record<string, number> = {
+  // 2 force parameters
+  fstPair: 2,
+  sndPair: 2,
+  mkCons: 2,
+  chooseList: 2,
+  chooseData: 2,
+  ifThenElse: 2,
+  trace: 2,
+  mkPairData: 2,
+  
+  // 1 force parameter
+  headList: 1,
+  tailList: 1,
+  nullList: 1,
+  chooseUnit: 1,
+  unListData: 1,
+  unConstrData: 1,
+  unIData: 1,
+  iData: 1,
+  unBData: 1,
+  bData: 1,
+  unMapData: 1,
+  mapData: 1,
+  serialiseData: 1,
+  equalsData: 1,
+  mkNilData: 1,
+  mkNilPairData: 1,
+};
+
+/**
+ * Check if an argument is a phantom lambda (type instantiation artifact).
+ * These are lambda expressions that were generated from force parameters.
+ */
+function isPhantomLambda(arg: any): boolean {
+  const unwrapped = unwrapForceDelay(arg);
+  if (!unwrapped || unwrapped.tag !== 'lam') return false;
+  
+  // A phantom lambda typically has a single parameter and its body
+  // is a simple builtin call or another phantom lambda
+  const body = unwrapForceDelay(unwrapped.body);
+  if (!body) return false;
+  
+  // Common patterns for phantom lambdas:
+  // 1. Body is a builtin
+  // 2. Body is an application where the function is a builtin
+  // 3. Body is another lambda (nested type instantiation)
+  return (
+    body.tag === 'builtin' ||
+    body.tag === 'lam' ||
+    (body.tag === 'app' && getBuiltinHead(body.func) !== null)
+  );
+}
+
+/**
+ * Check if a lambda is a phantom wrapper around a force-polymorphic builtin.
+ * Pattern: fn(x) { builtin.head_list(x) } where head_list is force-polymorphic
+ */
+function isPhantomBuiltinWrapper(lambda: any): boolean {
+  if (lambda.tag !== 'lam') return false;
+  
+  const body = unwrapForceDelay(lambda.body);
+  if (!body) return false;
+  
+  // Check if body is an application of a force-polymorphic builtin to the lambda parameter
+  if (body.tag === 'app') {
+    const builtin = getBuiltinHead(body);
+    if (builtin && FORCE_POLYMORPHIC_BUILTINS[builtin] !== undefined) {
+      // Check if the argument to the builtin is just the lambda parameter
+      const arg = unwrapForceDelay(body.arg);
+      return arg?.tag === 'var' && arg.name === lambda.param;
+    }
+  }
+  
+  // Also check for direct builtin application (shouldn't happen but just in case)
+  if (body.tag === 'builtin' && FORCE_POLYMORPHIC_BUILTINS[body.name] !== undefined) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Extract the builtin call from a phantom wrapper.
+ * fn(x) { builtin.head_list(x) } → { tag: 'builtin', name: 'headList' }
+ */
+function extractBuiltinFromPhantomWrapper(lambda: any): any | null {
+  if (lambda.tag !== 'lam') return null;
+  
+  const body = unwrapForceDelay(lambda.body);
+  if (!body || body.tag !== 'app') return null;
+  
+  const builtin = getBuiltinHead(body);
+  if (!builtin || FORCE_POLYMORPHIC_BUILTINS[builtin] === undefined) return null;
+  
+  // Check if this is a simple wrapper: fn(x) { builtin(x) }
+  const arg = unwrapForceDelay(body.arg);
+  if (arg?.tag === 'var' && arg.name === lambda.param) {
+    // Return the builtin directly
+    return body.func;
+  }
+  
+  return null;
 }
 
 // ============ Internal: Builtin expression generation ============
@@ -1539,12 +1919,24 @@ function wrapBoolAsData(expr: string, usedBuiltins: Set<string>): string {
 function builtinCallToExpression(name: string, args: any[], ctx: CodegenContext): string {
   const { shared } = ctx;
 
+  // Strip phantom lambda arguments for force-polymorphic builtins
+  let actualArgs = args;
+  const forceCount = FORCE_POLYMORPHIC_BUILTINS[name];
+  if (forceCount !== undefined && args.length > forceCount) {
+    // Check if the first forceCount arguments are phantom lambdas
+    const phantomCount = args.slice(0, forceCount).filter(isPhantomLambda).length;
+    if (phantomCount > 0) {
+      // Strip the phantom lambda arguments
+      actualArgs = args.slice(phantomCount);
+    }
+  }
+
   // Church-pair detection for fst_pair/snd_pair
-  if ((name === 'fstPair' || name === 'sndPair') && args.length >= 1) {
-    const pairArg = unwrapForceDelay(args[0]);
+  if ((name === 'fstPair' || name === 'sndPair') && actualArgs.length >= 1) {
+    const pairArg = unwrapForceDelay(actualArgs[0]);
     const isChurchPair = pairArg?.tag === 'lam';
     if (isChurchPair) {
-      const pairExpr = termToExpression(args[0], ctx.deeper());
+      const pairExpr = termToExpression(actualArgs[0], ctx.deeper());
       if (name === 'fstPair') {
         return `${pairExpr}(True)(Void)`;
       } else {
@@ -1554,42 +1946,55 @@ function builtinCallToExpression(name: string, args: any[], ctx: CodegenContext)
   }
 
   // Church-boolean in if condition
-  if (name === 'ifThenElse' && args.length >= 3) {
-    const condArg = unwrapForceDelay(args[0]);
+  if (name === 'ifThenElse' && actualArgs.length >= 3) {
+    const condArg = unwrapForceDelay(actualArgs[0]);
     if (condArg?.tag === 'lam') {
-      const condExpr = termToExpression(args[0], ctx.deeper());
-      const thenExpr = termToExpression(args[1], ctx.deeper());
-      const elseExpr = termToExpression(args[2], ctx.deeper());
+      const condExpr = termToExpression(actualArgs[0], ctx.deeper());
+      const thenExpr = termToExpression(actualArgs[1], ctx.deeper());
+      const elseExpr = termToExpression(actualArgs[2], ctx.deeper());
       return `{ let cond_tmp = ${condExpr}(True)\n  if cond_tmp { ${thenExpr} } else { ${elseExpr} } }`;
     }
   }
 
-  const argExprs = args.map((a: any) => termToExpression(a, ctx.deeper()));
+  const argExprs = actualArgs.map((a: any) => termToExpression(a, ctx.deeper()));
+
+  // Determine argument types for cast insertion
+  const argTypes: AikenType[] = argExprs.map((expr, i) => {
+    // If the argument is a simple variable, check its known type
+    if (/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(expr)) {
+      return ctx.typeContext.getType(expr);
+    }
+    // Otherwise infer from the expression
+    return getExpressionType(expr);
+  });
+
+  // Insert casts for typed builtins
+  const castedArgs = insertBuiltinCasts(name, argExprs, argTypes);
 
   shared.usedBuiltins.add(name);
 
   const mapping = BUILTIN_MAP[name];
 
   if (!mapping) {
-    return `${name}(${argExprs.join(', ')})`;
+    return `${name}(${castedArgs.join(', ')})`;
   }
 
   // Special handling for ifThenElse
-  if (name === 'ifThenElse' && argExprs.length >= 3) {
-    let cond = argExprs[0];
+  if (name === 'ifThenElse' && castedArgs.length >= 3) {
+    let cond = castedArgs[0];
     if (/^(if |when |let |fn\()/.test(cond.trim())) {
-      return `{ let cond_tmp = ${cond}\n  if cond_tmp { ${argExprs[1]} } else { ${argExprs[2]} } }`;
+      return `{ let cond_tmp = ${cond}\n  if cond_tmp { ${castedArgs[1]} } else { ${castedArgs[2]} } }`;
     }
-    return `if ${cond} { ${argExprs[1]} } else { ${argExprs[2]} }`;
+    return `if ${cond} { ${castedArgs[1]} } else { ${castedArgs[2]} }`;
   }
 
   // Handle inline templates
   if (mapping.inline) {
     const placeholderCount = (mapping.inline.match(/\{\d+\}/g) || []).length;
 
-    if (argExprs.length >= placeholderCount) {
+    if (castedArgs.length >= placeholderCount) {
       let result = mapping.inline;
-      const templateArgs = [...argExprs];
+      const templateArgs = [...castedArgs];
       if (name === 'trace') {
         let msg = templateArgs[0] || '';
         if (msg.startsWith('"') && msg.endsWith('"')) {
@@ -1603,13 +2008,13 @@ function builtinCallToExpression(name: string, args: any[], ctx: CodegenContext)
       return result;
     }
 
-    if (argExprs.length > 0 && argExprs.length < placeholderCount) {
-      const remaining = placeholderCount - argExprs.length;
+    if (castedArgs.length > 0 && castedArgs.length < placeholderCount) {
+      const remaining = placeholderCount - castedArgs.length;
       const extraParams = Array.from({ length: remaining }, (_, i) =>
         String.fromCharCode(112 + i)
       );
       let body = mapping.inline;
-      const allArgs = [...argExprs, ...extraParams];
+      const allArgs = [...castedArgs, ...extraParams];
       if (name === 'trace') {
         let msg = allArgs[0] || '';
         if (msg.startsWith('"') && msg.endsWith('"')) {
@@ -1627,12 +2032,12 @@ function builtinCallToExpression(name: string, args: any[], ctx: CodegenContext)
   const fnName = mapping.aikenName || name;
 
   // Method call style
-  if (mapping.method && argExprs.length > 0) {
-    const [first, ...rest] = argExprs;
+  if (mapping.method && castedArgs.length > 0) {
+    const [first, ...rest] = castedArgs;
     if (first.startsWith('fn(') || first.startsWith('if ') || first.startsWith('when ')) {
       const modulePrefix = mapping.module ? mapping.module.split('/').pop() : null;
       const qualifiedName = modulePrefix ? `${modulePrefix}.${fnName}` : fnName;
-      return `${qualifiedName}(${argExprs.join(', ')})`;
+      return `${qualifiedName}(${castedArgs.join(', ')})`;
     }
     return rest.length > 0
       ? `${first}.${fnName}(${rest.join(', ')})`
@@ -1642,12 +2047,12 @@ function builtinCallToExpression(name: string, args: any[], ctx: CodegenContext)
   // Regular function call
   const modulePrefix = mapping.module ? mapping.module.split('/').pop() : null;
   const qualifiedName = modulePrefix ? `${modulePrefix}.${fnName}` : fnName;
-  if (mapping.arity && argExprs.length > mapping.arity) {
-    const primary = argExprs.slice(0, mapping.arity);
-    const excess = argExprs.slice(mapping.arity);
+  if (mapping.arity && castedArgs.length > mapping.arity) {
+    const primary = castedArgs.slice(0, mapping.arity);
+    const excess = castedArgs.slice(mapping.arity);
     return `${qualifiedName}(${primary.join(', ')})(${excess.join(', ')})`;
   }
-  return `${qualifiedName}(${argExprs.join(', ')})`;
+  return `${qualifiedName}(${castedArgs.join(', ')})`;
 }
 
 // ============ Internal: Constant/data expressions ============
@@ -1715,7 +2120,7 @@ function dataToExpression(data: any): string {
       return `builtin.constr_data(${data.index}, ${dataFieldsList})`;
     }
     case 'map':
-      if (!data.value || data.value.length === 0) return '[]';
+      if (!data.value || data.value.length === 0) return 'builtin.map_data([])';
       const entries = data.value.map(([k, v]: [any, any]) =>
         `Pair(${dataToExpression(k)}, ${dataToExpression(v)})`
       ).join(', ');

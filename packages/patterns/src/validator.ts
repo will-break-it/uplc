@@ -282,16 +282,16 @@ function extractBuiltinName(term: UplcTerm): string | null {
  * - Simple builtins: (force (builtin headList)) → "headList"
  * - Partial applications: [(builtin equalsInteger) (con integer 0)] → "is_constr_0"
  */
-function extractUtilityName(term: UplcTerm): string | null {
+function extractUtilityName(term: UplcTerm, knownUtilities?: Record<string, string>): string | null {
   // Simple builtin (possibly forced)
   const simpleName = extractBuiltinName(term);
   if (simpleName) return simpleName;
-  
+
   // Partial application pattern: [builtin arg]
   if (term.tag === 'app') {
     const builtinName = extractBuiltinName(term.func);
     if (!builtinName) return null;
-    
+
     // [(builtin equalsInteger) (con integer N)] → is_constr_N
     if (builtinName === 'equalsInteger' && term.arg.tag === 'con') {
       const value = term.arg.value;
@@ -299,11 +299,33 @@ function extractUtilityName(term: UplcTerm): string | null {
         return `is_constr_${value.value}`;
       }
     }
-    
-    // Other partial applications - return builtin name
-    return builtinName;
+
+    // Only treat as utility if arg is a constant (true partial application).
+    // Full applications like unConstrData(j) return a value, not a function.
+    if (term.arg.tag === 'con') return builtinName;
+    return null;
   }
-  
+
+  // Compound utility: fn(x) { VAR(builtin(x)) } where VAR is a known utility
+  // e.g. fn(x) { f(unConstrData(x)) } where f = fstPair → "constr_tag"
+  if (term.tag === 'lam' && knownUtilities) {
+    const body = term.body;
+    if (body.tag === 'app' && body.func.tag === 'var' && body.arg.tag === 'app') {
+      const outerVar = body.func.name;
+      const outerBuiltin = knownUtilities[outerVar];
+      const innerBuiltin = extractBuiltinName(body.arg.func);
+      const argIsParam = body.arg.arg.tag === 'var' && body.arg.arg.name === term.param;
+      if (outerBuiltin && innerBuiltin && argIsParam) {
+        // fn(x) { fstPair(unConstrData(x)) } → constr_tag
+        if (outerBuiltin === 'fstPair' && innerBuiltin === 'unConstrData') return 'constr_tag';
+        // fn(x) { sndPair(unConstrData(x)) } → constr_fields
+        if (outerBuiltin === 'sndPair' && innerBuiltin === 'unConstrData') return 'constr_fields';
+        // Generic composition: outer(inner(x))
+        return `${outerBuiltin}_${innerBuiltin}`;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -385,14 +407,22 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     current = current.func;
   }
   
+  // Internal bindings: non-utility lambdas (Z-combinators, helpers) that must be
+  // preserved as let-bindings in the body rather than stripped as script params
+  const internalBindings: Array<{ param: string; arg: UplcTerm }> = [];
+
   // Match outer lambdas to applied args - distinguish utilities from script params
   for (let i = 0; i < appliedArgs.length && current.tag === 'lam'; i++) {
     const param = current.param;
     const arg = appliedArgs[i];
-    const utilityName = extractUtilityName(arg);
-    
+    const utilityName = extractUtilityName(arg, utilityBindings);
+
     if (utilityName) {
       utilityBindings[param] = utilityName;
+    } else if (arg.tag === 'lam') {
+      // Lambda args are internal helpers (Z-combinators, etc.), not script params.
+      // Preserve them as let-bindings in the body.
+      internalBindings.push({ param, arg });
     } else {
       scriptParams.push(param);
     }
@@ -405,7 +435,7 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
       current = current.func;
     }
   }
-  
+
   // Save body before param extraction — contains let-bindings with constants
   const bodyBeforeParams = current;
   
@@ -489,7 +519,14 @@ function detectSimplePattern(ast: UplcTerm): ValidatorInfo {
     return term;
   }
 
-  const finalBody = collectParamsAndBody(current);
+  let finalBody = collectParamsAndBody(current);
+
+  // Re-wrap internal bindings (Z-combinators, helpers) back into the body so they
+  // become let-bindings in the generated code that the codegen can hoist
+  for (let i = internalBindings.length - 1; i >= 0; i--) {
+    const { param, arg } = internalBindings[i];
+    finalBody = { tag: 'app', func: { tag: 'lam', param, body: finalBody }, arg } as UplcTerm;
+  }
   
   // Combine script params + validator params for full signature
   const allParams = [...scriptParams, ...validatorParams];

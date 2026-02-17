@@ -349,7 +349,20 @@ function convertTerm(term: UPLCTerm, ctx: ConversionContext): UplcTerm {
   
   // Builtin
   if (isBuiltin(term)) {
-    const name = builtinTagToString(term.tag) ?? `builtin_${term.tag}`;
+    let name = builtinTagToString(term.tag) ?? `builtin_${term.tag}`;
+    // Fix harmoniclabs tag rotation: they put hashToGroup before compress/uncompress,
+    // but the Plutus spec (IntersectMBO/plutus) has compress, uncompress, hashToGroup.
+    // Harmoniclabs: 58=hashToGroup, 59=compress, 60=uncompress (G1), 65-67 same for G2
+    // Plutus spec:  58=compress, 59=uncompress, 60=hashToGroup (G1), 65-67 same for G2
+    const blsFixMap: Record<string, string> = {
+      'bls12_381_G1_hashToGroup': 'bls12_381_G1_compress',
+      'bls12_381_G1_compress': 'bls12_381_G1_uncompress',
+      'bls12_381_G1_uncompress': 'bls12_381_G1_hashToGroup',
+      'bls12_381_G2_hashToGroup': 'bls12_381_G2_compress',
+      'bls12_381_G2_compress': 'bls12_381_G2_uncompress',
+      'bls12_381_G2_uncompress': 'bls12_381_G2_hashToGroup',
+    };
+    if (blsFixMap[name]) name = blsFixMap[name];
     return { tag: 'builtin', name };
   }
   

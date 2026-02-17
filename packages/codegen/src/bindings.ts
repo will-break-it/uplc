@@ -417,10 +417,37 @@ export class BindingEnvironment {
       };
     }
 
-    // Z-combinator: fn(f) { f(f) } — self-application for recursion
+    // Z-combinator: fn(f) { f(f) } — simple self-application for recursion
     if (body.tag === 'app' &&
         body.func.tag === 'var' && body.func.name === param &&
         body.arg.tag === 'var' && body.arg.name === param) {
+      return {
+        name,
+        value: term,
+        category: 'rename',
+        semanticName: 'z_combinator',
+        pattern: 'z_combinator'
+      };
+    }
+
+    // Full Z-combinator: fn(f) { (fn(x) { f(fn(y) { x(x,y) }) })(fn(x) { f(fn(y) { x(x,y) }) }) }
+    // Body is app(lam(x, ...), lam(y, ...)) where both inner lambdas contain self-application
+    if (body.tag === 'app' && body.func.tag === 'lam' && body.arg.tag === 'lam') {
+      if (containsSelfApplication(body.func.body, body.func.param) &&
+          containsSelfApplication(body.arg.body, body.arg.param)) {
+        return {
+          name,
+          value: term,
+          category: 'rename',
+          semanticName: 'z_combinator',
+          pattern: 'z_combinator'
+        };
+      }
+    }
+
+    // Complex Z-combinator pattern: fn(g) { let h = fn(i) { ... }; g(fn(i) { h(h, i) }) }
+    // This matches patterns where there are nested self-applications in let-bindings
+    if (containsNestedSelfApplication(body)) {
       return {
         name,
         value: term,
@@ -803,6 +830,97 @@ function bytesToHex(bytes: Uint8Array | number[]): string {
   return Array.from(arr as number[])
     .map((b: number) => b.toString(16).padStart(2, '0'))
     .join('');
+}
+
+/**
+ * Check if a term contains self-application of the given param: param(param, ...)
+ */
+/**
+ * Check for nested self-application patterns that form Z-combinators.
+ * These occur when there are let-bindings with functions that self-apply.
+ * Pattern: fn(g) { let h = fn(i) { ... }; g(fn(i) { h(h, i) }) }
+ */
+function containsNestedSelfApplication(term: UplcTerm): boolean {
+  // Check if this is a let-binding pattern: ((lam x body) value)
+  if (term.tag === 'app' && term.func.tag === 'lam') {
+    const letBinding = term.func;
+    const letValue = term.arg;
+    
+    // Recursively check the let body for self-applications
+    if (hasAnySelfApplication(letBinding.body)) {
+      return true;
+    }
+    
+    // Check if the let value itself contains self-applications
+    if (hasAnySelfApplication(letValue)) {
+      return true;
+    }
+  }
+  
+  // Check for direct self-application in the current term
+  if (hasAnySelfApplication(term)) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if a term contains any self-application pattern anywhere in it.
+ * This catches patterns like h(h, ...) where h is any variable.
+ */
+function hasAnySelfApplication(term: UplcTerm): boolean {
+  if (term.tag === 'app') {
+    const parts = flattenApp(term);
+    // Look for pattern: var(var, ...)
+    if (parts.length >= 2 && 
+        parts[0].tag === 'var' && 
+        parts[1].tag === 'var' && 
+        parts[0].name === parts[1].name) {
+      return true;
+    }
+    // Recursively check subterms
+    return hasAnySelfApplication(term.func) || hasAnySelfApplication(term.arg);
+  }
+  if (term.tag === 'lam') {
+    return hasAnySelfApplication(term.body);
+  }
+  if (term.tag === 'force' || term.tag === 'delay') {
+    return hasAnySelfApplication(term.term);
+  }
+  if (term.tag === 'case') {
+    if (term.scrutinee && hasAnySelfApplication(term.scrutinee)) return true;
+    return (term.branches || []).some((b: UplcTerm) => hasAnySelfApplication(b));
+  }
+  if (term.tag === 'constr') {
+    return (term.args || []).some((a: UplcTerm) => hasAnySelfApplication(a));
+  }
+  return false;
+}
+
+function containsSelfApplication(term: UplcTerm, paramName: string): boolean {
+  if (term.tag === 'app') {
+    const parts = flattenApp(term);
+    if (parts[0].tag === 'var' && parts[0].name === paramName &&
+        parts.length >= 2 && parts[1].tag === 'var' && parts[1].name === paramName) {
+      return true;
+    }
+    return containsSelfApplication(term.func, paramName) || containsSelfApplication(term.arg, paramName);
+  }
+  if (term.tag === 'lam') {
+    // Don't recurse if inner lambda shadows the param
+    if (term.param === paramName) return false;
+    return containsSelfApplication(term.body, paramName);
+  }
+  if (term.tag === 'force' || term.tag === 'delay') return containsSelfApplication(term.term, paramName);
+  if (term.tag === 'case') {
+    if (term.scrutinee && containsSelfApplication(term.scrutinee, paramName)) return true;
+    return (term.branches || []).some((b: UplcTerm) => containsSelfApplication(b, paramName));
+  }
+  if (term.tag === 'constr') {
+    return (term.args || []).some((a: UplcTerm) => containsSelfApplication(a, paramName));
+  }
+  return false;
 }
 
 function isConstTrue(term: UplcTerm): boolean {
