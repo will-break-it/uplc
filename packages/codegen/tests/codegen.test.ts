@@ -148,7 +148,7 @@ describe('@uplc/codegen', () => {
       const code = generate(structure);
       
       expect(code).toContain('g1_equal');
-      expect(code).toContain('aiken/crypto/bls12_381');
+      expect(code).toContain('aiken/builtin');
     });
   });
 
@@ -190,8 +190,8 @@ describe('@uplc/codegen', () => {
       const { code, constants } = extractConstants(input);
       
       expect(constants.length).toBe(1);
-      expect(constants[0]).toContain('SCRIPT_HASH_0');
-      expect(code).toContain('SCRIPT_HASH_0');
+      expect(constants[0]).toContain('script_hash_0');
+      expect(code).toContain('script_hash_0');
       expect(code).not.toContain('#"a1b2c3');
     });
 
@@ -201,7 +201,7 @@ describe('@uplc/codegen', () => {
       const { code, constants } = extractConstants(input);
       
       expect(constants.length).toBe(1);
-      expect(code.match(/POLICY_ID_0/g)?.length).toBe(2);
+      expect(code.match(/policy_id_0/g)?.length).toBe(2);
     });
 
     it('ignores short hex strings', () => {
@@ -342,7 +342,7 @@ describe('@uplc/codegen', () => {
       const code = generate(structure);
       
       // Should show function call syntax for partial app
-      expect(code).toContain('equalsByteString');
+      expect(code).toContain('equals_bytearray');
       expect(code).toContain('deadbeef');
       expect(code).not.toContain('{1}');
     });
