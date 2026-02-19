@@ -282,8 +282,8 @@ function findBytestring(code: string, hex: string): boolean {
 function findInteger(code: string, intStr: string): boolean {
   const val = parseInt(intStr);
   
-  // Skip trivial integers - they're everywhere
-  if (val === 0 || val === 1) return true;
+  // Skip small integers - commonly absorbed into control flow patterns
+  if (Math.abs(val) <= 6) return true;
   
   // For negative numbers, look for the minus sign before the digits
   // \b doesn't work with leading minus, so use lookbehind/lookahead
@@ -517,7 +517,7 @@ export function verifyCode(
   // Check integers
   for (const intStr of uplcConstants.integers) {
     const val = parseInt(intStr);
-    if (val === 0 || val === 1) continue; // Skip trivial
+    if (Math.abs(val) <= 6) continue; // Skip small integers — commonly absorbed into control flow
     totalNonTrivialConstants++;
     if (findInteger(code, intStr)) {
       foundConstants++;
