@@ -32,3 +32,8 @@ scripts/
 # Test artifacts
 test/.aiken-tmp/
 test/reports/
+.aiken-tmp/
+*.ak
+!packages/**/*.ak
+!src/**/*.ak
+!test/**/*.ak
